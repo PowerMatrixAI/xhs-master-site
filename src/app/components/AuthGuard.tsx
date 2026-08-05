@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { autoLogin, isLoggedIn, getUser, type LoginResponse } from "@/lib/api";
+import { autoLogin, isLoggedIn, getUser, requireManualLogin, type LoginResponse } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -11,13 +10,12 @@ import { Loader2 } from "lucide-react";
  * 有 token 时尝试自动登录刷新
  */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const [user, setUser] = useState<LoginResponse | null>(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     if (!isLoggedIn()) {
-      router.replace("/login");
+      requireManualLogin();
       return;
     }
     // 已有 token，尝试自动登录验证
@@ -27,10 +25,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         setChecking(false);
       })
       .catch(() => {
-        // token 过期或无效，跳转登录
-        router.replace("/login");
+        // 自动登录三次失败，或 token 已失效：停止当前操作并要求手动登录。
+        requireManualLogin();
       });
-  }, [router]);
+  }, []);
 
   if (checking) {
     return (

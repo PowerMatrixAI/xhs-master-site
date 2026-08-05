@@ -48,6 +48,7 @@ import {
   saveBackendWeeklyPlan,
   setBackendExpertRulesEnabled,
   updateBackendAccount,
+  authenticatedFetch,
   buildProxyHeaders,
   type BackendAccountDetail,
   type BackendAsset,
@@ -1702,7 +1703,7 @@ export function XhsMasterApp() {
   async function waitForAsyncRouteResult<T>(url: string, uuid: string) {
     for (let attempt = 0; attempt < ASYNC_ROUTE_MAX_POLL_ATTEMPTS; attempt += 1) {
       await waitForNextAsyncRoutePoll(ASYNC_ROUTE_POLL_INTERVAL_MS);
-      const res = await fetch(`${url}?uuid=${encodeURIComponent(uuid)}`, {
+      const res = await authenticatedFetch(`${url}?uuid=${encodeURIComponent(uuid)}`, {
         method: "GET",
         headers: { "content-type": "application/json" },
         cache: "no-store"
@@ -1845,7 +1846,7 @@ export function XhsMasterApp() {
         if (coverReady) uploadForm.set("coverReady", "true");
         for (const file of files) uploadForm.append("files", file);
 
-        const uploadRes = await fetch("/api/assets/upload", {
+        const uploadRes = await authenticatedFetch("/api/assets/upload", {
           method: "POST",
           headers: buildProxyHeaders(),
           body: uploadForm
@@ -1891,7 +1892,7 @@ export function XhsMasterApp() {
 
   async function generateManifest() {
     if (!selected) return;
-    const res = await fetch("/api/assets/manifest", {
+    const res = await authenticatedFetch("/api/assets/manifest", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ account: selected, assets: selected.assets })
@@ -2035,7 +2036,7 @@ export function XhsMasterApp() {
     if (!selected) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/reference-research`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/reference-research`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "prepare", account: selected })
@@ -2059,7 +2060,7 @@ export function XhsMasterApp() {
     setLoading(true);
     setLoadingAction("saveReferenceResearch");
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/reference-research`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/reference-research`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2111,7 +2112,7 @@ export function XhsMasterApp() {
     if (!selected) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/image-style-study`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/image-style-study`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "prepare", account: selected })
@@ -2134,7 +2135,7 @@ export function XhsMasterApp() {
     const payload = Object.fromEntries(form.entries());
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/image-style-study`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/image-style-study`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2171,7 +2172,7 @@ export function XhsMasterApp() {
     setLoading(true);
     setLoadingAction("prepareInteractionPlan");
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/interaction-plan`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/interaction-plan`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2211,7 +2212,7 @@ export function XhsMasterApp() {
     const payload = Object.fromEntries(form.entries());
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/interaction-plan`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/interaction-plan`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2263,7 +2264,7 @@ export function XhsMasterApp() {
       } catch {
         // 账号详情刷新失败时，继续使用当前客户端状态生成任务。
       }
-      const res = await fetch(`/api/note-tasks/${task.id}/prompt`, {
+      const res = await authenticatedFetch(`/api/note-tasks/${task.id}/prompt`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ account: accountForPrompt, noteTask: task, weeklyPlan: latestPlan })
@@ -2305,7 +2306,7 @@ export function XhsMasterApp() {
     if (manageLoading) setLoading(true);
     setLoadingAction(controls.loadingAction || "generateImagePrompt");
     try {
-      const res = await fetch(`/api/note-tasks/${task.id}/image-prompt`, {
+      const res = await authenticatedFetch(`/api/note-tasks/${task.id}/image-prompt`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...(options || {}), account: selected, noteTask: task })
@@ -2362,7 +2363,7 @@ export function XhsMasterApp() {
     setLoading(true);
     setLoadingAction("generateVideoPrompt");
     try {
-      const res = await fetch(`/api/note-tasks/${task.id}/video-prompt`, {
+      const res = await authenticatedFetch(`/api/note-tasks/${task.id}/video-prompt`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ account: selected, noteTask: task, mode, assets })
@@ -2409,7 +2410,7 @@ export function XhsMasterApp() {
       form.set("accountId", String(selected.id));
       form.set("sourceType", "真实素材");
       form.append("files", file);
-      const res = await fetch("/api/assets/upload", {
+      const res = await authenticatedFetch("/api/assets/upload", {
         method: "POST",
         headers: {
           "Xhs-Sign": token,
@@ -2505,7 +2506,7 @@ export function XhsMasterApp() {
     setLoading(true);
     setLoadingAction("generateBatchImagePosts");
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/batch-image-posts`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/batch-image-posts`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2591,7 +2592,7 @@ export function XhsMasterApp() {
         throw new Error("请至少填写实际发布内容、表现数据、用户反馈、专家点评、修改对比或主观观察中的一项。");
       }
       const noteTaskId = Number(form.get("noteTaskId") || selectedNote?.id || 0) || undefined;
-      const res = await fetch(`/api/accounts/${selected.id}/post-reviews`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/post-reviews`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2675,7 +2676,7 @@ export function XhsMasterApp() {
     setLoading(true);
     setLoadingAction("prepareIndustryLearning");
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/industry-learning`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/industry-learning`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2710,7 +2711,7 @@ export function XhsMasterApp() {
     const form = new FormData(event.currentTarget);
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounts/${selected.id}/industry-learning`, {
+      const res = await authenticatedFetch(`/api/accounts/${selected.id}/industry-learning`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2742,7 +2743,7 @@ export function XhsMasterApp() {
   }
 
   async function loadHealth() {
-    const res = await fetch("/api/system-health", { cache: "no-store" });
+    const res = await authenticatedFetch("/api/system-health", { cache: "no-store" });
     setHealth(await readJsonResponse(res, { status: "error", checks: [], summary: "系统状态接口返回异常。" }));
   }
 
@@ -4207,7 +4208,7 @@ function ImagesPanel(props: {
     uploadForm.set("suitableTypes", options?.suitableTypes || "");
     for (const file of files) uploadForm.append("files", file);
 
-    const uploadRes = await fetch("/api/assets/upload", {
+    const uploadRes = await authenticatedFetch("/api/assets/upload", {
       method: "POST",
       headers: buildProxyHeaders(),
       body: uploadForm

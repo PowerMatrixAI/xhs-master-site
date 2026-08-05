@@ -1,4 +1,5 @@
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
+import { authenticatedFetch } from "@/lib/api";
 
 type BackendAiResult =
   | { ok: true; text: string; model: string }
@@ -59,7 +60,7 @@ async function waitForBackendAiResult(input: {
     const aborted = abortMessage(input.signal);
     if (aborted) return { ok: false, error: aborted };
 
-    const response = await fetch(resultUrl, {
+    const response = await authenticatedFetch(resultUrl, {
       method: "GET",
       headers: { "xhs-language": "zh-cn" },
       signal: input.signal
@@ -104,7 +105,7 @@ export async function completeWithBackendAi(input: {
   signal?: AbortSignal;
 }): Promise<BackendAiResult> {
   try {
-    const response = await fetch(`${getBackendApiBaseUrl()}/ai/v1/complete`, {
+    const response = await authenticatedFetch(`${getBackendApiBaseUrl()}/ai/v1/complete`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

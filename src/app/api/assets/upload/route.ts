@@ -24,6 +24,13 @@ type BatchSignedUploadUrlResponse = {
   items: SignedUploadUrlResponse[];
 };
 
+class HttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
 function getFileExt(file: File) {
   const ext = path.extname(file.name).replace(/^\./, "").trim().toLowerCase();
   if (ext) return ext;
@@ -50,7 +57,7 @@ async function createSignedUpload(file: File, request: Request) {
   const xhsTest = readRequiredHeader(request, "Xhs-Test") || "1";
 
   if (!xhsSign || !xhsPerson || !xhsTime || !xhsRequestId) {
-    throw new Error("登录信息缺失，请重新登录后再上传素材。");
+    throw new HttpError("登录信息缺失，请重新登录后再上传素材。", 401);
   }
 
   const payload = JSON.stringify({
@@ -75,7 +82,7 @@ async function createSignedUpload(file: File, request: Request) {
 
   const data = (await res.json()) as BackendResponse<SignedUploadUrlResponse>;
   if (!res.ok || !data.status || !data.data?.signedUrl || !data.data?.url) {
-    throw new Error(data.message || "获取上传地址失败。");
+    throw new HttpError(data.message || "获取上传地址失败。", res.status);
   }
 
   return data.data;
@@ -89,7 +96,7 @@ async function createBatchSignedUploads(files: File[], request: Request) {
   const xhsTest = readRequiredHeader(request, "Xhs-Test") || "1";
 
   if (!xhsSign || !xhsPerson || !xhsTime || !xhsRequestId) {
-    throw new Error("登录信息缺失，请重新登录后再上传素材。");
+    throw new HttpError("登录信息缺失，请重新登录后再上传素材。", 401);
   }
 
   const payload = JSON.stringify({
@@ -114,7 +121,7 @@ async function createBatchSignedUploads(files: File[], request: Request) {
 
   const data = (await res.json()) as BackendResponse<BatchSignedUploadUrlResponse>;
   if (!res.ok || !data.status || !Array.isArray(data.data?.items)) {
-    throw new Error(data.message || "获取批量上传地址失败。");
+    throw new HttpError(data.message || "获取批量上传地址失败。", res.status);
   }
   if (data.data.items.length !== files.length) {
     throw new Error("批量上传地址数量和文件数量不一致。");
@@ -152,7 +159,10 @@ export async function POST(request: Request) {
     const assets = [];
     const signedUploads =
       files.length > 1 && mediaTypes.size === 1
-        ? await createBatchSignedUploads(files, request).catch(async () => {
+        ? await createBatchSignedUploads(files, request).catch(async (error) => {
+            if (error instanceof HttpError && error.status === 401) {
+              throw error;
+            }
             const fallbackItems = [];
             for (const file of files) {
               fallbackItems.push(await createSignedUpload(file, request));
@@ -185,7 +195,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "上传失败。" },
-      { status: 500 }
+      { status: error instanceof HttpError && error.status >= 400 ? error.status : 500 }
     );
   }
 }

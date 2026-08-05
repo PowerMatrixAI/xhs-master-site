@@ -203,6 +203,20 @@ export interface BackendWeeklyPlan {
 
 const TOKEN_KEY = "xhs_token";
 const USER_KEY = "xhs_user";
+const AUTH_EXPIRED_EVENT = "xhs:auth-expired";
+const AUTO_LOGIN_MAX_ATTEMPTS = 3;
+const AUTO_LOGIN_RETRY_DELAY_MS = 500;
+
+const activeAuthenticatedRequests = new Set<AbortController>();
+let authInvalidated = false;
+let autoLoginPromise: Promise<LoginResponse> | null = null;
+
+export class AuthenticationExpiredError extends Error {
+  constructor(message = "登录已过期，请重新登录") {
+    super(message);
+    this.name = "AuthenticationExpiredError";
+  }
+}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -221,6 +235,7 @@ export function getUser(): LoginResponse | null {
 }
 
 export function setAuth(data: LoginResponse) {
+  authInvalidated = false;
   localStorage.setItem(TOKEN_KEY, data.signature);
   localStorage.setItem(USER_KEY, JSON.stringify(data));
 }
@@ -234,11 +249,80 @@ export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
+/**
+ * 使当前认证立即失效，并终止仍在进行的受保护请求。
+ * 使用 location.replace，确保失效页面不会留在浏览器返回历史中。
+ */
+export function requireManualLogin(message = "登录已过期，请重新登录") {
+  if (typeof window === "undefined") return;
+
+  const error = new AuthenticationExpiredError(message);
+  const shouldNotify = !authInvalidated;
+  authInvalidated = true;
+  clearAuth();
+
+  for (const controller of activeAuthenticatedRequests) {
+    controller.abort(error);
+  }
+  activeAuthenticatedRequests.clear();
+
+  if (shouldNotify) {
+    window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, { detail: { message } }));
+  }
+  if (window.location.pathname !== "/login") {
+    window.location.replace("/login");
+  }
+}
+
+function isUnauthorizedCode(code: unknown) {
+  const normalized = String(code ?? "").trim().toUpperCase();
+  return normalized === "401" || normalized === "UNAUTHORIZED";
+}
+
+/**
+ * 受保护的浏览器请求入口。任一请求收到 401 时，会统一退出登录并取消其余请求。
+ */
+export async function authenticatedFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  if (typeof window === "undefined") {
+    return fetch(input, init);
+  }
+  if (authInvalidated || !getToken()) {
+    requireManualLogin();
+    throw new AuthenticationExpiredError();
+  }
+
+  const controller = new AbortController();
+  const externalSignal = init.signal;
+  const abortFromExternalSignal = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) {
+    abortFromExternalSignal();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternalSignal, { once: true });
+  }
+
+  activeAuthenticatedRequests.add(controller);
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    if (response.status === 401) {
+      requireManualLogin();
+      throw new AuthenticationExpiredError();
+    }
+    return response;
+  } finally {
+    externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+    activeAuthenticatedRequests.delete(controller);
+  }
+}
+
 export function buildProxyHeaders() {
   const token = getToken();
   const user = getUser();
   if (!token || !user) {
-    throw new Error("未登录");
+    requireManualLogin();
+    throw new AuthenticationExpiredError();
   }
 
   return buildProxyAuthHeaders({
@@ -284,7 +368,8 @@ export async function authRequest<T = unknown>(
   const token = getToken();
   const user = getUser();
   if (!token || !user) {
-    throw new Error("未登录");
+    requireManualLogin();
+    throw new AuthenticationExpiredError();
   }
   const headers = buildBackendSignedHeaders({
     url: `${API_BASE_URL}${path}`,
@@ -294,12 +379,17 @@ export async function authRequest<T = unknown>(
     uid: String(user.uid)
   });
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await authenticatedFetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
     body: bodyStr || undefined
   });
-  return res.json() as Promise<ApiResponse<T>>;
+  const res = (await response.json()) as ApiResponse<T>;
+  if (isUnauthorizedCode(res.code)) {
+    requireManualLogin(res.message || "登录已过期，请重新登录");
+    throw new AuthenticationExpiredError(res.message || undefined);
+  }
+  return res;
 }
 
 /* ---------- 业务接口 ---------- */
@@ -331,13 +421,39 @@ export async function register(email: string, name: string, password: string, be
 /**
  * 自动登录 (使用已有 token 刷新)
  */
-export async function autoLogin(): Promise<LoginResponse> {
-  const res = await authRequest<LoginResponse>("/login/v1/autoLogin", { method: "POST" });
-  if (!res.status) {
-    throw new Error(res.message || "登录已过期");
+async function performAutoLogin(): Promise<LoginResponse> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= AUTO_LOGIN_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await authRequest<LoginResponse>("/login/v1/autoLogin", { method: "POST" });
+      if (!res.status) {
+        throw new Error(res.message || "自动登录失败");
+      }
+      setAuth(res.data);
+      return res.data;
+    } catch (error) {
+      if (error instanceof AuthenticationExpiredError) {
+        throw error;
+      }
+      lastError = error;
+      if (attempt < AUTO_LOGIN_MAX_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, AUTO_LOGIN_RETRY_DELAY_MS * attempt));
+      }
+    }
   }
-  setAuth(res.data);
-  return res.data;
+
+  requireManualLogin("自动登录连续失败，请手动登录");
+  throw lastError instanceof Error ? lastError : new Error("自动登录连续失败，请手动登录");
+}
+
+export function autoLogin(): Promise<LoginResponse> {
+  if (!autoLoginPromise) {
+    autoLoginPromise = performAutoLogin().finally(() => {
+      autoLoginPromise = null;
+    });
+  }
+  return autoLoginPromise;
 }
 
 /**
@@ -488,7 +604,7 @@ export async function setBackendExpertRulesEnabled(accountId: number, enabledRul
 }
 
 export async function syncBackendAccounts() {
-  const res = await fetch("/api/accounts/sync", {
+  const res = await authenticatedFetch("/api/accounts/sync", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -516,6 +632,5 @@ export async function syncBackendAccounts() {
  * 登出
  */
 export function logout() {
-  clearAuth();
-  window.location.href = "/login";
+  requireManualLogin("您已退出登录");
 }
