@@ -398,7 +398,7 @@ export async function authRequest<T = unknown>(
  * 登录
  */
 export async function login(email: string, password: string): Promise<LoginResponse> {
-  const res = await publicRequest<LoginResponse>("/login/v1/login", { email, password });
+  const res = await publicRequest<LoginResponse>("/login/v1/login", { email, channel: "xhs", password });
   if (!res.status) {
     throw new Error(res.message || "登录失败");
   }
@@ -410,7 +410,7 @@ export async function login(email: string, password: string): Promise<LoginRespo
  * 注册
  */
 export async function register(email: string, name: string, password: string, betaCode: string): Promise<LoginResponse> {
-  const res = await publicRequest<LoginResponse>("/login/v1/register", { email, name, password, betaCode });
+  const res = await publicRequest<LoginResponse>("/login/v1/register", { email, channel: "xhs", name, password, betaCode });
   if (!res.status) {
     throw new Error(res.message || "注册失败");
   }
