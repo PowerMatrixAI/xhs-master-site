@@ -94,13 +94,13 @@ export async function buildImageToVideoTask(input: {
   expertRules?: string;
 }) {
   const response = await completeWithBackendAi({
-    instructions: "你是小红书竖屏短视频分镜策划师。根据任务信息和用户已经排序的图片文字元数据，为每张图片生成保守的图片精修提示词和首帧生视频动态提示词。不得声称看过图片，不得虚构素材中没有的事实。只返回 JSON。",
+    instructions: "你是小红书竖屏短视频分镜策划师。根据任务信息和用户已经排序的图片文字元数据，为每张图片生成有情绪、有画面感的图片精修提示词和首帧生视频动态提示词。不得声称看过图片；允许为氛围、情绪和叙事补充创作性画面。只返回 JSON。",
     input: `为以下任务生成逐图视频方案。图片顺序已经由用户确定，不得增删、替换或重新排序。
 
 要求：
 - shots 与 assets 一一对应，assetUrl 原样返回。
-- editPrompt 用于 edit-image：保留真实主体和结构，统一为适合 9:16 视频首帧的构图、光线和色调，不添加未经核验的文字或事实。
-- videoPrompt 用于 generate-video：描述 5 秒内克制、自然、连续的镜头运动和主体微动；不得改变真实空间、产品、人物身份、地貌或关键事实。
+- editPrompt 用于 edit-image：统一为适合 9:16 视频首帧的构图、光线、色调和情绪，可适度延展背景、氛围和生活场景。
+- videoPrompt 用于 generate-video：描述 5 秒内自然、有感染力的镜头运动、主体微动和情绪变化，可进行创作性场景延展。
 - 相邻镜头节奏和色调连贯，最终可按输入顺序拼接。
 
 上下文：

@@ -58,7 +58,7 @@ import {
 import { generateStrategyWithBrowserLlm, generateWeeklyTasksWithBrowserLlm } from "@/lib/browserStrategyLlm";
 import { loadBrowserWorkspace, saveBrowserWorkspace } from "@/lib/browserWorkspace";
 import { accountTypeTemplates } from "@/data/accountTypeTemplates";
-import { clampWeeklyFrequency, normalizeWeeklyRatio, normalizeWeeklyTaskMedia } from "@/lib/weeklyPlan";
+import { clampWeeklyFrequency, normalizeWeeklyTaskMedia } from "@/lib/weeklyPlan";
 import { collectRecentWeeklyTopicGroups } from "@/lib/weeklyTopicHistory";
 import { isExpertRuleEnabled } from "@/lib/expertLearning";
 import type React from "react";
@@ -229,6 +229,8 @@ type NoteTask = {
   targetUser: string;
   painPoint: string;
   coreView: string;
+  writingStyleName: string;
+  writingStyleReference: string;
   requiredMaterials: string;
   recommendedAssets: string;
   coverCopyDirection: string;
@@ -340,34 +342,6 @@ function accountUiMode(accountType?: string) {
   if (accountType === "wedding_planning") return "service";
   if (accountType === "local_life_service") return "service";
   return "culture_tourism";
-}
-
-function defaultPersonaBase(form: ReturnType<typeof emptyAccountForm>) {
-  const name = form.name.trim() || "该账号";
-  const city = form.city.trim();
-  const localAudience = city ? `${city}及周边` : "";
-
-  switch (accountUiMode(form.accountType)) {
-    case "outdoor":
-      return `${name}面向${localAudience || "本地及周边"}徒步和骑行用户分享路线判断、真实路况和出发准备，语气自然、谨慎、具体。`;
-    case "food":
-      return `${name}面向${city ? `${city}本地及到访` : "本地及到访"}用餐用户分享真实菜品、用餐场景和到店信息，语气自然、具体、不夸张。`;
-    case "heritage":
-      return `${name}面向关注传统文化和在地体验的用户分享真实工艺、活动体验和参与方式，语气尊重、自然、具体。`;
-    case "stay":
-      return `${name}面向计划前往${city || "当地"}住宿的用户分享真实房型、入住体验和周边玩法，语气自然、谨慎、具体。`;
-    case "museum":
-      return `${name}面向观展和亲子研学用户分享展览看点、参观动线和预约信息，语气清楚、自然、具体。`;
-    case "product":
-      return `${name}面向关注地域产品和文创的用户分享真实产品、产地工艺和购买建议，语气自然、具体、有边界。`;
-    case "service":
-      if (form.accountType === "wedding_planning") {
-        return `${name}面向备婚用户分享真实婚礼案例、布置细节和落地建议，语气自然、审美具体、不夸张。`;
-      }
-      return `${name}面向${city ? `${city}本地` : "本地"}有明确服务需求的用户分享真实服务项目、服务流程和预约边界，语气自然、具体、可信。`;
-    default:
-      return `${name}面向${localAudience || "本地及周边"}出行用户分享真实目的地体验、游览动线和出发信息，语气自然、具体、有边界。`;
-  }
 }
 
 function isHikingUiType(accountType?: string) {
@@ -948,40 +922,21 @@ type WeeklyPreset = {
   help: string;
   theme: string;
   goal: string;
-  frequency: number;
-  ratio: string;
-  testHypothesis: string;
-  commercializationMove: string;
-  interactionGoal: string;
-  availableAssets: string;
 };
 
 function uniqueJoin(values: string[], separator = "；") {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).join(separator);
 }
 
-function combineRatio(values: string[]) {
-  return values
-    .flatMap((value) => value.split("/").map((item) => item.trim()).filter(Boolean))
-    .join(" / ");
-}
-
 function combineWeeklyPresets(presets: WeeklyPreset[]): WeeklyPreset {
   const active = presets.length ? presets : [weeklyPresets("restaurant")[0]];
   if (active.length === 1) return active[0];
   const names = active.map((preset) => preset.name);
-  const maxFrequency = Math.max(...active.map((preset) => Number(preset.frequency || 3)));
   return {
     name: names.join(" + "),
     help: uniqueJoin(active.map((preset) => preset.help)),
     theme: `${names.join(" + ")}综合周`,
-    goal: uniqueJoin(active.map((preset) => preset.goal)),
-    frequency: Math.min(7, maxFrequency + Math.min(active.length - 1, 2)),
-    ratio: combineRatio(active.map((preset) => preset.ratio)),
-    testHypothesis: uniqueJoin(active.map((preset) => preset.testHypothesis), "\n"),
-    commercializationMove: uniqueJoin(active.map((preset) => preset.commercializationMove), "\n"),
-    interactionGoal: uniqueJoin(active.map((preset) => preset.interactionGoal), "\n"),
-    availableAssets: uniqueJoin(active.map((preset) => preset.availableAssets), "\n")
+    goal: uniqueJoin(active.map((preset) => preset.goal))
   };
 }
 
@@ -1012,8 +967,7 @@ function accountTypeDefaults(accountType: string, template?: Template) {
     contentDirections: columns || "真实案例、服务流程、价格问答、用户顾虑、素材展示",
     businessGoals: "提升收藏、增加咨询、建立信任、促进预约或到店转化",
     monetization: "咨询转化、预约服务、套餐成交、私域跟进",
-    materialCondition: "门店/现场图、服务过程图、案例图、产品图、环境图、价格或活动信息图",
-    taboos: "不能伪造真实案例、顾客评价、价格、优惠、资质、档期、素材授权或服务效果"
+    materialCondition: "门店/现场图、服务过程图、案例图、产品图、环境图、价格或活动信息图"
   };
 
   if (accountType === "restaurant") {
@@ -1023,8 +977,7 @@ function accountTypeDefaults(accountType: string, template?: Template) {
       contentDirections: "招牌菜种草、套餐场景、门店环境、菜单上新、在地风味、停车交通、顾客问答",
       businessGoals: "增加到店咨询、提升团购/套餐转化、推广主推菜、提升收藏和评论",
       monetization: "团购转化、预约到店、套餐售卖、节日活动、私域会员",
-      materialCondition: "菜品图、菜单/价格表、包间/大厅图、门头图、停车场入口图、活动海报",
-      taboos: "不能伪造探店、排队火爆、顾客评价、价格优惠、食材等级、营业时间或停车便利性"
+      materialCondition: "菜品图、菜单/价格表、包间/大厅图、门头图、停车场入口图、活动海报"
     };
   }
 
@@ -1035,8 +988,7 @@ function accountTypeDefaults(accountType: string, template?: Template) {
       contentDirections: "真实案例、服务流程、风格细节、预算避坑、门店空间、预约问答、客户顾虑",
       businessGoals: "增加咨询、提升预约、展示案例、建立信任、促进到店沟通",
       monetization: "服务咨询、套餐预约、到店沟通、定制方案、私域跟进",
-      materialCondition: "真实案例图、服务过程图、场地/门店环境图、客户授权图、价格套餐图、短视频素材",
-      taboos: "不能伪造真实客户案例，不能使用未授权肖像，不能夸大服务效果，不能虚构价格、档期和资质"
+      materialCondition: "真实案例图、服务过程图、场地/门店环境图、客户授权图、价格套餐图、短视频素材"
     };
   }
 
@@ -1047,8 +999,7 @@ function accountTypeDefaults(accountType: string, template?: Template) {
       contentDirections: "真实婚礼案例、婚礼服务流程、风格细节拆解、预算避坑、场地/门店空间、预约问答、客户顾虑",
       businessGoals: "增加咨询、提升预约、展示真实婚礼案例、建立信任、促进到店沟通、沉淀私域跟进",
       monetization: "婚礼服务咨询、套餐预约、到店沟通、定制方案、私域跟进",
-      materialCondition: "真实婚礼案例图、婚礼服务过程图、场地/门店环境图、客户授权图、价格套餐图、短视频素材、资质/证书图",
-      taboos: "不能伪造真实客户案例，不能使用未授权肖像，不能夸大服务效果，不能虚构价格、档期、场地、套餐、资质或顾客评价"
+      materialCondition: "真实婚礼案例图、婚礼服务过程图、场地/门店环境图、客户授权图、价格套餐图、短视频素材、资质/证书图"
     };
   }
 
@@ -1059,8 +1010,7 @@ function accountTypeDefaults(accountType: string, template?: Template) {
       contentDirections: "目的地动线、核心看点、活动现场、拍照机位、交通票务、避坑问答",
       businessGoals: "提升收藏、增加咨询、促进票务/活动/路线转化",
       monetization: "票务、活动报名、线路产品、研学团建、本地商户转化",
-      materialCondition: "现场图、导览图、票务截图、活动海报、交通图、服务信息图",
-      taboos: "不能伪造开放状态、活动现场、人流热度、票价、交通和游客肖像授权"
+      materialCondition: "现场图、导览图、票务截图、活动海报、交通图、服务信息图"
     };
   }
 
@@ -1071,8 +1021,7 @@ function accountTypeDefaults(accountType: string, template?: Template) {
       contentDirections: "路线日记、路线攻略、风景图集、装备复盘、交通补给、安全提醒",
       businessGoals: "提升收藏、增加路线咨询、沉淀关注和路线资料需求",
       monetization: "路线资料包、社群活动、装备合作、旅行咨询",
-      materialCondition: "路线图、轨迹截图、真实现场图、关键路况图、装备图、交通补给截图",
-      taboos: "不能伪造亲历、登顶、轨迹数据、天气、开放状态、危险路况或他人评价"
+      materialCondition: "路线图、轨迹截图、真实现场图、关键路况图、装备图、交通补给截图"
     };
   }
 
@@ -1084,7 +1033,7 @@ function accountChoiceOptions(accountType: string) {
     targetUsers: ["正在比较选择的用户", "希望先看真实案例的用户", "关注价格边界的用户", "本地到店咨询用户", "新客户"],
     businessGoals: ["提升收藏", "增加咨询", "建立信任", "促进预约", "促进到店转化", "沉淀私域"],
     materialCondition: ["门店/现场图", "服务过程图", "真实案例图", "产品图", "环境图", "价格或活动信息图"],
-    taboos: ["不伪造真实案例", "不伪造顾客评价", "不虚构价格/优惠", "不夸大服务效果", "不使用未授权素材"]
+    taboos: ["不虚报价格/优惠", "不虚构资质", "不夸大服务效果", "不使用未授权素材"]
   };
 
   if (accountType === "restaurant") {
@@ -1092,7 +1041,7 @@ function accountChoiceOptions(accountType: string) {
       targetUsers: ["本地到店用户", "游客", "家庭聚餐用户", "朋友聚会用户", "团建/宴请用户", "想找特色餐厅的用户"],
       businessGoals: ["增加到店咨询", "提升团购转化", "推广主推菜", "推广套餐", "提升收藏", "增加评论互动"],
       materialCondition: ["菜品图", "菜单/价格表", "包间图", "大厅图", "门头图", "停车场入口图", "活动海报"],
-      taboos: ["不伪造探店", "不伪造排队火爆", "不伪造顾客评价", "不虚构价格优惠", "不夸大食材等级", "不乱写营业时间/停车"]
+      taboos: ["不虚报价格和优惠", "不乱写营业时间和停车信息", "不夸大食材等级"]
     };
   }
 
@@ -1101,7 +1050,7 @@ function accountChoiceOptions(accountType: string) {
       targetUsers: ["准备结婚的新人", "正在比较服务的客户", "重视审美风格的用户", "需要预算透明的用户", "本地到店咨询用户", "老客转介绍用户"],
       businessGoals: ["增加咨询", "提升预约", "展示真实案例", "建立信任", "推广套餐/活动", "促进到店沟通"],
       materialCondition: ["真实案例图", "服务过程图", "门店/场地环境图", "客户授权图", "价格套餐图", "短视频素材", "资质/证书图"],
-      taboos: ["不伪造客户案例", "不使用未授权肖像", "不虚构价格/档期", "不夸大服务效果", "不伪造顾客评价", "不泄露客户隐私"]
+      taboos: ["不虚报价格和档期", "不虚构资质", "不夸大服务效果", "不泄露客户隐私"]
     };
   }
 
@@ -1110,7 +1059,7 @@ function accountChoiceOptions(accountType: string) {
       targetUsers: ["准备结婚的新人", "正在比较婚礼服务的客户", "重视审美风格的用户", "需要预算透明的用户", "本地到店咨询用户", "老客转介绍用户"],
       businessGoals: ["增加咨询", "提升预约", "展示真实婚礼案例", "建立信任", "促进到店沟通", "沉淀私域跟进"],
       materialCondition: ["真实婚礼案例图", "婚礼服务过程图", "场地/门店环境图", "客户授权图", "价格套餐图", "短视频素材", "资质/证书图"],
-      taboos: ["不伪造真实婚礼案例", "不使用未授权肖像", "不虚构价格/档期", "不夸大落地效果", "不伪造顾客评价", "不泄露客户隐私"]
+      taboos: ["不虚报价格和档期", "不虚构场地/套餐/资质", "不夸大落地效果", "不泄露客户隐私"]
     };
   }
 
@@ -1119,7 +1068,7 @@ function accountChoiceOptions(accountType: string) {
       targetUsers: ["周末游客", "亲子家庭", "研学机构", "城市微度假用户", "外地旅行用户", "拍照打卡用户"],
       businessGoals: ["提升收藏", "增加咨询", "促进票务转化", "促进活动报名", "推广路线", "提升目的地认知"],
       materialCondition: ["现场图", "导览图", "票务截图", "活动海报", "交通图", "服务信息图", "游客授权图"],
-      taboos: ["不伪造开放状态", "不虚构活动现场", "不夸大人流热度", "不乱写票价/时间", "不使用未授权游客肖像"]
+      taboos: ["不乱写开放状态", "不虚报票价和活动时间", "不虚构交通和路线信息", "不使用未授权游客肖像"]
     };
   }
 
@@ -1128,7 +1077,7 @@ function accountChoiceOptions(accountType: string) {
       targetUsers: ["新手户外用户", "进阶徒步用户", "周末出行用户", "想找靠谱路线的用户", "亲子户外用户", "装备党"],
       businessGoals: ["提升收藏", "增加路线咨询", "沉淀关注", "推广路线资料", "建立专业信任", "促进社群活动"],
       materialCondition: ["路线图", "轨迹截图", "真实现场图", "关键路况图", "装备图", "交通补给截图", "天气/开放状态截图"],
-      taboos: ["不伪造亲历", "不伪造登顶", "不伪造轨迹数据", "不淡化安全风险", "不乱写天气/开放状态", "不改变真实路况"]
+      taboos: ["不虚报路线数据", "不乱写天气和开放状态", "不淡化安全风险", "不改变真实路况"]
     };
   }
 
@@ -1156,54 +1105,18 @@ function isGeneratedAccountParam(value: string) {
   return /^[a-z][a-z0-9-]*-\d{2}$/.test(value.trim());
 }
 
-function replacePreviousDefault(current: string, previousValue: string, nextValue: string) {
-  const trimmed = current.trim();
-  return !trimmed || trimmed === previousValue ? nextValue : current;
-}
-
-function cleanChoiceCarryover(current: string, previousOptions: string[], nextDefault: string) {
-  const previousOptionSet = new Set(previousOptions);
-  const tokens = splitChoiceText(current).filter((item) => !previousOptionSet.has(item));
-  return tokens.length ? tokens.join("、") : nextDefault;
-}
-
 function switchAccountTypeForm(form: ReturnType<typeof emptyAccountForm>, templates: Template[], nextType: string) {
-  const previousTemplate = templates.find((item) => item.typeKey === form.accountType);
-  const nextTemplate = templates.find((item) => item.typeKey === nextType);
-  const previousDefaults = accountTypeDefaults(form.accountType, previousTemplate);
-  const nextDefaults = accountTypeDefaults(nextType, nextTemplate);
-  const previousChoices = accountChoiceOptions(form.accountType);
-
   return {
     ...form,
     accountType: nextType,
-    accountParam: !form.accountParam.trim() || isGeneratedAccountParam(form.accountParam) ? "" : form.accountParam,
-    targetUsers: cleanChoiceCarryover(form.targetUsers, previousChoices.targetUsers, nextDefaults.targetUsers),
-    businessGoals: cleanChoiceCarryover(form.businessGoals, previousChoices.businessGoals, nextDefaults.businessGoals),
-    materialCondition: cleanChoiceCarryover(form.materialCondition, previousChoices.materialCondition, nextDefaults.materialCondition),
-    taboos: cleanChoiceCarryover(form.taboos, previousChoices.taboos, nextDefaults.taboos),
-    painPoints: replacePreviousDefault(form.painPoints, previousDefaults.painPoints, nextDefaults.painPoints),
-    contentDirections: replacePreviousDefault(form.contentDirections, previousDefaults.contentDirections, nextDefaults.contentDirections),
-    monetization: replacePreviousDefault(form.monetization, previousDefaults.monetization, nextDefaults.monetization)
+    accountParam: !form.accountParam.trim() || isGeneratedAccountParam(form.accountParam) ? "" : form.accountParam
   };
 }
 
 function hydrateAccountForm(form: ReturnType<typeof emptyAccountForm>, templates: Template[], count = 0) {
-  const template = templates.find((item) => item.typeKey === form.accountType);
-  const defaults = accountTypeDefaults(form.accountType, template);
-  const personaBase = form.personaBase.trim() || defaultPersonaBase(form);
-
   return {
     ...form,
-    accountParam: form.accountParam.trim() || autoAccountParam(form.name, form.accountType, count),
-    personaBase,
-    targetUsers: form.targetUsers.trim() || defaults.targetUsers,
-    painPoints: form.painPoints.trim() || defaults.painPoints,
-    contentDirections: form.contentDirections.trim() || defaults.contentDirections,
-    businessGoals: form.businessGoals.trim() || defaults.businessGoals,
-    monetization: form.monetization.trim() || defaults.monetization,
-    materialCondition: form.materialCondition.trim() || defaults.materialCondition,
-    taboos: form.taboos.trim() || defaults.taboos
+    accountParam: form.accountParam.trim() || autoAccountParam(form.name, form.accountType, count)
   };
 }
 
@@ -1306,6 +1219,8 @@ function mapBackendAccountToUiAccount(account: BackendAccountDetail): Account {
       targetUser: task.targetUser || "",
       painPoint: task.painPoint || "",
       coreView: task.coreView || "",
+      writingStyleName: task.writingStyleName || "",
+      writingStyleReference: task.writingStyleReference || "",
       type: task.type === "video_text" ? "video_text" as const : "image_text" as const,
       requiredMaterials: task.requiredMaterials || "",
       recommendedAssets: task.recommendedAssets || "",
@@ -1369,7 +1284,7 @@ ${account.businessGoals || "提升收藏、咨询和转化"}
 ${account.contentDirections || "真实素材、用户痛点、服务信息、风险边界"}
 
 ## 风险边界
-只生成方案，不自动发布；价格、活动、档期、资质、案例授权等信息发布前必须人工核验。`;
+只生成方案，不自动发布；正文允许进行创作性演绎，账号操作和素材路径仍按系统安全模式执行。`;
 }
 
 function toBackendAsset(asset: Asset): BackendAsset {
@@ -1427,6 +1342,8 @@ function toBackendNoteTask(task: NoteTask): BackendNoteTask {
     targetUser: task.targetUser,
     painPoint: task.painPoint,
     coreView: task.coreView,
+    writingStyleName: task.writingStyleName,
+    writingStyleReference: task.writingStyleReference,
     bodyStructure: "",
     requiredMaterials: task.requiredMaterials,
     recommendedAssets: task.recommendedAssets,
@@ -1913,14 +1830,13 @@ export function XhsMasterApp() {
     const payload = Object.fromEntries(form.entries()) as Record<string, FormDataEntryValue>;
     const frequency = clampWeeklyFrequency(payload.frequency);
     const videoCount = Math.max(0, Math.min(Number.parseInt(String(payload.videoCount || "0"), 10) || 0, frequency));
-    const ratio = normalizeWeeklyRatio(String(payload.ratio || ""), frequency);
+    const ratio = "";
     payload.frequency = String(frequency);
     payload.ratio = ratio;
     const weeklyFocus = String(payload.weeklyFocus || "").trim();
     if (weeklyFocus) {
       payload.theme = `${String(payload.theme || "本周主题")}｜本周重点：${weeklyFocus}`;
       payload.goal = `${String(payload.goal || "验证内容方向并积累可复用素材")}；优先围绕本周重点「${weeklyFocus}」安排内容。`;
-      payload.availableAssets = [String(payload.availableAssets || ""), `本周特殊活动/主推内容：${weeklyFocus}`].filter(Boolean).join("\n");
       payload.testHypothesis = `本周验证「${weeklyFocus}」是否能带来更高点击、收藏、评论咨询或到店转化。`;
       payload.commercializationMove = `围绕「${weeklyFocus}」轻量提示预约、到店、活动期限、套餐权益或咨询入口；所有价格、活动和库存必须人工确认。`;
       payload.interactionGoal = `引导用户围绕「${weeklyFocus}」留言人数、预算、时间、偏好、忌口或交通问题。`;
@@ -1940,7 +1856,7 @@ export function XhsMasterApp() {
         testHypothesis: String(payload.testHypothesis || ""),
         commercializationMove: String(payload.commercializationMove || ""),
         interactionGoal: String(payload.interactionGoal || ""),
-        availableAssets: String(payload.availableAssets || ""),
+        availableAssets: "",
         taboos: String(payload.taboos || ""),
         noteTasks: []
       };
@@ -1968,7 +1884,6 @@ export function XhsMasterApp() {
       const llmResult = await generateWeeklyTasksWithBrowserLlm({
         account: selected,
         strategy: selected.strategy || null,
-        assets: selected.assets || [],
         weeklyPlan: { id: plan.id },
         weeklyInput,
         taskCount: frequency
@@ -3360,10 +3275,7 @@ function AccountsPanel(props: {
   const { templates, accountForm, setAccountForm, createAccount, loading } = props;
   const field = (key: keyof typeof accountForm, value: string) => setAccountForm({ ...accountForm, [key]: value });
   const switchAccountType = (accountType: string) => setAccountForm(switchAccountTypeForm(accountForm, templates, accountType));
-  const selectedTemplate = templates.find((template) => template.typeKey === accountForm.accountType);
-  const defaults = accountTypeDefaults(accountForm.accountType, selectedTemplate);
   const choices = accountChoiceOptions(accountForm.accountType);
-  const fillDefaults = () => setAccountForm(hydrateAccountForm(accountForm, templates));
   return (
     <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="panel">
@@ -3371,12 +3283,9 @@ function AccountsPanel(props: {
           <div>
             <h2 className="section-title">快速创建客户账号</h2>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-ink/60">
-              只需要先填客户是谁、做什么、在哪、想吸引谁。空白的细节会按账号类型自动补齐，后面还能再改。
+              先填写客户的真实业务、目标用户、目标和素材情况。没有把握的内容可以留空，由 AI 根据已填写信息生成策划并标记待补充项。
             </p>
           </div>
-          <button type="button" onClick={fillDefaults} className="secondary-button">
-            <Sparkles size={17} /> 自动补全空白项
-          </button>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
@@ -3397,7 +3306,7 @@ function AccountsPanel(props: {
             value={accountForm.personaBase}
             onChange={(v) => field("personaBase", v)}
             placeholder="一句话写清主营业务、核心服务或核心体验。例如：本地婚礼服务品牌，提供婚礼策划、现场布置和真实案例展示。"
-            help="不会写可以先空着，系统会按客户类型自动补一句基础描述。"
+            help="请尽量填写真实业务、服务范围或客户体验；不确定的内容可以留空。"
           />
           <MultiChoiceField
             label="想吸引谁"
@@ -3426,7 +3335,7 @@ function AccountsPanel(props: {
             onChange={(v) => field("taboos", v)}
             options={choices.taboos}
             placeholder="其他禁忌或品牌红线"
-            help="例如不能伪造案例、价格、优惠、顾客评价、肖像授权、真实到店或服务效果。"
+            help="例如希望重点强化的表达风格、场景氛围、产品体验或需要避开的品牌表达。"
           />
         </div>
 
@@ -3450,9 +3359,9 @@ function AccountsPanel(props: {
                 ))}
               </select>
             </label>
-            <Textarea label="用户顾虑" value={accountForm.painPoints} onChange={(v) => field("painPoints", v)} placeholder={defaults.painPoints} />
-            <Textarea label="内容方向" value={accountForm.contentDirections} onChange={(v) => field("contentDirections", v)} placeholder={defaults.contentDirections} />
-            <Textarea label="商业化方式" value={accountForm.monetization} onChange={(v) => field("monetization", v)} placeholder={defaults.monetization} />
+            <Textarea label="用户顾虑" value={accountForm.painPoints} onChange={(v) => field("painPoints", v)} placeholder="填写用户可能担心的问题，例如价格、效果、流程、交通或售后。" />
+            <Textarea label="内容方向" value={accountForm.contentDirections} onChange={(v) => field("contentDirections", v)} placeholder="填写客户希望重点分享的主题；没有确定方向可以留空。" />
+            <Textarea label="商业化方式" value={accountForm.monetization} onChange={(v) => field("monetization", v)} placeholder="填写已有的产品、服务或转化方式；没有确定方案可以留空。" />
             <Textarea label="参考账号" value={accountForm.referenceAccounts} onChange={(v) => field("referenceAccounts", v)} placeholder="账号名 / 主页链接 / 想参考的原因。不确定可以留空。" />
           </div>
         </details>
@@ -3645,8 +3554,23 @@ function ReferenceResearchPanel(props: {
     </div>
   );
 }
+function stripStrategyResearchAndCommandSections(markdown: string) {
+  const lines = markdown.split(/\r?\n/);
+  const kept: string[] = [];
+  let skipping = false;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      skipping = /研究.*命令|命令.*建议|研究建议|给.*(?:OpenClaw|xiaohongshu_auto_op).*执行说明/i.test(heading[1]);
+    }
+    if (!skipping) kept.push(line);
+  }
+  return kept.join("\n").trim();
+}
+
 function StrategyPanel({ selected, copy }: { selected?: Account; copy: (text: string) => void }) {
   if (!selected) return <EmptyState />;
+  const strategyMarkdown = stripStrategyResearchAndCommandSections(selected.strategy?.markdown || "");
   return (
     <div className="panel">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -3655,11 +3579,11 @@ function StrategyPanel({ selected, copy }: { selected?: Account; copy: (text: st
           <p className="text-sm text-ink/60">{selected.strategy?.positioning}</p>
         </div>
         <div className="flex gap-2">
-          <IconButton title="复制策划案" onClick={() => copy(selected.strategy?.markdown || "")} icon={<Clipboard size={17} />} />
-          <IconButton title="导出 Markdown" onClick={() => downloadText(`${selected.name}-strategy.md`, selected.strategy?.markdown || "")} icon={<Download size={17} />} />
+          <IconButton title="复制策划案" onClick={() => copy(strategyMarkdown)} icon={<Clipboard size={17} />} />
+          <IconButton title="导出 Markdown" onClick={() => downloadText(`${selected.name}-strategy.md`, strategyMarkdown)} icon={<Download size={17} />} />
         </div>
       </div>
-      <MarkdownBox value={selected.strategy?.markdown || "暂无策划案，请先创建账号。"} />
+      <MarkdownBox value={strategyMarkdown || "暂无策划案，请先创建账号。"} />
     </div>
   );
 }
@@ -3904,8 +3828,8 @@ function WeeklyPanel({
   const [weeklyVideoCount, setWeeklyVideoCount] = useState("1");
   useEffect(() => {
     setSelectedPresetNames(presets[0]?.name ? [presets[0].name] : []);
-    setWeeklyFrequency(String(presets[0]?.frequency || 4));
-    setWeeklyVideoCount((presets[0]?.frequency || 4) >= 3 ? "1" : "0");
+    setWeeklyFrequency("4");
+    setWeeklyVideoCount("1");
   }, [presets]);
 
   if (!selected) return <EmptyState />;
@@ -3918,12 +3842,9 @@ function WeeklyPanel({
   const hasStrategy = Boolean(selected.strategy?.markdown);
   const hasResearch = Boolean(latestResearch?.summaryMarkdown);
   const assetCount = selected.assets?.length ?? 0;
-  const weeklyCopy = weeklyUiCopy(selected.accountType);
   const focusCopy = weeklyFocusCopy(selected.accountType);
-  const defaultRatio = weeklyCopy.ratio;
-  const effectiveFrequency = clampWeeklyFrequency(weeklyFrequency, combinedPreset.frequency);
+  const effectiveFrequency = clampWeeklyFrequency(weeklyFrequency, 4);
   const effectiveVideoCount = Math.max(0, Math.min(Number.parseInt(weeklyVideoCount, 10) || 0, effectiveFrequency));
-  const normalizedRatio = normalizeWeeklyRatio(combinedPreset.ratio || defaultRatio, effectiveFrequency);
   const togglePreset = (name: string) => {
     setSelectedPresetNames((current) => {
       if (current.includes(name)) {
@@ -3940,7 +3861,7 @@ function WeeklyPanel({
           <div>
             <h2 className="section-title">本周内容</h2>
             <p className="mt-1 max-w-3xl text-sm text-ink/60">
-              先选本周要做什么，再补充特殊活动、主推菜品或重点素材。系统会生成本周每篇笔记的主题、图片需求和转化方向。
+              先选本周内容主题，再补充特殊活动、主推内容或重点。系统会生成本周每篇笔记的主题、事实边界和内容目标；图片将在后续图片方案阶段单独选择。
             </p>
           </div>
           <div className="rounded bg-teal/10 px-3 py-2 text-sm font-medium text-teal">安全模式：只生成计划</div>
@@ -3960,7 +3881,7 @@ function WeeklyPanel({
           <div className={clsx("rounded border p-4", assetCount ? "border-teal/30 bg-teal/5" : "border-ink/10 bg-white")}>
             <div className="text-xs font-medium text-ink/55">素材库</div>
             <div className="mt-2 font-semibold">{assetCount} 个素材</div>
-            <p className="mt-2 text-sm text-ink/60">素材不足时会生成补拍/补资料清单，而不是伪造真实内容。</p>
+            <p className="mt-2 text-sm text-ink/60">周计划不会读取素材库；生成每篇笔记的图片方案时再自动选图或由人工选择。</p>
           </div>
         </div>
       </div>
@@ -4024,10 +3945,6 @@ function WeeklyPanel({
               onChange={setWeeklyVideoCount}
               help={`图文 ${effectiveFrequency - effectiveVideoCount} 篇 / 视频 ${effectiveVideoCount} 篇`}
             />
-            <div className="rounded border border-ink/10 bg-white p-3 text-sm">
-              <div className="font-medium">内容分配</div>
-              <div className="mt-2 leading-6 text-ink/65">{normalizedRatio}</div>
-            </div>
           </div>
 
           <div className="mt-4 rounded border border-ink/10 bg-white p-3">
@@ -4039,11 +3956,6 @@ function WeeklyPanel({
             />
             <input type="hidden" name="theme" value={combinedPreset.theme} readOnly />
             <input type="hidden" name="goal" value={combinedPreset.goal} readOnly />
-            <input type="hidden" name="ratio" value={normalizedRatio} readOnly />
-            <input type="hidden" name="testHypothesis" value={combinedPreset.testHypothesis} readOnly />
-            <input type="hidden" name="commercializationMove" value={combinedPreset.commercializationMove} readOnly />
-            <input type="hidden" name="interactionGoal" value={combinedPreset.interactionGoal} readOnly />
-            <input type="hidden" name="availableAssets" value={combinedPreset.availableAssets} readOnly />
             <input type="hidden" name="taboos" defaultValue={selected.taboos} />
           </div>
 
@@ -4105,6 +4017,7 @@ function PlanPreview({ plan, changeNoteTaskType, loading }: { plan?: WeeklyPlan;
               <span className="rounded bg-coral/10 px-2 py-1 text-xs text-coral">{task.status}</span>
             </div>
             <div className="font-medium">{task.topicTitle}</div>
+            {task.writingStyleName ? <div className="mt-1 text-xs text-teal">参考文风：{task.writingStyleName}</div> : null}
             <div className="mt-2 text-sm text-ink/65">{task.coreView}</div>
           </div>
         ))}
@@ -5897,6 +5810,7 @@ ${plan.noteTasks
 - 发布时间：${task.publishAt}
 - 内容类型：${task.contentType}
 - 帖子形式：${task.type === "video_text" ? "视频笔记" : "图文笔记"}
+- 选定爆款文风：${task.writingStyleName || "未选择"}
 - 内容目标：${task.contentGoal}
 - 目标用户：${task.targetUser}
 - 用户痛点：${task.painPoint}
@@ -5919,8 +5833,6 @@ function weeklyPresets(accountType: string) {
         help: "适合婚礼账号冷启动：先从真实图片里拆出新人最想收藏的细节。",
         theme: "婚礼细节拆解和备婚收藏周",
         goal: "提升收藏和评论咨询，让备婚用户明确哪些细节值得参考、适合什么预算和场地",
-        frequency: 4,
-        ratio: "细节拆解2 / 真实案例1 / 备婚问答1",
         testHypothesis: "真实婚礼细节图 + 风格/预算/适合人群信息卡，比泛泛案例展示更容易被备婚用户收藏。",
         commercializationMove: "轻量提示婚礼策划咨询、档期、套餐和到店沟通，价格和档期必须人工确认。",
         interactionGoal: "引导用户留言城市、婚期、预算、场地类型和喜欢的婚礼风格。",
@@ -5931,12 +5843,20 @@ function weeklyPresets(accountType: string) {
         help: "适合已有真实婚礼案例的策划公司：用授权案例建立信任。",
         theme: "真实婚礼案例和咨询转化周",
         goal: "展示真实案例的审美、流程和落地能力，沉淀有效咨询",
-        frequency: 4,
-        ratio: "真实案例2 / 风格拆解1 / 预算避坑1",
         testHypothesis: "授权案例 + 细节拆解 + 待确认边界，会比单纯晒图更容易带来高质量咨询。",
         commercializationMove: "自然提到档期咨询、方案沟通、套餐边界和到店预约，不虚构价格和成交。",
         interactionGoal: "引导用户留言婚期、城市、预算、场地、桌数和喜欢的参考风格。",
         availableAssets: "授权婚礼案例图、现场布置图、仪式区、迎宾区、桌面细节、花艺、灯光和流程花絮。"
+      },
+      {
+        name: "婚礼体验服务",
+        help: "适合展示策划服务、现场体验和新人决策过程，帮助用户理解服务价值。",
+        theme: "婚礼策划服务和现场体验周",
+        goal: "讲清婚礼策划服务能解决什么问题、体验流程和适合的新人类型，沉淀高意向咨询",
+        testHypothesis: "服务流程 + 新人体验细节 + 可核验案例，比单纯展示婚礼效果更容易建立咨询信任。",
+        commercializationMove: "自然介绍方案沟通、现场执行、套餐服务和预约方式，价格与档期以人工确认为准。",
+        interactionGoal: "引导用户留言婚期、预算、场地和最需要策划方解决的问题。",
+        availableAssets: "授权婚礼案例、策划沟通、现场执行、流程节点、场地布置和新人授权体验素材。"
       }
     ];
   }
@@ -5948,8 +5868,6 @@ function weeklyPresets(accountType: string) {
         help: "适合文旅项目冷启动：先让用户知道这里怎么逛、值不值得去。",
         theme: "文旅目的地动线攻略周",
         goal: "提升收藏和出行咨询，收集用户最关心的交通票务问题",
-        frequency: 4,
-        ratio: "目的地种草2 / 动线攻略1 / 交通票务1",
         testHypothesis: "真实目的地图 + 动线信息，比单纯风景图更容易被收藏。",
         commercializationMove: "轻量提到票务、活动报名、线路产品或官方咨询入口。",
         interactionGoal: "每篇引导用户留言出行日期、同行人、交通方式和最想看的体验。",
@@ -5960,24 +5878,20 @@ function weeklyPresets(accountType: string) {
         help: "适合有民俗节庆、演出、市集或季节活动的目的地。",
         theme: "节庆活动和周末玩法周",
         goal: "让用户明确活动时间、看点、动线和是否适合自己",
-        frequency: 4,
-        ratio: "活动种草2 / 拍照机位1 / 服务信息1",
         testHypothesis: "活动现场图搭配日期和交通，会提升评论咨询。",
         commercializationMove: "自然提到预约、票务、停车或活动报名，以人工确认信息为准。",
         interactionGoal: "引导用户留言想来的日期、是否亲子、是否需要避开人流。",
         availableAssets: "活动现场、节目单、导览图、交通停车、服务设施照片。"
       },
       {
-        name: "出行问题",
-        help: "适合积累用户需求：评论区会告诉你真正影响出行的障碍。",
-        theme: "文旅出行问题收集周",
-        goal: "收集用户关于交通、门票、亲子、拍照、餐饮和避坑的真实问题",
-        frequency: 3,
-        ratio: "问答2 / 目的地图集1",
-        testHypothesis: "每篇只问一个具体出行问题，会带来更多有效评论。",
-        commercializationMove: "本周不强转化，只沉淀下周选题。",
-        interactionGoal: "引导用户留言出发城市、同行人、预算和最担心的问题。",
-        availableAssets: "目的地现场图、导览图、票务截图；素材不够时优先生成信息卡和补拍清单。"
+        name: "文旅体验产品",
+        help: "适合把目的地的特色体验、线路产品和活动讲清楚。",
+        theme: "目的地特色体验和文旅产品周",
+        goal: "让用户明确当地有什么值得参与的体验、适合谁、如何预约和如何融入行程",
+        testHypothesis: "体验过程 + 特色看点 + 适用人群，比单纯介绍景点更容易带来收藏和咨询。",
+        commercializationMove: "自然提到体验预约、线路产品、活动报名或官方咨询入口，信息以人工确认为准。",
+        interactionGoal: "引导用户留言想体验的项目、同行人、日期和预算。",
+        availableAssets: "体验过程、活动现场、特色项目、路线节点、预约说明和授权人物素材。"
       }
     ],
     heritage: [
@@ -5986,8 +5900,6 @@ function weeklyPresets(accountType: string) {
         help: "适合民俗/非遗冷启动：先建立真实质感和文化信任。",
         theme: "非遗工艺故事周",
         goal: "提升收藏和体验咨询，收集用户想了解的工艺问题",
-        frequency: 4,
-        ratio: "工艺故事2 / 制作流程1 / 文化问答1",
         testHypothesis: "真实手作细节 + 制作流程，比单纯成品图更容易建立信任。",
         commercializationMove: "轻量提到体验预约、研学课程或文创购买，不做硬转化。",
         interactionGoal: "引导用户留言想体验的工艺、是否亲子/研学、想了解哪一步。",
@@ -5998,24 +5910,20 @@ function weeklyPresets(accountType: string) {
         help: "适合已有工作坊、节庆活动或研学产品的项目。",
         theme: "民俗体验和预约转化周",
         goal: "让用户明确怎么参加、适合谁、时间地点和预约方式",
-        frequency: 4,
-        ratio: "体验流程2 / 预约信息1 / 节庆活动1",
         testHypothesis: "体验流程图搭配预约信息，会提升咨询和报名意愿。",
         commercializationMove: "自然提到体验预约、亲子研学、团建或节庆活动。",
         interactionGoal: "引导用户留言日期、人数、年龄段、预算和是否需要讲解。",
         availableAssets: "活动现场、体验流程、场地、预约信息、注意事项。"
       },
       {
-        name: "文化问答",
-        help: "适合纠正常见误解，同时避免把民俗做成猎奇内容。",
-        theme: "民俗文化问答周",
-        goal: "收集用户对工艺、禁忌、体验方式和拍摄边界的真实问题",
-        frequency: 3,
-        ratio: "文化问答2 / 工艺图集1",
-        testHypothesis: "尊重边界的问答内容，会比猎奇标题更利于长期信任。",
-        commercializationMove: "本周只沉淀问题和信任，不强转化。",
-        interactionGoal: "引导用户留言想知道的文化背景、能不能拍照、适不适合孩子。",
-        availableAssets: "作品、流程、活动现场、授权说明；缺授权时只做内部参考。"
+        name: "民俗活动体验",
+        help: "适合展示节庆、工作坊和亲子研学等可参与的文化体验。",
+        theme: "民俗活动和非遗体验周",
+        goal: "让用户了解活动特色、参与流程、适合人群和体验价值，促进预约与研学咨询",
+        testHypothesis: "活动过程 + 手作成果 + 参与者感受，比抽象文化说明更容易激发参与意愿。",
+        commercializationMove: "自然提到体验预约、研学课程、团建和文创购买，具体信息人工确认。",
+        interactionGoal: "引导用户留言想参加的活动、人数、年龄段和可参与时间。",
+        availableAssets: "活动现场、体验流程、作品成果、场地、讲解和授权人物素材。"
       }
     ],
     stay: [
@@ -6024,8 +5932,6 @@ function weeklyPresets(accountType: string) {
         help: "适合民宿/酒店/营地冷启动：先把真实空间讲清楚。",
         theme: "房型空间和入住场景周",
         goal: "提升收藏和日期咨询，让用户判断是否适合入住",
-        frequency: 4,
-        ratio: "房型空间2 / 周边体验1 / 价格问答1",
         testHypothesis: "真实房型图 + 设施信息，比氛围空镜更容易带来咨询。",
         commercializationMove: "轻量提到订房、套餐、团建或亲子活动。",
         interactionGoal: "引导用户留言日期、人数、预算、亲子/宠物/停车需求。",
@@ -6036,12 +5942,20 @@ function weeklyPresets(accountType: string) {
         help: "适合把住宿从单一房间扩展成周末目的地。",
         theme: "住宿周边玩法周",
         goal: "让用户知道住这里能玩什么、适合几天几夜",
-        frequency: 3,
-        ratio: "周边体验2 / 房型空间1",
         testHypothesis: "房型图搭配周边动线，会提升收藏和停留时长。",
         commercializationMove: "自然提到套餐、活动、接驳或周边合作。",
         interactionGoal: "引导用户留言是否亲子、是否自驾、想安静还是想活动丰富。",
         availableAssets: "周边景点、路线、餐饮、活动、公共区和房间图。"
+      },
+      {
+        name: "住宿活动服务",
+        help: "适合展示住宿之外的餐饮、团建、亲子、接驳或季节活动服务。",
+        theme: "住宿配套服务和活动体验周",
+        goal: "让用户明确住宿能提供哪些配套服务和活动体验，提升预订咨询与停留时长",
+        testHypothesis: "服务流程 + 活动现场 + 适合人群，比单纯展示房间更容易促成预订咨询。",
+        commercializationMove: "自然提到套餐、活动、餐饮、接驳或团建服务，价格和档期人工确认。",
+        interactionGoal: "引导用户留言入住日期、同行人、想参加的活动和服务需求。",
+        availableAssets: "活动现场、餐饮、公共设施、亲子/团建体验、接驳和房间素材。"
       }
     ],
     food: [
@@ -6050,8 +5964,6 @@ function weeklyPresets(accountType: string) {
         help: "适合餐饮冷启动：每篇只打透一道菜，让用户先记住招牌。",
         theme: "单菜品图文种草周",
         goal: "提升点击和收藏，收集用户最想点的菜品反馈",
-        frequency: 4,
-        ratio: "单菜品2 / 菜品细节1 / 环境交通1",
         testHypothesis: "图片文件名直接使用菜名，系统按菜名匹配图片和正文，会比人工挑图更稳定。",
         commercializationMove: "轻量提到预约、套餐或适合几人来吃，不做强促销。",
         interactionGoal: "每篇引导用户留言想看哪道菜、几个人来、有没有忌口、是否需要停车信息。",
@@ -6062,8 +5974,6 @@ function weeklyPresets(accountType: string) {
         help: "适合有团购、节日套餐、上新、限时活动或游客套餐的门店。",
         theme: "营销活动和套餐转化周",
         goal: "让用户明确活动主推菜、适合几个人、多少钱、怎么预约、什么时候结束",
-        frequency: 4,
-        ratio: "活动主菜2 / 套餐权益1 / 环境交通1",
         testHypothesis: "主菜图 + 活动权益信息卡 + 交通漫画卡，会比只发套餐海报更容易带来到店咨询。",
         commercializationMove: "自然提到团购、预约、节日套餐、活动期限或私域咨询入口，价格和期限必须人工确认。",
         interactionGoal: "引导用户留言人数、预算、是否需要包间、用餐日期和停车问题。",
@@ -6074,24 +5984,20 @@ function weeklyPresets(accountType: string) {
         help: "适合游客型、本地菜、农家菜或有地域食材记忆点的门店。",
         theme: "当地特色菜和游客到店周",
         goal: "让用户知道来本地为什么要吃这道菜、适合什么行程后到店",
-        frequency: 4,
-        ratio: "当地特色2 / 单菜品1 / 环境交通1",
         testHypothesis: "当地特色菜 + 门头/交通漫画卡，会比普通菜品标题更容易吸引游客收藏。",
         commercializationMove: "轻量提示适合游客、家庭、朋友局或逛完某个地点后来吃。",
         interactionGoal: "引导用户留言从哪里出发、几个人、想吃本地菜还是套餐、是否开车。",
         availableAssets: "当地特色菜图、食材/做法图、门头、停车入口、附近地标或交通节点照片。"
       },
       {
-        name: "环境交通",
-        help: "适合解决用户到店前最现实的问题：环境、包间、停车、怎么走。",
-        theme: "餐厅环境和交通指南周",
-        goal: "收集用户关于包间、停车、路线、预算和预约的真实问题",
-        frequency: 3,
-        ratio: "环境交通2 / 菜品种草1",
-        testHypothesis: "门头/停车入口漫画卡，会降低用户到店顾虑并提升评论咨询质量。",
-        commercializationMove: "本周不强转化，只沉淀到店问题和下周选题。",
-        interactionGoal: "每篇引导用户留言人数、预算、包间需求、停车和路线问题。",
-        availableAssets: "门头、停车场入口、附近路口、包间、大厅、菜单和 1-2 张主推菜图。"
+        name: "到店体验",
+        help: "适合展示用餐氛围、服务流程和适合不同人群的消费体验。",
+        theme: "餐厅到店体验和服务周",
+        goal: "让用户明确到店后的环境、服务、用餐场景和适合人群，降低消费顾虑并促进到店",
+        testHypothesis: "真实用餐过程 + 服务细节 + 适合场景，比单独介绍环境更容易带来咨询。",
+        commercializationMove: "自然提到预约、包间、套餐和到店服务，价格、活动和库存人工确认。",
+        interactionGoal: "引导用户留言用餐人数、场景、预算和最在意的服务细节。",
+        availableAssets: "门店空间、服务流程、包间、大厅、上菜过程、菜单和授权顾客体验素材。"
       }
     ],
     outdoor: [
@@ -6100,8 +6006,6 @@ function weeklyPresets(accountType: string) {
         help: "适合冷启动：先让用户记住账号会提供真实、可判断的路线复盘。",
         theme: "户外路线日记周",
         goal: "提升点击和收藏，收集用户最想看的路线问题",
-        frequency: 4,
-        ratio: "路线日记2 / 关键路况1 / 风景图集1",
         testHypothesis: "真实现场图 + 路线决策信息，比单纯风景图更容易带来收藏。",
         commercializationMove: "轻量提到路线合集或装备清单，不做强转化。",
         interactionGoal: "每篇引导用户留言体力基础、出发季节、交通方式和最担心的问题。",
@@ -6112,12 +6016,20 @@ function weeklyPresets(accountType: string) {
         help: "适合把一条路线讲清楚，让用户觉得能照着走。",
         theme: "户外路线攻略收藏周",
         goal: "让用户明确路线难度、交通补给、时间和适合人群",
-        frequency: 4,
-        ratio: "路线攻略2 / 轨迹信息1 / 交通补给1",
         testHypothesis: "距离、爬升、起终点、撤退点写清楚，会提升收藏和评论提问。",
         commercializationMove: "可以自然提到路线资料包、地图文件或装备清单。",
         interactionGoal: "引导用户留言是否需要轨迹、交通方式、同行人数和体力水平。",
         availableAssets: "轨迹截图、路线图、交通截图、补给点照片、路况节点图。"
+      },
+      {
+        name: "户外活动服务",
+        help: "适合有户外活动、领队、课程或装备服务的账号。",
+        theme: "户外活动和装备服务体验周",
+        goal: "讲清活动特色、参与门槛、服务流程和装备支持，沉淀报名与咨询",
+        testHypothesis: "活动过程 + 服务保障 + 适合人群，比单纯路线介绍更容易促进报名。",
+        commercializationMove: "自然提到活动报名、领队服务、课程和装备清单，名额与价格人工确认。",
+        interactionGoal: "引导用户留言体力基础、想参加的活动、同行人数和装备顾虑。",
+        availableAssets: "活动现场、领队过程、装备、路线节点、课程内容和授权参与者素材。"
       }
     ],
     museum: [
@@ -6126,8 +6038,6 @@ function weeklyPresets(accountType: string) {
         help: "适合展馆/研学冷启动：先让用户知道为什么值得看。",
         theme: "展览看点和观展动线周",
         goal: "提升收藏和预约咨询，让用户明确展期、看点和适合人群",
-        frequency: 4,
-        ratio: "展览看点2 / 观展动线1 / 预约票务1",
         testHypothesis: "真实展品图 + 观展动线，比单张海报更容易被收藏。",
         commercializationMove: "轻量提到预约票务、讲解服务、研学课程或文创。",
         interactionGoal: "引导用户留言观展时间、孩子年龄、是否需要讲解和最想看的展区。",
@@ -6138,12 +6048,20 @@ function weeklyPresets(accountType: string) {
         help: "适合有研学课程、亲子讲解或教育产品的展馆。",
         theme: "亲子研学体验周",
         goal: "让家长明确适合年龄、学习点、时长和预约方式",
-        frequency: 3,
-        ratio: "研学攻略2 / 展品故事1",
         testHypothesis: "年龄段和学习点写清楚，会提升家长收藏和咨询。",
         commercializationMove: "自然提到研学课程、讲解预约或活动报名。",
         interactionGoal: "引导用户留言孩子年龄、想学主题、可到馆时间。",
         availableAssets: "研学活动、展品故事、教具、讲解空间、预约信息。"
+      },
+      {
+        name: "展馆活动体验",
+        help: "适合推广展览活动、讲解、工作坊和节假日特别体验。",
+        theme: "展馆活动和观展体验周",
+        goal: "让用户了解展馆活动特色、参与方式和适合人群，促进预约与到馆",
+        testHypothesis: "活动现场 + 参与成果 + 适龄信息，比单纯介绍展品更容易带来预约。",
+        commercializationMove: "自然提到讲解、工作坊、研学课程、票务或文创服务，信息人工确认。",
+        interactionGoal: "引导用户留言想参加的活动、孩子年龄、观展日期和需要的服务。",
+        availableAssets: "活动现场、讲解过程、工作坊、展品、教具、预约和票务信息。"
       }
     ],
     product: [
@@ -6152,8 +6070,6 @@ function weeklyPresets(accountType: string) {
         help: "适合特产/文创冷启动：先讲清楚产品是什么、适合谁。",
         theme: "地域产品种草周",
         goal: "提升收藏和购买咨询，收集用户对规格价格的反馈",
-        frequency: 4,
-        ratio: "产品种草2 / 工艺故事1 / 规格价格1",
         testHypothesis: "真实产品图 + 规格价格卡，比单纯氛围图更容易带来咨询。",
         commercializationMove: "轻量提到购买方式、团购、伴手礼或文旅联动。",
         interactionGoal: "引导用户留言用途、预算、口味偏好和送礼对象。",
@@ -6164,12 +6080,20 @@ function weeklyPresets(accountType: string) {
         help: "适合节日礼盒、伴手礼或文创套装。",
         theme: "伴手礼和礼盒转化周",
         goal: "让用户明确送谁合适、规格价格、怎么购买",
-        frequency: 3,
-        ratio: "礼盒场景2 / 产品故事1",
         testHypothesis: "送礼场景 + 价格规格，会提升收藏和询价。",
         commercializationMove: "自然提到团购、预订、物流和库存，以人工确认信息为准。",
         interactionGoal: "引导用户留言送礼对象、预算、数量和到货时间。",
         availableAssets: "礼盒、包装、产品细节、使用场景、规格价格表。"
+      },
+      {
+        name: "文旅伴手礼体验",
+        help: "适合把产品与当地旅行、节庆和礼赠场景结合起来。",
+        theme: "地方伴手礼和文旅体验周",
+        goal: "让用户理解产品的地域特色、使用场景和购买方式，促进伴手礼咨询与转化",
+        testHypothesis: "产地故事 + 使用/送礼场景 + 产品体验，比单纯展示包装更容易被收藏。",
+        commercializationMove: "自然提到购买、团购、景区联动或节庆礼赠，库存与物流人工确认。",
+        interactionGoal: "引导用户留言旅行目的地、送礼对象、预算和想尝试的口味/功能。",
+        availableAssets: "产品体验、产地、景区/活动、包装、礼赠场景和授权人物素材。"
       }
     ],
     service: [
@@ -6178,8 +6102,6 @@ function weeklyPresets(accountType: string) {
         help: "适合本地服务冷启动：先把服务流程和边界讲清楚。",
         theme: "本地服务流程和信任周",
         goal: "提升评论咨询和预约意向，降低用户对价格和效果的顾虑",
-        frequency: 4,
-        ratio: "服务项目2 / 流程细节1 / 价格问答1",
         testHypothesis: "真实流程图 + 价格边界，比单纯案例图更容易建立信任。",
         commercializationMove: "轻量提到预约、套餐、会员或本地咨询。",
         interactionGoal: "引导用户留言预算、时间、顾虑和是否需要预约。",
@@ -6190,14 +6112,22 @@ function weeklyPresets(accountType: string) {
         help: "适合收集用户真实顾虑，后续沉淀 FAQ。",
         theme: "本地服务顾虑问答周",
         goal: "收集用户关于价格、流程、适合人群和风险边界的问题",
-        frequency: 3,
-        ratio: "问答2 / 流程说明1",
         testHypothesis: "明确说适合谁不适合谁，会提升有效咨询质量。",
         commercializationMove: "本周不强转化，只沉淀 FAQ 和下周选题。",
         interactionGoal: "引导用户留言最担心的问题、可接受预算和希望到店时间。",
         availableAssets: "流程图、设备、门店空间、资质、授权案例。"
+      },
+      {
+        name: "服务活动体验",
+        help: "适合有体验课、主题活动、会员权益或阶段性服务项目的本地服务账号。",
+        theme: "本地服务活动和体验周",
+        goal: "讲清服务活动的特色、流程、适合人群和参与方式，促进预约与有效咨询",
+        testHypothesis: "活动过程 + 服务成果 + 适用边界，比泛泛介绍服务更容易建立信任。",
+        commercializationMove: "自然提到体验预约、活动报名、套餐或会员服务，价格和名额人工确认。",
+        interactionGoal: "引导用户留言想参加的活动、时间、预算和最关心的服务问题。",
+        availableAssets: "活动现场、服务流程、设备、成果案例、门店空间、资质和授权人物素材。"
       }
     ]
   };
-  return presets[mode];
+  return presets[mode].map(({ name, help, theme, goal }) => ({ name, help, theme, goal }));
 }

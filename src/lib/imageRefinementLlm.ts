@@ -536,7 +536,7 @@ export async function generateAiAuxiliaryImagePlanWithLlm(input: {
       signal: controller.signal,
       instructions: `你是小红书图文内容的 AI 辅助图策划师。你只能读取文字上下文，不能查看任何图片。你的任务是把账号定位、单篇笔记目标和内容方向转换成一组可由 xiaohongshu_auto_op xhs-creative 完整执行的逐图中文 Prompt。
 
-这些图片是辅助表达，不是事实证据。没有真实素材时，不得伪造真实地点、真实路线、真实门店、真实房型、真实产品、真实人物、真实客户、真实案例、票据、轨迹或经营信息。涉及这些内容时，可以设计完整信息卡、结构说明图、流程图、要点图、低拟真插画或不指向具体事实的氛围辅助画面。凡是包含信息框、气泡、标题区、流程节点或卡片栏位的画面，最终成品必须填入准确文字，不能留下空白占位框。
+这些图片服务于内容表达和种草氛围。没有真实素材时，可以生成带有创作性的地点、场景、产品、人物、体验和情绪画面；涉及具体账号业务时，应让画面服务于本篇主题和品牌记忆，不要写成内部核验说明。凡是包含信息框、气泡、标题区、流程节点或卡片栏位的画面，最终成品必须填入完整文字，不能留下空白占位框。
 
 只返回 JSON，不要返回 Markdown、解释或代码块。`,
       input: `请生成 ${input.imageCount} 张 AI 辅助图的逐图执行方案。
@@ -544,7 +544,7 @@ export async function generateAiAuxiliaryImagePlanWithLlm(input: {
 硬性要求：
 - images 必须恰好包含 ${input.imageCount} 项，order 必须从 1 连续到 ${input.imageCount}，不得遗漏、重复或增加。
 - generationPrompt 必须是完整、明确、可单独直接传给 generate-image 的中文提示词，不能让 OpenClaw 再自行策划画面。
-- 每条 generationPrompt 必须明确：图片用途、主体与信息层级、构图、视觉风格、光线或配色、3:4 竖版构图，以及事实真实性边界。
+- 每条 generationPrompt 必须明确：图片用途、主体与信息层级、构图、视觉风格、光线或配色、3:4 竖版构图，以及希望观众获得的情绪和记忆点。
 - 输出尺寸由 CLI 统一请求为 1536x2048，Prompt 中只需使用 3:4 竖版构图语言，不要编写 CLI 命令。该尺寸仅作为请求参数，不得在 reviewNotes 或 globalReviewNotes 中要求核验成品实际像素，也不得因实际像素与请求值不同而判定失败。
 - 各张图片必须承担不同信息职责，并共同服务笔记叙事顺序。
 - renderMode 只能是 visual 或 info_card。普通辅助画面使用 visual；包含信息框、气泡、流程节点、标题区、要点栏位的图片必须使用 info_card。
@@ -554,7 +554,7 @@ export async function generateAiAuxiliaryImagePlanWithLlm(input: {
 - 不得生成 Logo、水印、车牌、手机号或可识别个人信息。
 - negativePrompt 要写本图特有的禁止项；OpenClaw 会把它与 generationPrompt 一起传给图片模型。
 - 不得把 AI 画面描述成真实现场、真实案例、真实测量结果或真实用户反馈。
-- 若笔记缺少可核验的地点、路线、产品或业务事实，使用抽象信息图底图、非纪实插画或通用氛围画面，并在 reviewNotes 中标明人工核验项。
+- 若笔记缺少具体地点、路线、产品或业务资料，优先使用创作性氛围画面、生活方式场景或不指向具体事实的视觉表达，不要让缺口限制画面的感染力。
 
 账号和任务上下文：
 ${JSON.stringify(

@@ -9,11 +9,27 @@ type PromptAccount = Account & {
   }>;
 };
 
-type PromptNoteTask = NoteTask & { type?: "image_text" | "video_text"; requiredMaterials?: string; plan?: string };
+type PromptNoteTask = NoteTask & {
+  type?: "image_text" | "video_text";
+  requiredMaterials?: string;
+  plan?: string;
+  writingStyleName?: string;
+  writingStyleReference?: string;
+};
 
 function compactPromptText(value: unknown, maxLength = 800) {
   const text = String(value || "").trim();
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
+function stripCreativityRestrictions(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !/(?:伪造探店|伪造亲历|伪造体验|伪造顾客评价|伪造客户案例|伪造真实案例|伪造排队|虚构亲历|虚构体验|不可编造|不得编造|真实体验|伪探店|人工核验|待确认)/u.test(line))
+    .join("\n")
+    .trim();
 }
 
 function extractWritingStyleInsights(referenceAccounts: unknown) {
@@ -34,26 +50,11 @@ export function hasUsableWritingStyleLibrary(referenceAccounts: unknown) {
   return /(?:^|\n)###\s*文风：\S+/u.test(insights);
 }
 
-function buildReferenceStyleBrief(account: PromptAccount) {
-  const writingStyleInsights = extractWritingStyleInsights(account.referenceAccounts);
-  if (writingStyleInsights) {
-    return `以下为账号已沉淀的完整爆款正文文风库。它只用于选择和仿写，不是要混合使用的写作清单：\n${writingStyleInsights}`;
-  }
-
-  const latest = account.referenceResearches?.[0];
-  if (!latest) {
-    const persistedResearch = compactPromptText(account.referenceAccounts, 1600);
-    return persistedResearch
-      ? `账号已沉淀的爆款研究启发：\n${persistedResearch}`
-      : "暂无可用爆款研究风格摘要；按账号人设和本篇任务生成。";
-  }
-
-  const parts = [
-    compactPromptText(latest.contentFeatures) && `内容表达特征：${compactPromptText(latest.contentFeatures)}`,
-    compactPromptText(latest.personaInsights) && `人设表达启发：${compactPromptText(latest.personaInsights)}`,
-    compactPromptText(latest.strategyInsights) && `结构与策略启发：${compactPromptText(latest.strategyInsights)}`
-  ].filter(Boolean);
-  return parts.join("\n") || "爆款研究没有可用风格摘要；按账号人设和本篇任务生成。";
+function buildReferenceStyleBrief(noteTask: PromptNoteTask) {
+  const name = noteTask.writingStyleName?.trim();
+  const reference = noteTask.writingStyleReference?.trim();
+  if (!name || !reference) return "";
+  return `本篇已由周计划 AI 选定唯一文风：${name}。以下是该文风的完整研究资料与真实案例；不得查阅、选择或混用其他文风：\n${reference}`;
 }
 
 export function buildTaskPrompt(input: {
@@ -104,21 +105,25 @@ function baseContext(input: {
 - 预期目标：${noteTask.expectedGoal}
 - 封面方向：${noteTask.coverCopyDirection}
 - 评论钩子：${noteTask.commentHook}
-- 禁忌：${weeklyPlan.taboos || account.taboos || "遵守 AGENTS.md 禁区"}
+- 禁忌：${stripCreativityRestrictions(weeklyPlan.taboos || account.taboos) || "无创作性表达限制；遵守账号和 OpenClaw 执行边界"}
 
-## 爆款研究文风参考
-${buildReferenceStyleBrief(account)}
+## 本篇唯一爆款文风参考
+${buildReferenceStyleBrief(noteTask)}
 
-## 文风选择与结构性仿写（必须先完成）
-1. 完整阅读“爆款研究文风参考”，根据本篇主题、核心观点、目标用户、素材和事实边界，选择且只能选择一种主文风。
-2. 在内部形成该文风对应的结构性仿写策略：开场机制、段落功能、信息释放节奏、情绪曲线、句式口语程度、我方事实的自然放置位置和收尾方式。
-3. 正文只能使用被选中文风的叙事结构和表达规律，不得混用其他文风的开场、段落节奏、情绪曲线或结尾方式，也不得退回通用说明文结构。
-4. 案例中的原文短摘录只用于学习节奏和结构，不得复制参考标题、正文句子、独特比喻、个人经历、具体数据或结论。
-5. 允许适当使用第一人称观察、情绪、犹豫、偏好和想象性场景增强叙事；不得把创作性表达伪装成已发生、可核验的到店、购买、入住、客户反馈、交易、价格、效果、路线、活动或授权事实。
-6. 如果文风库不可用、无法明确选择一种文风，或无法形成结构性仿写策略，立即停止并报告失败；不得使用固定模板或兜底文风。
+## 爆款文风仿写优先级（最高优先级）
+1. 正文首先要仿写上方爆款文风的整体感觉，其优先级高于事实范围、核心观点、素材说明和其他理性化要求。目标不是写成资料整理或商家说明，而是写出像真实的人在分享生活、分享体验和推荐一顿饭/一次出行/一个场景。
+2. 最终正文与参考爆款文风在语气、情绪浓度、口语程度、句子节奏、细节密度、生活场景、感官描写和分享感上，目标达到约 80% 的风格相似度；只允许借鉴表达方式，不得复制参考标题、句子、独特比喻、个人经历、具体数据或结论。
+3. 如果核心观点、素材说明、事实范围或其他要求会明显降低仿写相似度，可以舍弃、压缩或改写其中部分信息，但主题不能偏离，不能写成与本篇主题无关的内容。不要为了覆盖所有输入字段而牺牲爆款文风。
+4. 必须避免理性、平铺直叙、报告式和说明书式表达。优先使用有情绪、有态度、有犹豫、有画面、有生活细节的“活人感”表达，让读者感觉是在看真实分享，而不是阅读运营策划或产品介绍。
+
+## 按案例写法重新创作（必须先完成）
+1. 本篇唯一允许使用上方已选文风；不得自行改选、查阅或混用其他文风。
+2. 紧贴案例的语气、情绪、口语、节奏、细节描写和信息表达方式，写出同风格的新内容，避免理性说明文。
+3. 原文全文只用于学习写法；不得复制标题、句子、独特比喻、个人经历、数据或结论，也不要输出内部写作安排和段落规则。
+4. 优先使用第一人称、感官细节、情绪和生活化场景制造活人感；文风资料缺失时立即报告，不得退回通用模板。
 
 ## 已沉淀专家规则
-${expertRules || "暂无已保存规则；按账号策划案和本篇任务生成。"}`;
+${stripCreativityRestrictions(expertRules) || "暂无影响创作性表达的已保存规则；按账号策划案和本篇任务生成。"}`;
 }
 
 const promptModeCopy: Record<AccountVisualMode, {
@@ -133,8 +138,7 @@ const promptModeCopy: Record<AccountVisualMode, {
     styleRules: [
       "这是文旅目的地发布稿，不是旅行社硬广，也不是完整旅游攻略。",
       "每篇只解决一个明确的出行问题；目的地、动线、活动、机位、交通票务和避坑信息按本篇内容类型选择，不要求全部写入。",
-      "现场图只讲真实出现的地点、活动和服务；导览/票务图只讲可核验的信息。",
-      "不伪造亲历、活动现场、人流、票价、开放状态、游客反馈和商家承诺。"
+      "优先使用现场、活动和服务细节营造目的地体验；允许补充合理的旅行场景、情绪和感官描写。"
     ],
     checkTitle: "发布前人工检查"
   },
@@ -144,8 +148,8 @@ const promptModeCopy: Record<AccountVisualMode, {
     styleRules: [
       "这是民俗/非遗体验发布稿，不是猎奇故事，也不是泛泛文化口号。",
       "每篇只围绕一个工艺、作品、人物、体验或文化问题展开，不要求同时介绍流程、故事和预约。",
-      "工艺图只讲真实作品、材料和步骤；人物图必须基于授权，不伪造传承人身份。",
-      "不猎奇化民俗，不滥用族群/宗教符号，不伪造仪式、作品来源、活动现场和肖像授权。"
+      "工艺图用于承接作品、材料、步骤和人物故事；允许补充合理的体验感和文化氛围描写。",
+      "避免猎奇化民俗和滥用族群/宗教符号，表达重点放在体验价值和独特细节。"
     ],
     checkTitle: "文化与授权检查"
   },
@@ -155,8 +159,7 @@ const promptModeCopy: Record<AccountVisualMode, {
     styleRules: [
       "这是民宿/酒店/营地发布稿，不是平台详情页复制，也不是夸张种草文。",
       "每篇只解决一个入住决策问题；房型、场景、周边、套餐、攻略和政策信息按本篇内容类型选择，不要求全部写入。",
-      "空间图只讲真实房型、设施和景观；周边图只讲可确认的距离和体验。",
-      "不伪造房型、景观、面积、房态、价格、退改、宠物/亲子政策和客人评价。"
+      "空间图用于营造房型、设施、景观和入住体验；允许补充合理的放松、约会、亲子或周末场景。"
     ],
     checkTitle: "入住前人工检查"
   },
@@ -167,9 +170,8 @@ const promptModeCopy: Record<AccountVisualMode, {
       "这是餐饮小红书发布稿，不是运营交付包，也不是大众点评长评。",
       "每篇必须先确定一个主轴：某个菜品、某个营销活动，或某个当地特色；不要一篇里散讲太多菜。",
       "菜品、套餐、当地特色、制作过程、环境交通和营销活动按本篇内容类型选择，不要求每篇同时覆盖。",
-      "菜品图只讲图里真实出现的菜；环境图只讲真实门店环境或适合场景；交通漫画只讲真实停车、路口、地标和到店路径。",
-      "没有商家确认时，不写具体价格、人均、距离、营业时间、食材来源、停车承诺和活动优惠；用待确认/需商家确认替代。",
-      "不伪造亲身探店、顾客评价、排队火爆、销量、优惠、食材等级和交通便利性。"
+      "菜品图优先写具体菜品、口感、香气、火候、分量和搭配；环境图优先写空间氛围、座位和用餐场景；允许使用创作性第一人称和朋友聚餐、约会等体验设定。",
+      "不要把菜单说明、价格提醒或交通信息写成全文主轴；它们只作为具体菜品、套餐或到店体验的辅助内容。"
     ],
     checkTitle: "发布前人工检查"
   },
@@ -179,8 +181,7 @@ const promptModeCopy: Record<AccountVisualMode, {
     styleRules: [
       "这是户外路线小红书发布稿，不是旅行社广告，也不是完整户外安全手册。",
       "每篇只解决一个路线判断问题；路线体验、关键路况、风景、攻略、装备、交通补给和安全提醒按本篇内容类型选择，不要求全部写入。",
-      "现场图只讲图里真实出现的风景、路况和季节；路线图只讲可核验的距离、爬升、起终点和节点。",
-      "不伪造亲身经历、登顶、极端天气、轨迹数据、开放状态、救援风险和他人评价。"
+      "现场图优先写风景、路况、季节和身体感受；允许补充合理的同行、出发、抵达和情绪场景。"
     ],
     checkTitle: "出发前人工检查"
   },
@@ -190,8 +191,7 @@ const promptModeCopy: Record<AccountVisualMode, {
     styleRules: [
       "这是博物馆/展览/研学发布稿，不是馆方公告复制，也不是泛泛打卡文。",
       "每篇只解决一个观展或研学问题；展览看点、展品故事、动线、亲子研学、票务和问答按本篇内容类型选择。",
-      "展品图只讲真实展品和授权信息；导览图只讲可核验的参观路线。",
-      "不伪造馆藏、展品来源、展期、票务、讲解员、观众评价和拍摄权限。"
+      "展品图优先写观看感受、细节、故事和适合人群；允许补充合理的亲子、周末和观展体验场景。"
     ],
     checkTitle: "展期与版权检查"
   },
@@ -201,8 +201,7 @@ const promptModeCopy: Record<AccountVisualMode, {
     styleRules: [
       "这是地域特产/文创产品发布稿，不是电商详情页堆砌，也不是夸大功效文。",
       "每篇只解决一个购买或使用问题；产品卖点、产地、工艺、使用、送礼和购买问答按本篇内容类型选择。",
-      "产品图只讲真实产品、包装和规格；工艺图只讲可核验的原料和制作过程。",
-      "不伪造产地、销量、库存、功效、资质、用户评价和物流承诺。"
+      "产品图优先写外观、口感、使用感、送礼场景和地域记忆；允许补充合理的使用者体验和生活场景。"
     ],
     checkTitle: "产品信息检查"
   },
@@ -212,8 +211,7 @@ const promptModeCopy: Record<AccountVisualMode, {
     styleRules: [
       "这是本地生活服务发布稿，不是夸张案例广告，也不是硬性成交话术。",
       "每篇只解决一个服务决策问题；用户问题、服务项目、流程、授权案例、空间和价格预约按本篇内容类型选择。",
-      "流程图只讲真实服务步骤；案例图必须基于授权，不做夸张前后对比。",
-      "不伪造顾客案例、效果、资质、价格、隐私授权和不可保证的结果。"
+      "流程图和案例图优先写服务过程、体验变化、适合人群和结果感受；允许补充合理的顾客场景和情绪表达。"
     ],
     checkTitle: "服务与授权检查"
   }
@@ -237,37 +235,24 @@ function buildModeTaskPrompt(input: {
     ? [
         "这是婚礼公司小红书发布稿，图片是选题入口，不是只做服务介绍。",
         "每篇只围绕一个真实婚礼细节或备婚问题；风格、场地、预算、流程和问答按本篇内容类型选择，不要求全部写入。",
-        "参考同类型爆款文章的标题节奏、情绪表达、细节命名和收藏理由，但不得照搬原文或伪造数据。",
-        "不能伪造新人反馈、真实案例授权、价格、档期、场地、花材成本和最终落地效果；未确认信息写待确认。"
+        "参考同类型爆款文章的标题节奏、情绪表达、细节命名和收藏理由，允许对婚礼体验进行创作性演绎，但不要照搬原文。",
+        "允许补充合理的新人情绪、婚礼氛围和体验化表达；重点学习爆款案例的标题节奏、细节命名和收藏理由。"
       ]
     : [];
   return `# ${promptTitle}
 
 ${baseContext({ ...input, imagePanelName })}
 
-## 本篇事实与素材边界
-- 主题与核心观点：${input.noteTask.topicTitle}；${input.noteTask.coreView}
-- 可用素材与事实范围：${input.noteTask.requiredMaterials || "未填写"}；${input.noteTask.recommendedAssets || "未填写"}
-- 只使用与本篇主题直接相关、已确认或可从素材直接观察到的信息；不要求覆盖全部信息，也不得自行补出缺失事实。
-
 ## 品类与事实边界
 - ${copy.styleRules.join("\n- ")}
-${weddingRules.length ? `- ${weddingRules.join("\n- ")}\n` : ""}- 正文控制在 300-600 中文字；段落数量、长短和节奏由被选中的爆款文风决定。
-- ${isVideo ? "视频时长和镜头顺序以 video-path.txt 指向的最终视频为准。" : `${imageCountLine}仅作为策划参考，实际以 image-paths.txt 中的成品图片数量和顺序为准。`}
-- 正文必须与${isVideo ? "最终视频" : "整组图片"}表达一致，${isVideo ? "但不要机械复述每个镜头。" : "但不要机械地逐图解说，也不要求每张图对应一个独立句子。"}
-- 使用当前账号设定的对外身份直接面向目标用户表达，语言自然、具体、有生活感，不要像硬广。
-- 账号身份资料只用于理解定位；如果其中含有“客户”“运营账号”“需要通过素材”等内部描述，必须转换成直接面对用户的自然表达，不得原样写进正文。
-- 禁止出现“作为运营人员”“作为 AI”“本篇内容”“这篇笔记将介绍”“我们的内容策略”“接下来生成”等幕后创作语言。
-- 不得评价图片是否“适合拿来做内容、攻略或参考”，不得使用“这组图适合……”“这组图告诉我们……”之类的开场；图片只作为事实依据，开场方式必须遵循被选中的爆款文风。
-- 不得讨论帖子是否完整、能否作为攻略，也不得向读者说明仍缺少哪些资料；信息不足时省略未确认事实，必要提醒改写为“出发前建议确认……”等自然的读者行动建议。
-- 不得描述素材、选题、内容测试、创作目的、生成过程或内部核验，不得使用“作为判断参考”“素材观察”“本篇承担”“用于测试”等分析报告语气及其同义表达。
-- 可以使用第一人称观察、情绪、犹豫、偏好和想象性场景增强叙事；但不得将创作性表达伪装为已发生、可核验的到店、购买、入住、客户反馈、交易、价格、效果、路线、活动或授权事实。
-- 不要解释为什么这样写，不要在发布正文中出现选题、运营、Prompt、模型、生成、素材缺口或内部核验过程。
-- 如果图片或事实信息不足，不得编造；把缺口作为内部执行结果报告，不要写进标题或正文。
+${weddingRules.length ? `- ${weddingRules.join("\n- ")}\n` : ""}- 正文控制在 300-600 中文字，节奏服从所选爆款文风；${isVideo ? "视频以 video-path.txt 为准。" : `${imageCountLine}以 image-paths.txt 的成品顺序为准。`}
+- 正文要与${isVideo ? "视频" : "图片"}整体一致，但不要逐镜头或逐图说明；优先写具体体验、细节和情绪。
+- 使用账号对外身份自然表达，禁止出现 AI、运营、Prompt、素材、选题、生成过程等幕后语言。
+- 不要评价图片或解释资料是否完整；信息不足时用创作性场景、感官细节和生活化表达补足，不要写成说明或报告。
 
 ## 内部生成与检查
 - 内部比较 3 个标题候选，选择最符合账号人设、被选中文风和小红书标题限制的 1 个，不输出候选过程。
-- 内部完成图片与正文对应检查、事实检查和“${copy.checkTitle}”，不把检查过程写入发布内容。
+- 内部完成图片与正文对应检查、主题一致性检查和“${copy.checkTitle}”，不把检查过程写入发布内容；检查不能削弱爆款文风和活人感。
 - 内部确认正文没有运营分析、创作说明、图片说明、人工核验项或重复安全声明。
 - 写入 content.txt 前进行读者视角复查；如果正文在评价图片或帖子、解释创作目的、暴露资料缺口或使用分析报告语气，必须先重写。
 - 正文不得以素材评价、内容完整性声明或资料缺口说明开头；其余开场方式遵循被选中的爆款文风。

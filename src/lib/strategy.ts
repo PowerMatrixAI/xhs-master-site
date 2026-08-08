@@ -1,5 +1,5 @@
 import type { Account, AccountTypeTemplate } from "@prisma/client";
-import { jsonListBlock, listBlock } from "@/lib/markdown";
+import { listBlock } from "@/lib/markdown";
 
 function parseJson<T>(value: string, fallback: T): T {
   try {
@@ -60,13 +60,6 @@ export function buildAccountStrategy(account: Account, template: AccountTypeTemp
     commercializationPath,
     businessGoal,
     monetization,
-    thirtyDayPlan: [
-      "第 1 周：完成账号定位、AGENTS.md、素材 manifest 和 5-7 篇冷启动内容。",
-      "第 2 周：围绕表现最好的 2 个栏目做系列化，并补齐封面模板。",
-      "第 3 周：测试 1 个轻商业动作，例如资料包、咨询入口或品牌软植入。",
-      "第 4 周：复盘数据，固定 2 个核心栏目，淘汰低互动选题。"
-    ],
-    weeklyTemplate: ratio,
     riskRules,
     promptRules,
     xhsAutoOpGuide: [
@@ -135,12 +128,6 @@ ${listBlock(strategyObject.growthStrategy)}
 ## 商业化路径
 ${listBlock(commercializationPath)}
 
-## 30 天启动计划
-${listBlock(strategyObject.thirtyDayPlan)}
-
-## 一周内容模板
-${jsonListBlock(JSON.stringify(ratio))}
-
 ## 风险与禁区
 ${listBlock([...(account.taboos ? [account.taboos] : []), ...riskRules])}
 
@@ -176,7 +163,7 @@ ${account.referenceAccounts || "尚未完成参考账号研究。生成内容前
 ## 表达风格
 - 真实、具体、可执行。
 - 用自然、具体的表达回应用户关心的问题，不预设固定叙事顺序。
-- 不夸大效果，不伪造体验。
+- 允许使用创作性体验、情绪和生活场景增强表达，避免写成干燥说明书。
 
 ## 标题风格
 ${listBlock(titleStrategy)}
@@ -205,8 +192,8 @@ ${monetization}
 ## 发布前检查清单
 - 标题是否符合人设和栏目定位。
 - 封面是否清晰传达主题，不误导。
-- 正文是否避免伪造真实体验。
-- 素材来源、真实性和敏感信息是否已核验。
+- 正文是否有具体场景、感官细节和自然情绪。
+- 素材来源和敏感信息是否符合账号运营要求。
 - 评论区钩子是否自然。
 - 是否仍处于安全模式，需要人工确认真实发布。
 

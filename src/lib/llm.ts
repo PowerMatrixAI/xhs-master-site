@@ -7,6 +7,7 @@ import { fallbackInteractionSummary } from "@/lib/interactionPrompts";
 import { summarizeImageStyleStudyFallback } from "@/lib/imageStyleStudy";
 import type { RecentWeeklyTopicGroup } from "@/lib/weeklyTopicHistory";
 import { normalizeWeeklyTaskMedia } from "@/lib/weeklyPlan";
+import { extractWritingStyleReferences, findWritingStyleReference } from "@/lib/writingStyles";
 
 type LlmResult<T> =
   | { usedLlm: true; data: T; model: string }
@@ -28,6 +29,8 @@ type NoteTaskSeed = {
   coverCopyDirection: string;
   commentHook: string;
   expectedGoal: string;
+  writingStyleName: string;
+  writingStyleReference: string;
   status: string;
 };
 
@@ -54,6 +57,22 @@ function appendOpenClawAccountIdentity(text: string, account: Pick<Account, "nam
   return `${text.trim()}\n\n## OpenClaw 账号标识\n- 业务账号名称：${account.name}\n- ${marker}\n- 所有需要切换小红书账号的 CLI 命令必须使用：\`--account ${accountParam}\`。账号名称和本系统数据库编号均不可替代该参数。\n`;
 }
 
+/** Remove legacy fixed planning sections if an LLM still emits them. */
+function stripStrategyFixedPlanningSections(markdown: string) {
+  const lines = markdown.split(/\r?\n/);
+  const kept: string[] = [];
+  let skipping = false;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      const title = heading[1];
+      skipping = /正文(?:结构|结构模板)|行文结构(?:模板)?|30\s*天(?:冷启动|启动)?计划|一周内容(?:模板|比例)|内容比例|发布频率比例/i.test(title);
+    }
+    if (!skipping) kept.push(line);
+  }
+  return kept.join("\n").trim();
+}
+
 export function getLlmStatus() {
   return {
     enabled: true,
@@ -76,8 +95,10 @@ export async function generateStrategyWithLlm(
 - 当前产品模式是 Prompt + Command only，不允许真实发布、评论、点赞、收藏、私信。
 - 如果 account.referenceAccounts 中包含参考账号研究洞察，必须优先用于人设、差异化定位、栏目、标题、封面和商业化策略。
 - 必须保留 xiaohongshu_auto_op 的执行边界：真实账号操作只输出命令建议，人工确认。
+- 不得输出正文结构、正文结构模板、行文结构模板或固定段落顺序；具体每篇帖子的结构留到周计划/单篇任务阶段，根据主题事实和所选爆款文风生成。
+- 不得输出 30 天冷启动计划、一周内容模板、一周内容比例或发布频率比例。
 - 策划案 Markdown 和 AGENTS.md 都必须包含“OpenClaw 账号标识”章节，写明业务账号名称、OpenClaw 账号 ID（accountParam）以及唯一可用的 \`--account <accountParam>\` 参数。
-- 不伪造真实体验、真实授权、真实探店、真实亲历、真实轨迹或真实交易。
+- 允许使用创作性第一人称、生活场景、情绪和感官体验，让账号内容自然、有画面、有传播力；不要为了形式上的真实性把策划和文案收束成理性说明。
 - 以中文输出。
 - 只返回 JSON，不要 Markdown 代码块。
 
@@ -102,8 +123,6 @@ ${JSON.stringify(
       "互动策略",
       "增长策略",
       "商业化路径",
-      "30 天启动计划",
-      "一周内容模板",
       "风险与禁区",
       "AGENTS.md 内容",
       "给 xiaohongshu_auto_op 的执行说明"
@@ -136,8 +155,8 @@ JSON 字段：
   }
 
   const positioning = readString(parsed, "positioning") || fallback.positioning;
-  const markdown = appendOpenClawAccountIdentity(readString(parsed, "markdown") || fallback.markdown, account);
-  const agentsMdContent = appendOpenClawAccountIdentity(readString(parsed, "agentsMdContent") || fallback.agentsMdContent, account);
+  const markdown = appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "markdown") || fallback.markdown), account);
+  const agentsMdContent = appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "agentsMdContent") || fallback.agentsMdContent), account);
   const execGuide = readString(parsed, "execGuide") || fallback.execGuide;
   const strategyJson = JSON.stringify(readObject(parsed, "strategy") || safeJson(fallback.strategyJson), null, 2);
 
@@ -178,9 +197,12 @@ export async function regenerateStrategyFromReferenceResearchWithLlm(input: {
 
 硬性要求：
 - 当前产品模式是 Prompt + Command only，不允许真实发布、评论、点赞、收藏、关注或私信。
-- 不得抄袭参考账号，不得把参考账号素材/经历伪装成我方真实体验。
+- 参考账号只用于学习表达手法和内容灵感，不复制原文、标题、人物经历、具体数据或独特案例；我方内容可以进行合理的创作性演绎。
 - 必须写出“借鉴什么”和“如何避免同质化”。
-- 必须在完整策划案 Markdown 中增加“爆款正文文风库”章节，完整保留参考研究中的文风特点、适用范围、避免事项和案例；案例的标题、作者、URL 与“原文短摘录”必须保留，不能仅保留链接或改写为概括性标签。
+- 最终策划案不得包含“正文结构”“正文结构模板”“行文结构模板”“段落顺序”等通用写作模板；具体每篇帖子的结构留到周计划/单篇任务阶段，根据主题事实和所选爆款文风生成。
+- 最终策划案不得包含“30 天启动计划”“一周内容模板”“一周内容比例”或“发布频率比例”等固定排期章节。
+- 必须在完整策划案 Markdown 中增加“爆款正文文风库”章节，严格保留 5 种文风，每种 2-4 个案例；案例的标题、作者、URL 与“原文全文”应优先保留，不能仅保留链接、短摘录或改写为概括性标签。整体策划案和 AGENTS.md 单份均控制在 15,000 个中文字符以内，超限时先压缩重复说明和案例数量至每种 2 篇，再适度压缩案例正文。
+- 策划案和 AGENTS.md 不要写入本地绝对路径、$PWD、任务目录路径、文件系统调试信息或命令日志。
 - 必须在 AGENTS.md 中保留精简版文风库及选择规则：每篇按内容类型、目标用户和内容目标选择一种主文风，必要时最多使用一种辅助文风；学习表达规律，不复制案例原句、个人经历或具体数据；商家账号不得伪装成普通消费者亲历。
 - 策划案 Markdown 和 AGENTS.md 都必须包含“OpenClaw 账号标识”章节，写明业务账号名称、OpenClaw 账号 ID（accountParam）以及唯一可用的 \`--account <accountParam>\` 参数。
 - 必须生成完整策划案 Markdown 和可直接保存为 profiles/<账号名>/AGENTS.md 的内容。
@@ -243,8 +265,8 @@ JSON 字段：
     data: {
       positioning: readString(parsed, "positioning") || input.fallback.positioning,
       strategyJson: JSON.stringify(readObject(parsed, "strategy") || safeJson(input.fallback.strategyJson), null, 2),
-      markdown: appendOpenClawAccountIdentity(readString(parsed, "markdown") || input.fallback.markdown, input.account),
-      agentsMdContent: appendOpenClawAccountIdentity(readString(parsed, "agentsMdContent") || input.fallback.agentsMdContent, input.account),
+      markdown: appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "markdown") || input.fallback.markdown), input.account),
+      agentsMdContent: appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "agentsMdContent") || input.fallback.agentsMdContent), input.account),
       execGuide: readString(parsed, "execGuide") || input.fallback.execGuide
     }
   };
@@ -262,6 +284,10 @@ export async function generateWeeklyTasksWithLlm(input: {
   if (!status.enabled) throw new Error("AI 未启用，无法生成本周内容计划。");
 
   const recentTopicGroups = input.weeklyInput.recentTopicGroups || [];
+  const availableWritingStyles = extractWritingStyleReferences(input.account.referenceAccounts);
+  if (!availableWritingStyles.length) {
+    throw new Error("当前账号缺少可用的爆款正文文风库。请先完成爆款研究后再生成周计划。");
+  }
   const weeklyInputContext = {
     theme: input.weeklyInput.theme,
     goal: input.weeklyInput.goal,
@@ -306,12 +332,17 @@ export async function generateWeeklyTasksWithLlm(input: {
 - 生成 ${input.taskCount} 篇。
 - 其中必须有 ${Math.max(0, Math.min(input.weeklyInput.videoCount || 0, input.taskCount))} 篇 type 为 video_text，其余为 image_text。
 - 必须优先阅读并遵循输入中的完整 strategy；账号定位、人设、目标用户、内容栏目、标题封面策略、商业化路径和风险边界都应以 strategy 为主要依据，不能只依据账号类型套用通用模板。
-- 如果 weeklyInput.weeklyFocus 非空，它代表用户主动指定的本周重点，应作为本周选题的最高优先级；围绕该重点拆分具体且不重复的任务，同时不得违背 strategy 中的真实性和风险边界。
+- 必须阅读 account.referenceAccounts 和 strategy 中的“爆款正文文风库”。为每篇任务在内部选择一种最贴合主题、目标用户和可写事实的主文风，并让该文风的表达偏好影响选题角度、标题方向、内容目标和核心观点；不要输出正文结构、段落顺序或行文步骤。
+- 每篇任务必须从输入的 availableWritingStyles 中选择且只能选择一种文风，并在 writingStyleName 返回该文风的精确名称。不得自创、改写或混用文风名称；该选择会被保存，并作为后续草稿阶段唯一可用的文风参考。
+- 优先把每篇任务设计为围绕一个具体且可写的产品、菜品、服务、活动、体验或在地场景展开；有真实素材或可核验信息时，应在 topicTitle、contentGoal 和 coreView 中点出具体对象、可感知细节和用户能获得的体验，不要只给“菜单、预算、价格透明、避免踩雷、降低顾虑”等抽象理性设定。
+- 除非用户本周重点明确要求价格、预约、交通等决策信息，否则不得把它们单独设为一篇帖子的主轴；这类信息只能作为具体产品、服务、活动或体验内容的辅助事实。
+- contentGoal 和 coreView 应描述本篇要呈现的具体内容、关键词、真实细节与用户感受，不得写成点单教程、风险提示、运营分析或“先/再/最后”的行文规则。
+- 如果 weeklyInput.weeklyFocus 非空，它代表用户主动指定的本周重点，应作为本周选题的最高优先级；围绕该重点拆分具体且不重复的任务，同时遵循账号定位和平台安全边界。
 - 如果 weeklyInput.weeklyFocus 为空，则以完整 strategy 和本周运营目标为主要依据生成选题。
 - 当前执行模式是只生成计划、Prompt 和命令建议，不允许真实发布或互动。
 - 每篇任务必须具体到用户痛点、核心观点、可写事实与素材范围、图片或视频素材要求、评论区钩子。
 - 不要输出正文结构、段落顺序、开场方式、文风、句式节奏或任何“先/再/最后”的行文指令。
-- 信息不足只用于标注不可编造的事实或待确认项，不要把资料缺口设计成正文内容。
+- 信息不足时优先使用合理的创作性场景、情绪和感官表达补足内容，不要把资料缺口或核验说明写成帖子主内容。
 - 推荐素材只能来自输入素材或明确写“素材缺口”，禁止伪造真实素材。
 - 只返回 JSON，不要 Markdown 代码块。${dedupRequirements}
 
@@ -320,6 +351,7 @@ ${JSON.stringify(
   {
     account: accountContext,
     strategy: input.strategy,
+    availableWritingStyles: availableWritingStyles.map((style) => style.name),
     assets: input.assets.map((asset) => ({
       filePath: asset.filePath,
       fileType: asset.fileType,
@@ -354,6 +386,7 @@ JSON 字段：
       "coverCopyDirection": "",
       "commentHook": "",
       "expectedGoal": "",
+      "writingStyleName": "必须与 availableWritingStyles 中的一项完全一致",
       "status": "待生成Prompt"
     }
   ]
@@ -395,8 +428,16 @@ JSON 字段：
       coverCopyDirection: required("coverCopyDirection"),
       commentHook: required("commentHook"),
       expectedGoal: required("expectedGoal"),
+      writingStyleName: required("writingStyleName"),
+      writingStyleReference: "",
       status: "待生成Prompt"
-    };
+    } satisfies NoteTaskSeed;
+  }).map((task, index) => {
+    const style = findWritingStyleReference(input.account.referenceAccounts, task.writingStyleName);
+    if (!style) {
+      throw new Error(`第 ${index + 1} 篇任务返回了文风库中不存在的文风：${task.writingStyleName}。`);
+    }
+    return { ...task, writingStyleName: style.name, writingStyleReference: style.reference };
   });
 
   return { usedLlm: true, model: status.model, data: normalizeWeeklyTaskMedia(tasks, input.weeklyInput.videoCount || 0) };
@@ -416,13 +457,14 @@ export async function summarizeReferenceResearchWithLlm(input: {
 
 要求：
 - 只分析，不执行任何真实账号操作。
-- 不得把参考账号内容、素材、经历伪装成我方原创真实体验。
+- 参考账号内容用于研究表达手法和内容灵感；我方可基于这些启发进行创作性演绎，但不要逐字复制参考原文。
 - 输出必须服务于生成我方账号的人设文件和策划案。
 - 必须优先提炼全国同类型爆款/高互动样本的规律；账号所在城市或本地样本只作为落地差异补充，不能让整体风格和内容策略被本地样本局限。
 - 必须保留研究报告中的爆款帖子来源署名、标题正文规律和图片风格分析；不得补造作者主页、关注数、粉丝数或作者定位。
-- 必须额外输出 writingStyleInsights：直接可读的 Markdown 文本，尽量归纳至少 5 种有明显差异的爆款正文文风；每种尽量列出至少 2 个来自研究原文的真实案例。每个案例必须包含标题、作者、URL、\`原文短摘录\`和借鉴点。
-- writingStyleInsights 中每种文风必须使用三级标题 \`### 文风：唯一名称\` 独立成块，并写清适用内容类型和用户场景、叙述身份或读者感受、结构性仿写规律、常见开场、信息组织与段落节奏、句子长短和口语程度、情绪浓度、建议/产品信息的自然植入、结尾互动方式，以及容易产生的 AI 味、硬广或同质化问题。
-- \`原文短摘录\`必须直接保留研究报告中已有的逐字摘录，不得改写成“研究提炼为”“大意是”等概括，也不得根据标题或链接补造原文；每条控制在 60-140 个中文字符，不复制完整正文或连续大段正文。若研究报告未提供合规的原文短摘录，明确写“未提供可引用原文短摘录”，不得编造。writingStyleInsights 总长度不超过 8,000 个中文字符。
+- 必须额外输出 writingStyleInsights：直接可读的 Markdown 文本，严格归纳 5 种有明显差异的爆款正文文风；每种列出 2-4 个来自研究原文的真实案例，不得输出第 6 种文风。每个案例必须包含标题、作者、URL、\`原文全文\`和借鉴点。
+- writingStyleInsights 中每种文风必须使用三级标题 \`### 文风：唯一名称\` 独立成块，并只写清适用内容类型和用户场景、叙述身份或读者感受、表达语气与视角、句子长短和口语程度、情绪浓度、词汇与细节偏好、建议/产品信息的表达特点，以及容易产生的 AI 味、硬广或同质化问题。
+- writingStyleInsights 严禁写正文结构模板或行文顺序：不得出现“结构规律”“常见开场”“先……再……最后……”“段落顺序”“信息释放节奏”“固定结尾”“开场—主体—结尾”等规则，也不要规定某类帖子必须如何组织段落。它只能描述文风表达特征，具体单篇结构由后续笔记任务阶段根据主题和事实单独决定。
+- \`原文全文\`必须优先直接保留研究报告中已有的正文，不得改写成概括，也不得根据标题或链接补造原文。若总输出可能超过 15,000 个中文字符，先压缩其他字段和每种文风的案例数量至 2 篇，再允许适度压缩案例正文；每种文风至少保留 2 篇案例。不得输出本地绝对路径、任务目录路径或命令日志。writingStyleInsights 应控制在约 9,000 个中文字符以内。
 - 不得补造、推测或要求评论区结论；本次研究不使用评论数据。
 - 只返回 JSON，不要 Markdown 代码块。
 
@@ -437,11 +479,11 @@ ${input.rawResults}
 
 JSON 字段：
 {
-  "summaryMarkdown": "# 参考账号研究总结 Markdown，包含候选爆款帖子、标题正文、图片风格、互动引导、可借鉴点、差异化机会、风险",
+  "summaryMarkdown": "# 参考账号研究总结 Markdown（控制在约 5,000 个中文字符内；包含候选爆款帖子、标题正文规律、图片风格、互动引导、可借鉴点、差异化机会和风险；不要重复粘贴文风案例全文）",
   "contentFeatures": "爆款帖标题正文、图片风格和互动引导总结",
   "personaInsights": "对我方账号人设设定的建议",
   "strategyInsights": "对我方内容栏目、标题、封面、增长、商业化路径的建议",
-  "writingStyleInsights": "# 爆款正文文风洞察 Markdown，包含至少 5 种文风、每种的表达规律、避免事项和不少于 2 个真实案例"
+  "writingStyleInsights": "# 爆款正文文风洞察 Markdown（严格 5 种文风，每种 2-4 个案例，约 9,000 字以内；包含表达特征、避免事项、标题/作者/URL/原文全文和借鉴点；不得包含正文结构或行文顺序规则）"
 }`;
 
   const response = await createTextResponse({

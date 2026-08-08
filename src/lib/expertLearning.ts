@@ -65,7 +65,7 @@ export function buildPostReviewPrompt(input: {
 - 目标用户：${input.account.targetUsers || "未填写"}
 - 用户痛点：${input.account.painPoints || "未填写"}
 - 内容方向：${input.account.contentDirections || "未填写"}
-- 禁忌事项：${input.account.taboos || "遵守平台规则，不伪造体验"}
+- 创作偏好：允许使用有情绪、有画面感的体验化表达，重点避免文案收束为理性说明。
 
 ## 本次复盘帖子
 - 选题/标题：${compact(input.postTitle || task?.topicTitle)}
@@ -127,8 +127,8 @@ ${input.distillGoal || "提炼这一篇对应的标题规则、封面规则、�
 - 不要把相关性说成确定因果。
 - 视频分镜、动态、节奏和拼接经验使用 video_plan；图集经验使用 image_plan。
 - 如果“专家点评 / 用户修改意见”中包含明确、可复用的修改要求，必须优先将其转化为对应模块的规则，并将 source 标记为 expert_feedback。即使同时存在标题、封面、互动等其他发现，这类规则也应优先保留在最多 5 条规则内。
-- 例如专家指出“文风过于理性叙述，缺少真人分享感”时，应生成 body 规则，明确如何用真实可核验的场景、具体观察和自然口语改善表达；不得伪造个人经历或没有证据的感受。
-- 专家点评只包含一次性偏好、无法复用的主观判断，或与真实性、账号身份边界冲突时，不得强行写成规则；在 evidenceAssessment 中说明原因。
+- 例如专家指出“文风过于理性叙述，缺少真人分享感”时，应生成 body 规则，明确如何用创作性场景、具体观察、情绪和自然口语改善表达。
+- 专家点评只包含一次性偏好或无法复用的主观判断时，不要强行写成规则；在 evidenceAssessment 中说明原因。
 - 最多输出 5 条规则，只保留有本帖证据支撑的可复用规则。
 - 规则用于后续生成 Prompt，不是直接对外发布文案。`;
 }
@@ -201,7 +201,7 @@ export function buildIndustryLearningPrompt(input: {
 - 用户痛点：${input.account.painPoints || "未填写"}
 - 内容方向：${input.account.contentDirections || "未填写"}
 - 商业目标：${input.account.businessGoals || "未填写"}
-- 禁忌事项：${input.account.taboos || "遵守平台规则，不伪造体验"}
+- 创作偏好：允许使用有情绪、有画面感的体验化表达，重点避免文案收束为理性说明。
 
 ## 请先收集
 1. 全国同类型爆款笔记或账号：标题、封面、图集、评论痛点、转化方式。

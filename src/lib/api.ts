@@ -13,6 +13,8 @@ export interface LoginResponse {
   name: string;
   avatarUrl: string;
   role: string;
+  /** 登录所属渠道；小红书客户端固定为 xhs */
+  channel: "xhs" | "douyin";
   signature: string;
   signatureNearExpired: number;
 }
@@ -166,6 +168,8 @@ export interface BackendNoteTask {
   targetUser: string;
   painPoint: string;
   coreView: string;
+  writingStyleName?: string;
+  writingStyleReference?: string;
   // 服务端迁移前的兼容字段；前端不再读取或生成正文结构，写入时固定为空字符串。
   bodyStructure?: string;
   requiredMaterials: string;
@@ -301,7 +305,11 @@ export async function authRequest<T = unknown>(
  * 登录
  */
 export async function login(email: string, password: string): Promise<LoginResponse> {
-  const res = await publicRequest<LoginResponse>("/login/v1/login", { email, password });
+  const res = await publicRequest<LoginResponse>("/login/v1/login", {
+    email,
+    channel: "xhs",
+    password
+  });
   if (!res.status) {
     throw new Error(res.message || "登录失败");
   }
@@ -312,8 +320,19 @@ export async function login(email: string, password: string): Promise<LoginRespo
 /**
  * 注册
  */
-export async function register(email: string, name: string, password: string): Promise<LoginResponse> {
-  const res = await publicRequest<LoginResponse>("/login/v1/register", { email, name, password });
+export async function register(
+  email: string,
+  name: string,
+  password: string,
+  betaCode: string
+): Promise<LoginResponse> {
+  const res = await publicRequest<LoginResponse>("/login/v1/register", {
+    email,
+    channel: "xhs",
+    name,
+    password,
+    betaCode
+  });
   if (!res.status) {
     throw new Error(res.message || "注册失败");
   }
