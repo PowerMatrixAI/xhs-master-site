@@ -38,7 +38,7 @@ export default function LoginPage() {
           setError("请输入内测码");
           return;
         }
-        await register(email, name, password, betaCode.trim());
+        await register(email, name, password, betaCode);
       }
       router.replace("/");
     } catch (err) {
@@ -141,6 +141,20 @@ export default function LoginPage() {
                 />
               </div>
             </label>
+
+            {mode === "register" && (
+              <label className="field">
+                <span>内测码</span>
+                <input
+                  type="text"
+                  value={betaCode}
+                  onChange={(e) => setBetaCode(e.target.value)}
+                  placeholder="请输入内测码"
+                  autoComplete="off"
+                  required
+                />
+              </label>
+            )}
 
             {error && (
               <div className="rounded border border-coral/30 bg-coral/5 px-3 py-2 text-sm text-coral">
