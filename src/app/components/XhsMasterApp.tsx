@@ -2196,7 +2196,10 @@ export function XhsMasterApp() {
       });
       const data = await readApiJsonResponse(res, "生成三个版本失败");
       if (!res.ok) throw new Error(data.error || "后端 AI 未能生成三个版本。");
-      const variants = Array.isArray(data.variants) ? data.variants as DraftVariant[] : [];
+      const resolved = data.async && data.uuid
+        ? await waitForAsyncRouteResult<{ variants: DraftVariant[] }>(`/api/note-tasks/${task.id}/draft-variants`, data.uuid)
+        : data as { variants?: DraftVariant[] };
+      const variants = Array.isArray(resolved.variants) ? resolved.variants : [];
       if (variants.length !== 3) throw new Error("后端 AI 未返回完整的三个版本。");
       setDraftVariants((current) => ({ ...current, [task.id]: variants }));
       if (controls.showSuccessToast ?? true) showToast("已生成三个标题和正文版本，请选择喜欢的版本。");
