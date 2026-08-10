@@ -298,8 +298,9 @@ export function buildVideoDraftTask(input: {
   account: { name: string; accountParam: string };
   noteTask: { id: number; topicTitle: string };
   bodyPrompt: string;
+  selectedDraft?: { label: string; title: string; body: string };
 }) {
-  const { account, noteTask, bodyPrompt } = input;
+  const { account, noteTask, bodyPrompt, selectedDraft } = input;
   const accountName = shellQuote(account.accountParam);
   const taskDir = `$PWD/.openclaw_tasks/xhs-video-task-${noteTask.id}`;
   return `# OpenClaw 视频笔记草稿箱任务
@@ -319,7 +320,7 @@ export function buildVideoDraftTask(input: {
 
 ## 执行步骤
 1. 进入 skill 根目录并复用视频方案已创建的任务目录，不要创建新的任务目录。
-2. 根据下方正文要求生成最终标题、正文和 5-6 个标签，分别写入 \`$TASK_DIR/title.txt\` 和 \`$TASK_DIR/content.txt\`。
+2. ${selectedDraft ? "严格使用下方已选文案版本，原样写入 `$TASK_DIR/title.txt` 和 `$TASK_DIR/content.txt`。不得生成、改写、扩写、删减标题、正文或标签。" : "根据下方正文要求生成最终标题、正文和 5-6 个标签，分别写入 `$TASK_DIR/title.txt` 和 `$TASK_DIR/content.txt`。"}
 3. 执行登录检查后，用以下命令填写视频发布表单并保存草稿：
 
 \`uv run python scripts/cli.py --account ${accountName} check-login\`
@@ -330,7 +331,20 @@ export function buildVideoDraftTask(input: {
 
 只有前一步成功才能继续。禁止调用 \`publish-video\` 或 \`click-publish\`。
 
-## 正文生成要求
+${selectedDraft ? `## 已选文案版本
 
-${bodyPrompt}`;
+- 版本：${selectedDraft.label}
+- 标题：
+
+\`\`\`text
+${selectedDraft.title}
+\`\`\`
+
+- 正文（必须原样写入 \`$TASK_DIR/content.txt\`）：
+
+\`\`\`text
+${selectedDraft.body}
+\`\`\`` : `## 正文生成要求
+
+${bodyPrompt}`}`;
 }

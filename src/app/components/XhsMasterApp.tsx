@@ -250,6 +250,13 @@ type PromptResult = {
   commands: Array<{ category: string; command: string; description: string; safetyNote: string }>;
 };
 
+type DraftVariant = {
+  id: "playful" | "lively" | "balanced";
+  label: string;
+  title: string;
+  body: string;
+};
+
 type ImagePromptResult = {
   openclawTask?: { content: string; title: string };
   imagePrompt: { content: string; title: string; path: string };
@@ -1453,6 +1460,8 @@ export function XhsMasterApp() {
   const [toast, setToast] = useState("");
   const [currentUser, setCurrentUser] = useState<LoginResponse | null>(null);
   const [promptResults, setPromptResults] = useState<Record<number, PromptResult>>({});
+  // 三版文案仅保存在当前页面会话中，不同步到浏览器工作区或后端。
+  const [draftVariants, setDraftVariants] = useState<Record<number, DraftVariant[]>>({});
   const [imagePromptResults, setImagePromptResults] = useState<Record<number, ImagePromptResult>>({});
   const [videoPromptResults, setVideoPromptResults] = useState<Record<number, VideoPromptResult>>({});
   const [batchImagePostResults, setBatchImagePostResults] = useState<Record<number, BatchImagePostsResult>>({});
@@ -1938,6 +1947,7 @@ export function XhsMasterApp() {
       setImagePromptResults((current) => { const next = { ...current }; delete next[task.id]; return next; });
       setVideoPromptResults((current) => { const next = { ...current }; delete next[task.id]; return next; });
       setPromptResults((current) => { const next = { ...current }; delete next[task.id]; return next; });
+      setDraftVariants((current) => { const next = { ...current }; delete next[task.id]; return next; });
       showToast(`已切换为${type === "video_text" ? "视频" : "图文"}笔记。`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "切换帖子类型失败。");
@@ -2161,7 +2171,48 @@ export function XhsMasterApp() {
     }
   }
 
-  async function generatePrompt(task: NoteTask, controls: GenerationControls = {}): Promise<PromptResult | null> {
+  async function generateDraftVariants(task: NoteTask, controls: GenerationControls = {}): Promise<DraftVariant[] | null> {
+    if (!selected || !latestPlan) return null;
+    if (!task.plan?.trim()) {
+      showToast(task.type === "video_text" ? "请先生成视频方案，再生成三个版本。" : "请先生成单篇图片方案，再生成三个版本。");
+      return null;
+    }
+    const manageLoading = controls.manageLoading ?? true;
+    if (manageLoading) setLoading(true);
+    setLoadingAction(controls.loadingAction || "generateDraftVariants");
+    try {
+      let accountForPrompt = selected;
+      try {
+        const latestAccount = mapBackendAccountToUiAccount(await fetchBackendAccountDetail(selected.id));
+        accountForPrompt = mergeBackendAccountWithLocalState(latestAccount, selected);
+        updateSelectedAccount(() => accountForPrompt);
+      } catch {
+        // 账号详情刷新失败时，继续使用当前客户端状态生成文案。
+      }
+      const res = await fetch(`/api/note-tasks/${task.id}/draft-variants`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ account: accountForPrompt, noteTask: task, weeklyPlan: latestPlan })
+      });
+      const data = await readApiJsonResponse(res, "生成三个版本失败");
+      if (!res.ok) throw new Error(data.error || "后端 AI 未能生成三个版本。");
+      const variants = Array.isArray(data.variants) ? data.variants as DraftVariant[] : [];
+      if (variants.length !== 3) throw new Error("后端 AI 未返回完整的三个版本。");
+      setDraftVariants((current) => ({ ...current, [task.id]: variants }));
+      if (controls.showSuccessToast ?? true) showToast("已生成三个标题和正文版本，请选择喜欢的版本。");
+      return variants;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "生成三个版本失败。");
+      return null;
+    } finally {
+      if (manageLoading) {
+        setLoading(false);
+        setLoadingAction(null);
+      }
+    }
+  }
+
+  async function generatePrompt(task: NoteTask, selectedDraft: DraftVariant, controls: GenerationControls = {}): Promise<PromptResult | null> {
     if (!selected || !latestPlan) return null;
     if (!task.plan?.trim()) {
       showToast(task.type === "video_text" ? "请先生成视频方案，再生成视频草稿箱指令。" : "请先生成单篇图片方案，再生成图文草稿箱指令。");
@@ -2182,7 +2233,7 @@ export function XhsMasterApp() {
       const res = await authenticatedFetch(`/api/note-tasks/${task.id}/prompt`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ account: accountForPrompt, noteTask: task, weeklyPlan: latestPlan })
+        body: JSON.stringify({ account: accountForPrompt, noteTask: task, weeklyPlan: latestPlan, selectedDraft })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "生成图文草稿箱任务失败。");
@@ -2198,7 +2249,7 @@ export function XhsMasterApp() {
           }
         )
       }));
-      if (controls.showSuccessToast ?? true) showToast("图文草稿箱任务已生成。");
+      if (controls.showSuccessToast ?? true) showToast("草稿箱任务已生成，OpenClaw 将原样使用所选标题和正文。");
       return data as PromptResult;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "生成图文草稿箱任务失败。");
@@ -2403,13 +2454,15 @@ export function XhsMasterApp() {
         latestTask = imageGeneration.savedTask;
       }
 
-      const promptGeneration = await generatePrompt(latestTask, {
+      const variants = await generateDraftVariants(latestTask, {
         manageLoading: false,
         showSuccessToast: false,
-        loadingAction: "dashboardDraftPrompt"
+        loadingAction: "dashboardDraftVariants"
       });
-      if (!promptGeneration) return;
-      showToast("图片方案和图文草稿箱指令已生成。");
+      if (!variants) return;
+      setSelectedNoteId(latestTask.id);
+      setActiveTab("prompts");
+      showToast("图片方案和三个文案版本已生成，请选择喜欢的版本复制草稿箱任务。");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -2924,6 +2977,8 @@ export function XhsMasterApp() {
               selectedNoteId={selectedNote?.id ?? null}
               setSelectedNoteId={setSelectedNoteId}
               promptResults={promptResults}
+              draftVariants={draftVariants}
+              generateDraftVariants={generateDraftVariants}
               generatePrompt={generatePrompt}
               copy={copy}
               loading={loading}
@@ -5003,14 +5058,17 @@ function PromptsPanel(props: {
   selectedNoteId: number | null;
   setSelectedNoteId: (id: number) => void;
   promptResults: Record<number, PromptResult>;
-  generatePrompt: (task: NoteTask) => void;
+  draftVariants: Record<number, DraftVariant[]>;
+  generateDraftVariants: (task: NoteTask) => Promise<DraftVariant[] | null>;
+  generatePrompt: (task: NoteTask, selectedDraft: DraftVariant) => Promise<PromptResult | null>;
   copy: (text: string) => void;
   loading: boolean;
   loadingAction: string | null;
 }) {
-  const { plan, selectedNoteId, setSelectedNoteId, promptResults, generatePrompt, copy, loading, loadingAction } = props;
+  const { plan, selectedNoteId, setSelectedNoteId, promptResults, draftVariants, generateDraftVariants, generatePrompt, copy, loading, loadingAction } = props;
   const note = plan?.noteTasks.find((task) => task.id === selectedNoteId) ?? plan?.noteTasks?.[0];
   const result = note ? promptResults[note.id] : null;
+  const variants = note ? draftVariants[note.id] || [] : [];
   const openclawTaskContent = result?.openclawTask?.content || result?.prompt.content || "";
   if (!plan || !note) return <div className="panel"><EmptyState text="先生成本周内容，再生成笔记草稿。" /></div>;
   const hasMediaPlan = Boolean(note.plan?.trim());
@@ -5030,34 +5088,67 @@ function PromptsPanel(props: {
             </button>
           ))}
         </div>
-        <button type="button" onClick={() => generatePrompt(note)} disabled={loading || !hasMediaPlan} aria-busy={loadingAction === "generatePrompt"} className="primary-button mt-4">
+        <button type="button" onClick={() => void generateDraftVariants(note)} disabled={loading || !hasMediaPlan} aria-busy={loadingAction === "generateDraftVariants"} className="primary-button mt-4">
           <ActionButtonContent
-            loading={loadingAction === "generatePrompt"}
+            loading={loadingAction === "generateDraftVariants"}
             icon={<Wand2 size={17} />}
-            idleText={isVideo ? "生成视频草稿箱指令" : "生成图文草稿箱指令"}
-            loadingText="正在生成草稿箱指令..."
+            idleText="生成 3 个标题正文版本"
+            loadingText="正在生成 3 个版本..."
           />
         </button>
         <p className={clsx("mt-3 text-xs leading-5", hasMediaPlan ? "text-ink/60" : "font-medium text-coral")}>
           {hasMediaPlan
-            ? `${isVideo ? "视频" : "图片"}方案已完成，可以生成草稿箱指令。`
+            ? `${isVideo ? "视频" : "图片"}方案已完成。生成三个版本后，选择一个版本复制草稿箱任务。`
             : `当前笔记尚未生成${isVideo ? "视频" : "图片"}方案，请先前往“${isVideo ? "视频方案" : "图片方案 → 单篇精修模式"}”完成方案。`}
         </p>
       </div>
       <div className="space-y-5">
         <div className="panel">
+          <div className="mb-4">
+            <h2 className="section-title">选择标题和正文</h2>
+            <p className="mt-1 text-sm text-ink/60">三个版本只保存在当前页面。选择后生成的 OpenClaw 指令会原样使用标题和正文，不再由 OpenClaw 改写。</p>
+          </div>
+          {variants.length ? <div className="divide-y divide-ink/10 border-y border-ink/10">
+            {variants.map((variant) => (
+              <section key={variant.id} className="py-5 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="rounded bg-teal/10 px-2 py-1 text-sm font-semibold text-teal">{variant.label}</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const generated = await generatePrompt(note, variant);
+                      if (generated) copy(generated.openclawTask?.content || generated.prompt.content);
+                    }}
+                    disabled={loading || !hasMediaPlan}
+                    aria-busy={loadingAction === "generatePrompt"}
+                    className="secondary-button"
+                  >
+                    <ActionButtonContent loading={loadingAction === "generatePrompt"} icon={<Clipboard size={16} />} idleText="复制草稿箱指令" loadingText="正在生成指令..." />
+                  </button>
+                </div>
+                <div className="mt-3">
+                  <h3 className="text-base font-semibold leading-6 text-ink">{variant.title}</h3>
+                </div>
+                <div className="mt-3">
+                  <p className="whitespace-pre-wrap text-sm leading-7 text-ink/75">{variant.body}</p>
+                </div>
+              </section>
+            ))}
+          </div> : <EmptyState text="点击左侧按钮后，后端 AI 会生成三个表达强度不同的标题和正文版本。" />}
+        </div>
+        {openclawTaskContent && <div className="panel">
           <div className="mb-3 flex items-center justify-between">
             <div>
-              <h2 className="section-title">OpenClaw {isVideo ? "视频" : "图文"}草稿箱任务</h2>
-              <p className="mt-1 text-sm text-ink/60">复制完整任务给 OpenClaw：生成标题和正文、使用{isVideo ? "视频" : "图片"}方案成品，并保存到指定账号草稿箱。</p>
+              <h2 className="section-title">已复制的 OpenClaw {isVideo ? "视频" : "图文"}草稿箱任务</h2>
+              <p className="mt-1 text-sm text-ink/60">任务会使用所选版本的原文、已有{isVideo ? "视频" : "图片"}方案成品，并保存到指定账号草稿箱。</p>
             </div>
             <div className="flex gap-2">
               <IconButton title="复制完整任务" onClick={() => copy(openclawTaskContent)} icon={<Clipboard size={17} />} />
               <IconButton title="导出 Markdown" onClick={() => downloadText(`note-${note.id}-openclaw-draft-task.md`, openclawTaskContent)} icon={<Download size={17} />} />
             </div>
           </div>
-          <textarea className="code-textarea min-h-[520px]" value={openclawTaskContent || `点击生成按钮后显示可直接发送给 OpenClaw 的${isVideo ? "视频" : "图文"}草稿箱任务。`} readOnly />
-        </div>
+          <textarea className="code-textarea min-h-[360px]" value={openclawTaskContent} readOnly />
+        </div>}
 
       </div>
     </div>
