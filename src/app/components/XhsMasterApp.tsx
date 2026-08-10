@@ -2412,22 +2412,27 @@ export function XhsMasterApp() {
     options: { removeWatermarks?: boolean } = {}
   ) {
     if (!selected || !latestPlan) return;
-    const existingImageTask = imagePromptResults[task.id]?.openclawTask?.content
-      || imagePromptResults[task.id]?.imagePrompt?.content;
-    const existingDraftTask = promptResults[task.id]?.openclawTask?.content
-      || promptResults[task.id]?.prompt?.content;
-    const shouldGenerateImage = !existingImageTask || Boolean(existingDraftTask);
+    const hasMediaPlan = Boolean(task.plan?.trim());
+    const hasVariants = Boolean(draftVariants[task.id]?.length);
+
+    if (hasVariants) {
+      setSelectedNoteId(task.id);
+      setActiveTab("prompts");
+      showToast("请在笔记草稿中选择一个文案版本，再复制草稿箱指令。");
+      return;
+    }
+
+    if (task.type === "video_text" && !hasMediaPlan) {
+      setSelectedNoteId(task.id);
+      setActiveTab("videos");
+      showToast("视频任务需要先选择视频来源，请在视频方案中继续。");
+      return;
+    }
 
     setLoading(true);
     try {
       let latestTask = task;
-      if (shouldGenerateImage) {
-        if (task.type === "video_text") {
-          setSelectedNoteId(task.id);
-          setActiveTab("videos");
-          showToast("视频任务需要先选择视频来源，请在视频方案中继续。");
-          return;
-        }
+      if (task.type !== "video_text" && !hasMediaPlan) {
         const imageCount = inferQuickImageCount(task.requiredMaterials || "");
         const candidateAssets = (selected.assets || []).filter(
           (asset) => isRemoteImageAsset(asset) && /^https?:\/\//i.test(asset.fileUrl || "")
@@ -2881,6 +2886,7 @@ export function XhsMasterApp() {
               selectedNoteId={selectedNote?.id ?? null}
               setSelectedNoteId={setSelectedNoteId}
               promptResults={promptResults}
+              draftVariants={draftVariants}
               imagePromptResults={imagePromptResults}
               generateContentTasks={generateDashboardContentTasks}
               copy={copy}
@@ -3039,6 +3045,7 @@ function Dashboard({
   selectedNoteId,
   setSelectedNoteId,
   promptResults,
+  draftVariants,
   imagePromptResults,
   generateContentTasks,
   copy,
@@ -3052,6 +3059,7 @@ function Dashboard({
   selectedNoteId: number | null;
   setSelectedNoteId: (id: number) => void;
   promptResults: Record<number, PromptResult>;
+  draftVariants: Record<number, DraftVariant[]>;
   imagePromptResults: Record<number, ImagePromptResult>;
   generateContentTasks: (task: NoteTask, options?: { removeWatermarks?: boolean }) => Promise<void>;
   copy: (text: string) => void;
@@ -3076,21 +3084,21 @@ function Dashboard({
   const currentNote = plan?.noteTasks.find((task) => task.id === selectedNoteId) ?? plan?.noteTasks?.[0];
   const currentImageResult = currentNote ? imagePromptResults[currentNote.id] : null;
   const currentPromptResult = currentNote ? promptResults[currentNote.id] : null;
+  const currentDraftVariants = currentNote ? draftVariants[currentNote.id] || [] : [];
   const isVideoTask = currentNote?.type === "video_text";
   const imageTaskContent = currentImageResult?.openclawTask?.content || currentImageResult?.imagePrompt?.content || currentNote?.plan || "";
   const draftTaskContent = currentPromptResult?.openclawTask?.content || currentPromptResult?.prompt?.content || "";
   const hasImagePlan = Boolean(currentNote?.plan?.trim() || imageTaskContent);
+  const hasDraftVariants = currentDraftVariants.length === 3;
   const hasDraftTask = Boolean(draftTaskContent);
-  const isQuickGenerating = loadingAction === "dashboardImagePrompt" || loadingAction === "dashboardDraftPrompt";
-  const generateButtonText = isVideoTask
-    ? "前往视频方案"
-    : hasImagePlan && hasDraftTask
-    ? "重新生成图片方案 + 文字方案"
-    : hasImagePlan
-      ? "生成文字方案"
-      : "生成图片方案 + 文字方案";
-  const generateLoadingText = loadingAction === "dashboardDraftPrompt"
-    ? "正在生成文字方案..."
+  const isQuickGenerating = loadingAction === "dashboardImagePrompt" || loadingAction === "dashboardDraftVariants";
+  const generateButtonText = !hasImagePlan
+    ? isVideoTask ? "前往视频方案" : "生成图片方案 + 3 个文案版本"
+    : hasDraftVariants
+      ? "选择文案版本"
+      : "生成 3 个标题正文版本";
+  const generateLoadingText = loadingAction === "dashboardDraftVariants"
+    ? "正在生成 3 个文案版本..."
     : "正在生成图片方案...";
 
   function openImageSetup() {
@@ -3155,7 +3163,7 @@ function Dashboard({
               </span>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-ink/60">选择一篇本周笔记，生成可直接交给 OpenClaw 的图片任务和图文草稿箱任务。</p>
+          <p className="mt-1 text-sm text-ink/60">先准备图片或视频方案，再选择一个标题正文版本，最后复制草稿箱指令交给 OpenClaw。</p>
         </div>
 
         {!selected ? (
@@ -3190,8 +3198,9 @@ function Dashboard({
                     const taskDraftContent = promptResults[task.id]?.openclawTask?.content
                       || promptResults[task.id]?.prompt?.content;
                     const taskHasImage = Boolean(task.plan?.trim() || taskImageContent);
+                    const taskHasVariants = (draftVariants[task.id] || []).length === 3;
                     const taskHasDraft = Boolean(taskDraftContent);
-                    const status = taskHasImage && taskHasDraft ? "已就绪" : taskHasImage ? "待生成文字" : "待生成";
+                    const status = taskHasDraft ? "草稿指令已就绪" : taskHasVariants ? "待选择文案" : taskHasImage ? "待生成文案" : "待生成";
                     return (
                       <button
                         key={task.id}
@@ -3221,7 +3230,7 @@ function Dashboard({
                           </span>
                           <span className={clsx(
                             "shrink-0 rounded px-2 py-1 text-xs font-medium",
-                            taskHasDraft ? "bg-teal/10 text-teal" : taskHasImage ? "bg-amber-50 text-amber-700" : "bg-coral/10 text-coral"
+                            taskHasDraft ? "bg-teal/10 text-teal" : taskHasVariants ? "bg-sky-50 text-sky-700" : taskHasImage ? "bg-amber-50 text-amber-700" : "bg-coral/10 text-coral"
                           )}>
                             {status}
                           </span>
@@ -3250,8 +3259,8 @@ function Dashboard({
                       <span>{isVideoTask ? "视频" : "图片"}方案：{hasImagePlan ? "已生成" : "待生成"}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <NotebookPen size={16} className={hasDraftTask ? "text-teal" : "text-ink/35"} />
-                      <span>文字方案：{hasDraftTask ? "已生成" : "待生成"}</span>
+                      <NotebookPen size={16} className={hasDraftTask || hasDraftVariants ? "text-teal" : "text-ink/35"} />
+                      <span>文案版本：{hasDraftTask ? "已选定" : hasDraftVariants ? "待选择" : "待生成"}</span>
                     </div>
                   </div>
                 </div>
@@ -3271,7 +3280,13 @@ function Dashboard({
                   />
                 </button>
                 <p className="mt-2 text-xs leading-5 text-ink/55">
-                  {isVideoTask ? "视频任务需要先选择直接视频或图片转视频模式，点击后将前往视频方案。" : "快捷生成默认使用 AI 自动选图并去除水印；图片完成后才会继续生成文字方案。"}
+                  {!hasImagePlan && isVideoTask
+                    ? "视频任务需要先选择直接视频或图片转视频模式，点击后将前往视频方案。"
+                    : !hasImagePlan
+                      ? "快捷生成默认使用 AI 自动选图并去除水印，完成图片方案后继续生成三个文案版本。"
+                      : hasDraftVariants
+                        ? "三个版本已生成，请选择一个版本后复制草稿箱指令。"
+                        : `${isVideoTask ? "视频" : "图片"}方案已完成，现在可以直接生成三个标题正文版本。`}
                 </p>
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -3283,14 +3298,28 @@ function Dashboard({
                   >
                     {isVideoTask ? <Video size={17} /> : <ImageIcon size={17} />} 复制{isVideoTask ? "视频" : "图片"}方案
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => copy(draftTaskContent)}
-                    disabled={!draftTaskContent || loading}
-                    className="secondary-button w-full justify-center"
-                  >
-                    <FileText size={17} /> 复制文字方案
-                  </button>
+                  {hasDraftTask ? (
+                    <button
+                      type="button"
+                      onClick={() => copy(draftTaskContent)}
+                      disabled={loading}
+                      className="secondary-button w-full justify-center"
+                    >
+                      <FileText size={17} /> 复制草稿箱指令
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedNoteId(currentNote.id);
+                        setActiveTab("prompts");
+                      }}
+                      disabled={!hasDraftVariants || loading}
+                      className="secondary-button w-full justify-center"
+                    >
+                      <NotebookPen size={17} /> 选择文案版本
+                    </button>
+                  )}
                 </div>
 
                 <button type="button" onClick={openImageSetup} className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-teal hover:underline">
@@ -3306,7 +3335,7 @@ function Dashboard({
             </div>
 
             <div className="grid gap-2 rounded border border-ink/10 bg-white/60 p-3 text-sm text-ink/60 sm:grid-cols-4">
-              {["1. 选择笔记", "2. 生成两项任务", "3. 依次复制给 OpenClaw", "4. 人工审核草稿"].map((item, index) => (
+              {["1. 选择笔记", "2. 准备图片或视频方案", "3. 选择标题正文版本", "4. 复制指令并审核草稿"].map((item, index) => (
                 <div key={item} className={clsx("flex items-center gap-2 px-2 py-1", index === 0 && "font-medium text-teal")}>
                   {item}
                 </div>
