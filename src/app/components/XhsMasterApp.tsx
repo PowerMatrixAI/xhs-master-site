@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   Activity,
@@ -8,6 +8,8 @@ import {
   ArrowUp,
   BookOpen,
   CalendarDays,
+  CircleCheck,
+  CircleX,
   Clipboard,
   Download,
   FileText,
@@ -305,6 +307,13 @@ type ImagePromptGeneration = {
   savedTask: NoteTask;
 };
 
+type FeedbackTone = "success" | "error";
+
+type FeedbackDialog = {
+  message: string;
+  tone: FeedbackTone;
+};
+
 const mainTabs = [
   ["dashboard", "工作台", LayoutDashboard],
   ["accounts", "客户账号", ShieldCheck],
@@ -314,7 +323,6 @@ const mainTabs = [
   ["prompts", "笔记草稿", Wand2],
   ["assets", "素材库", Library],
   ["interactions", "发布后互动", MessageCircle],
-  ["drafts", "草稿记录", NotebookPen],
   ["reports", "专家复盘", Activity],
   ["learning", "行业学习", BookOpen]
 ] as const;
@@ -1369,15 +1377,6 @@ function toBackendWeeklyPlan(plan: WeeklyPlan): BackendWeeklyPlan {
   };
 }
 
-function parseDraftContent(bodyDraft?: string) {
-  if (!bodyDraft) return {};
-  try {
-    return JSON.parse(bodyDraft) as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
 function needsAiStrategy(account: Account) {
   const markdown = account.strategy?.markdown?.trim();
   if (!markdown) return true;
@@ -1440,7 +1439,8 @@ export function XhsMasterApp() {
   const [profileContent, setProfileContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<FeedbackDialog | null>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
   const [currentUser, setCurrentUser] = useState<LoginResponse | null>(null);
   const [promptResults, setPromptResults] = useState<Record<number, PromptResult>>({});
   // 三版文案仅保存在当前页面会话中，不同步到浏览器工作区或后端。
@@ -1452,6 +1452,7 @@ export function XhsMasterApp() {
   const [health, setHealth] = useState<any>(null);
   const [manifest, setManifest] = useState<{ content: string; validation: string; path: string } | null>(null);
   const [referenceDraft, setReferenceDraft] = useState<{
+    accountId?: number;
     research?: ReferenceResearch;
     commands?: Array<{ category: string; command: string; description: string; safetyNote: string }>;
     researchPrompt?: string;
@@ -1526,7 +1527,7 @@ export function XhsMasterApp() {
         }
       })
       .catch((error) => {
-        showToast(error instanceof Error ? error.message : "加载账号列表失败。");
+        showToast(error instanceof Error ? error.message : "加载账号列表失败。", "error");
       })
       .finally(() => setBrowserReady(true));
   }, [localTemplates]);
@@ -1566,6 +1567,10 @@ export function XhsMasterApp() {
   useEffect(() => {
     if (templates.length && !accountForm.accountType) setAccountForm(emptyAccountForm(templates));
   }, [templates, accountForm.accountType]);
+
+  useEffect(() => () => {
+    if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (selected?.profile?.content) setProfileContent(selected.profile.content);
@@ -1668,9 +1673,12 @@ export function XhsMasterApp() {
       if (persistedAccount.profile?.content) {
         setProfileContent(persistedAccount.profile.content);
       }
-      showToast(strategyResult.usedLlm ? "账号已创建，AI 策划案已生成。" : strategyResult.error || "账号已创建，并已生成默认策划案。");
+      showToast(
+        strategyResult.usedLlm ? "账号已创建，AI 策划案已生成。" : strategyResult.error || "账号已创建，并已生成默认策划案。",
+        strategyResult.usedLlm || !strategyResult.error ? "success" : "error"
+      );
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "创建失败");
+      showToast(error instanceof Error ? error.message : "创建失败", "error");
     } finally {
       setLoading(false);
     }
@@ -1701,9 +1709,9 @@ export function XhsMasterApp() {
       setInteractionDraft({});
       setIndustryLearningDraft({});
       setActiveTab(nextAccountId ? "dashboard" : "accounts");
-      showToast("账号已删除。");
+      showToast("账号已删除。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "删除账号失败。");
+      showToast(error instanceof Error ? error.message : "删除账号失败。", "error");
     } finally {
       setLoading(false);
     }
@@ -1719,14 +1727,14 @@ export function XhsMasterApp() {
         : { content: profileContent, version: 1, path: account.profilePath }
     }));
     setLoading(false);
-    showToast("配置文件已保存。");
+    showToast("配置文件已保存。", "success");
   }
 
   async function uploadAsset(form: HTMLFormElement, files: File[], clearFiles?: () => void) {
     if (!selected) return;
     const formData = new FormData(form);
     if (!files.length) {
-      showToast("请先选择要上传的图片。");
+      showToast("请先选择要上传的图片。", "error");
       return;
     }
     try {
@@ -1790,9 +1798,9 @@ export function XhsMasterApp() {
       }));
       form.reset();
       clearFiles?.();
-      showToast(`已上传 ${mappedSavedAssets.length} 个素材。`);
+      showToast(`已上传 ${mappedSavedAssets.length} 个素材。`, "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "上传素材失败。");
+      showToast(error instanceof Error ? error.message : "上传素材失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -1808,7 +1816,7 @@ export function XhsMasterApp() {
     });
     const data = await res.json();
     setManifest(data);
-    showToast("素材清单已生成。");
+    showToast("素材清单已生成。", "success");
   }
 
   async function generateWeeklyPlan(event: React.FormEvent<HTMLFormElement>) {
@@ -1833,7 +1841,6 @@ export function XhsMasterApp() {
     }
     setLoading(true);
     setLoadingAction("generateWeeklyPlan");
-    showToast("正在生成一周计划...");
     try {
       const plan = {
         id: Date.now(),
@@ -1901,9 +1908,9 @@ export function XhsMasterApp() {
       }));
       setSelectedNoteId(mappedSavedPlan.noteTasks?.[0]?.id ?? null);
       setActiveTab("prompts");
-      showToast("本周内容计划已生成。");
+      showToast("本周内容计划已生成。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成计划失败。");
+      showToast(error instanceof Error ? error.message : "生成计划失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -1934,9 +1941,9 @@ export function XhsMasterApp() {
       setVideoPromptResults((current) => { const next = { ...current }; delete next[task.id]; return next; });
       setPromptResults((current) => { const next = { ...current }; delete next[task.id]; return next; });
       setDraftVariants((current) => { const next = { ...current }; delete next[task.id]; return next; });
-      showToast(`已切换为${type === "video_text" ? "视频" : "图文"}笔记。`);
+      showToast(`已切换为${type === "video_text" ? "视频" : "图文"}笔记。`, "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "切换帖子类型失败。");
+      showToast(error instanceof Error ? error.message : "切换帖子类型失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -1954,12 +1961,12 @@ export function XhsMasterApp() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "生成爆款研究失败。");
-      setReferenceDraft({ research: data.research, commands: data.commands, researchPrompt: data.researchPrompt });
+      setReferenceDraft({ accountId: selected.id, research: data.research, commands: data.commands, researchPrompt: data.researchPrompt });
       setLoading(false);
-      showToast("爆款研究已生成。");
+      showToast("爆款研究已生成。", "success");
     } catch (error) {
       setLoading(false);
-      showToast(error instanceof Error ? error.message : "生成爆款研究失败。");
+      showToast(error instanceof Error ? error.message : "生成爆款研究失败。", "error");
     }
   }
 
@@ -1977,7 +1984,9 @@ export function XhsMasterApp() {
         body: JSON.stringify({
           action: "save-results",
           account: selected,
-          researchId: referenceDraft.research?.id || selected.referenceResearches?.[0]?.id,
+          researchId: referenceDraft.accountId === selected.id
+            ? referenceDraft.research?.id || selected.referenceResearches?.[0]?.id
+            : selected.referenceResearches?.[0]?.id,
           ...payload
         })
       });
@@ -1990,7 +1999,7 @@ export function XhsMasterApp() {
           account?: { referenceAccounts: string; strategy?: Account["strategy"]; profile?: Account["profile"] };
         }>(`/api/accounts/${selected.id}/reference-research`, data.uuid)
       : data;
-    setReferenceDraft((current) => ({ ...current, research: resolved.research, summary: resolved.summary }));
+      setReferenceDraft((current) => ({ ...current, accountId: selected.id, research: resolved.research, summary: resolved.summary }));
       if (resolved.account) {
         updateSelectedAccount((account) => ({
           ...account,
@@ -2010,9 +2019,9 @@ export function XhsMasterApp() {
         });
       }
       setProfileContent(resolved.account?.profile?.content || profileContent);
-      showToast("已基于爆款研究增强策划案和配置文件。");
+      showToast("已基于爆款研究增强策划案和配置文件。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存参考账号研究失败。");
+      showToast(error instanceof Error ? error.message : "保存参考账号研究失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -2031,9 +2040,9 @@ export function XhsMasterApp() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "生成图片风格研究包失败。");
       setImageStyleDraft({ study: data.study, commands: data.commands, researchPrompt: data.researchPrompt });
-      showToast("图片风格研究已生成。");
+      showToast("图片风格研究已生成。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成图片风格研究包失败。");
+      showToast(error instanceof Error ? error.message : "生成图片风格研究包失败。", "error");
     } finally {
       setLoading(false);
     }
@@ -2070,9 +2079,9 @@ export function XhsMasterApp() {
         ...account,
         imageStyleStudies: [resolved.study, ...(account.imageStyleStudies || []).filter((item) => item.id !== resolved.study.id)]
       }));
-      showToast(resolved.warning || "图片风格研究已总结，后续图片方案会自动引用。");
+      showToast(resolved.warning || "图片风格研究已总结，后续图片方案会自动引用。", resolved.warning ? "error" : "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存图片风格研究失败。");
+      showToast(error instanceof Error ? error.message : "保存图片风格研究失败。", "error");
     } finally {
       setLoading(false);
     }
@@ -2107,9 +2116,9 @@ export function XhsMasterApp() {
         ...account,
         interactionPlans: [data.plan, ...(account.interactionPlans || []).filter((item) => item.id !== data.plan.id)]
       }));
-      showToast("OpenClaw 互动执行指令已生成。");
+      showToast("OpenClaw 互动执行指令已生成。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成目标用户互动研究包失败。");
+      showToast(error instanceof Error ? error.message : "生成目标用户互动研究包失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -2149,9 +2158,9 @@ export function XhsMasterApp() {
         ...account,
         interactionPlans: [resolved.plan, ...(account.interactionPlans || []).filter((item) => item.id !== resolved.plan.id)]
       }));
-      showToast(resolved.warning || "目标用户互动策略已生成。");
+      showToast(resolved.warning || "目标用户互动策略已生成。", resolved.warning ? "error" : "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存目标用户互动结果失败。");
+      showToast(error instanceof Error ? error.message : "保存目标用户互动结果失败。", "error");
     } finally {
       setLoading(false);
     }
@@ -2160,7 +2169,7 @@ export function XhsMasterApp() {
   async function generateDraftVariants(task: NoteTask, controls: GenerationControls = {}): Promise<DraftVariant[] | null> {
     if (!selected || !latestPlan) return null;
     if (!task.plan?.trim()) {
-      showToast(task.type === "video_text" ? "请先生成视频方案，再生成三个版本。" : "请先生成单篇图片方案，再生成三个版本。");
+      showToast(task.type === "video_text" ? "请先生成视频方案，再生成三个版本。" : "请先生成单篇图片方案，再生成三个版本。", "error");
       return null;
     }
     const manageLoading = controls.manageLoading ?? true;
@@ -2188,10 +2197,10 @@ export function XhsMasterApp() {
       const variants = Array.isArray(resolved.variants) ? resolved.variants : [];
       if (variants.length !== 3) throw new Error("后端 AI 未返回完整的三个版本。");
       setDraftVariants((current) => ({ ...current, [task.id]: variants }));
-      if (controls.showSuccessToast ?? true) showToast("已生成三个标题和正文版本，请选择喜欢的版本。");
+      if (controls.showSuccessToast ?? true) showToast("已生成三个标题和正文版本，请选择喜欢的版本。", "success");
       return variants;
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成三个版本失败。");
+      showToast(error instanceof Error ? error.message : "生成三个版本失败。", "error");
       return null;
     } finally {
       if (manageLoading) {
@@ -2204,7 +2213,7 @@ export function XhsMasterApp() {
   async function generatePrompt(task: NoteTask, selectedDraft: DraftVariant, controls: GenerationControls = {}): Promise<PromptResult | null> {
     if (!selected || !latestPlan) return null;
     if (!task.plan?.trim()) {
-      showToast(task.type === "video_text" ? "请先生成视频方案，再生成视频草稿箱指令。" : "请先生成单篇图片方案，再生成图文草稿箱指令。");
+      showToast(task.type === "video_text" ? "请先生成视频方案，再生成视频草稿箱指令。" : "请先生成单篇图片方案，再生成图文草稿箱指令。", "error");
       return null;
     }
     const manageLoading = controls.manageLoading ?? true;
@@ -2238,10 +2247,10 @@ export function XhsMasterApp() {
           }
         )
       }));
-      if (controls.showSuccessToast ?? true) showToast("草稿箱任务已生成，OpenClaw 将原样使用所选标题和正文。");
+      if (controls.showSuccessToast ?? true) showToast("草稿箱任务已生成，OpenClaw 将原样使用所选标题和正文。", "success");
       return data as PromptResult;
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成图文草稿箱任务失败。");
+      showToast(error instanceof Error ? error.message : "生成图文草稿箱任务失败。", "error");
       return null;
     } finally {
       if (manageLoading) {
@@ -2300,10 +2309,10 @@ export function XhsMasterApp() {
               }
         )
       }));
-      if (controls.showSuccessToast ?? true) showToast("图片方案和执行命令已生成。");
+      if (controls.showSuccessToast ?? true) showToast("图片方案和执行命令已生成。", "success");
       return { result: resolved, savedTask: savedUiTask };
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成图片方案失败。");
+      showToast(error instanceof Error ? error.message : "生成图片方案失败。", "error");
       return null;
     } finally {
       if (manageLoading) {
@@ -2341,9 +2350,9 @@ export function XhsMasterApp() {
           noteTasks: plan.noteTasks.map((item) => item.id === task.id ? { ...item, ...savedTask } : item)
         })
       }));
-      showToast(mode === "direct_video" ? "直接视频任务已生成。" : "图片转视频方案已生成。");
+      showToast(mode === "direct_video" ? "直接视频任务已生成。" : "图片转视频方案已生成。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成视频方案失败。");
+      showToast(error instanceof Error ? error.message : "生成视频方案失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -2355,7 +2364,7 @@ export function XhsMasterApp() {
     const token = getToken();
     const user = getUser();
     if (!token || !user) {
-      showToast("登录状态失效，请重新登录后再上传。");
+      showToast("登录状态失效，请重新登录后再上传。", "error");
       return null;
     }
     setLoading(true);
@@ -2382,10 +2391,10 @@ export function XhsMasterApp() {
       const saved = await saveBackendAssets(selected.id, [toBackendAsset(uploaded), ...selected.assets.map(toBackendAsset)]);
       const nextAssets = saved.map((asset) => mapBackendAssetToUiAsset(asset));
       updateSelectedAccount((account) => ({ ...account, assets: nextAssets }));
-      showToast("视频已上传并登记到素材库。");
+      showToast("视频已上传并登记到素材库。", "success");
       return nextAssets.find((asset) => asset.fileUrl === uploaded.fileUrl || asset.filePath === uploaded.filePath) || uploaded;
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "上传视频失败。");
+      showToast(error instanceof Error ? error.message : "上传视频失败。", "error");
       return null;
     } finally {
       setLoading(false);
@@ -2404,14 +2413,14 @@ export function XhsMasterApp() {
     if (hasVariants) {
       setSelectedNoteId(task.id);
       setActiveTab("prompts");
-      showToast("请在笔记草稿中选择一个文案版本，再复制草稿箱指令。");
+      showToast("请在笔记草稿中选择一个文案版本，再复制草稿箱指令。", "error");
       return;
     }
 
     if (task.type === "video_text" && !hasMediaPlan) {
       setSelectedNoteId(task.id);
       setActiveTab("videos");
-      showToast("视频任务需要先选择视频来源，请在视频方案中继续。");
+      showToast("视频任务需要先选择视频来源，请在视频方案中继续。", "error");
       return;
     }
 
@@ -2424,7 +2433,7 @@ export function XhsMasterApp() {
           (asset) => isRemoteImageAsset(asset) && /^https?:\/\//i.test(asset.fileUrl || "")
         );
         if (candidateAssets.length < imageCount) {
-          showToast(`当前素材库只有 ${candidateAssets.length} 张可用图片，快捷生成需要 ${imageCount} 张。请前往图片方案调整。`);
+          showToast(`当前素材库只有 ${candidateAssets.length} 张可用图片，快捷生成需要 ${imageCount} 张。请前往图片方案调整。`, "error");
           return;
         }
 
@@ -2456,7 +2465,7 @@ export function XhsMasterApp() {
       if (!variants) return;
       setSelectedNoteId(latestTask.id);
       setActiveTab("prompts");
-      showToast("图片方案和三个文案版本已生成，请选择喜欢的版本复制草稿箱任务。");
+      showToast("图片方案和三个文案版本已生成，请选择喜欢的版本复制草稿箱任务。", "success");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -2479,51 +2488,9 @@ export function XhsMasterApp() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "生成批量图片帖子失败。");
       setBatchImagePostResults((current) => ({ ...current, [selected.id]: data }));
-      showToast("批量图片帖子任务已生成。");
+      showToast("批量图片帖子任务已生成。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成批量图片帖子失败。");
-    } finally {
-      setLoading(false);
-      setLoadingAction(null);
-    }
-  }
-
-  async function saveDraft(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selected || !latestPlan || !selectedNote) return;
-    const form = new FormData(event.currentTarget);
-    const payload = Object.fromEntries(form.entries()) as Record<string, string>;
-    setLoading(true);
-    setLoadingAction("saveDraft");
-    try {
-      const nextTask: NoteTask = {
-        ...selectedNote,
-        status: "已保存草稿",
-        bodyDraft: JSON.stringify(payload),
-        plan: imagePromptResults[selectedNote.id]?.imagePrompt?.content || selectedNote.plan || ""
-      };
-      const savedTask = await saveBackendNoteTask(selected.id, latestPlan.id, toBackendNoteTask(nextTask));
-      updateSelectedAccount((account) => ({
-        ...account,
-        weeklyPlans: account.weeklyPlans.map((plan) =>
-          plan.id !== latestPlan.id
-            ? plan
-            : {
-                ...plan,
-                noteTasks: plan.noteTasks.map((task) =>
-                  task.id === selectedNote.id
-                    ? {
-                        ...task,
-                        ...savedTask
-                      }
-                    : task
-                )
-              }
-        )
-      }));
-      showToast("草稿已保存。");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存草稿失败。");
+      showToast(error instanceof Error ? error.message : "生成批量图片帖子失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -2600,11 +2567,14 @@ export function XhsMasterApp() {
         // saveResult 按接口约定返回当前账号的完整规则库，不能与旧的本地状态再合并。
         expertRules: savedRules
       }));
-      showToast(savedRules.length > 15
-        ? `专家复盘已保存，但服务端返回 ${savedRules.length} 条规则，超过同账号 15 条上限；请检查服务端 saveResult 的限额与合并逻辑。`
-        : `专家复盘已完成，本次最多提交 5 条候选规则；当前规则库共 ${savedRules.length} 条。`);
+      showToast(
+        savedRules.length > 15
+          ? `专家复盘已保存，但服务端返回 ${savedRules.length} 条规则，超过同账号 15 条上限；请检查服务端 saveResult 的限额与合并逻辑。`
+          : `专家复盘已完成，本次最多提交 5 条候选规则；当前规则库共 ${savedRules.length} 条。`,
+        savedRules.length > 15 ? "error" : "success"
+      );
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成单帖复盘失败。");
+      showToast(error instanceof Error ? error.message : "生成单帖复盘失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -2614,7 +2584,7 @@ export function XhsMasterApp() {
   async function saveExpertRuleSelection(enabledRuleIds: number[]) {
     if (!selected) return;
     if (enabledRuleIds.length > 5) {
-      showToast("每个账号最多启用 5 条规则。");
+      showToast("每个账号最多启用 5 条规则。", "error");
       return;
     }
     setLoading(true);
@@ -2622,9 +2592,9 @@ export function XhsMasterApp() {
     try {
       const rules = await setBackendExpertRulesEnabled(selected.id, enabledRuleIds);
       updateSelectedAccount((account) => ({ ...account, expertRules: rules }));
-      showToast(enabledRuleIds.length ? `已启用 ${enabledRuleIds.length} 条规则。` : "已关闭全部规则。");
+      showToast(enabledRuleIds.length ? `已启用 ${enabledRuleIds.length} 条规则。` : "已关闭全部规则。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存规则选择失败。");
+      showToast(error instanceof Error ? error.message : "保存规则选择失败。", "error");
     } finally {
       setLoading(false);
       setLoadingAction(null);
@@ -2633,38 +2603,7 @@ export function XhsMasterApp() {
 
   async function prepareIndustryLearning(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected) return;
-    const form = new FormData(event.currentTarget);
-    setLoading(true);
-    setLoadingAction("prepareIndustryLearning");
-    try {
-      const res = await authenticatedFetch(`/api/accounts/${selected.id}/industry-learning`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "prepare",
-          account: selected,
-          topic: form.get("topic"),
-          searchScope: form.get("searchScope")
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "生成行业学习任务失败。");
-      setIndustryLearningDraft({ research: data.research, commands: data.commands, researchPrompt: data.researchPrompt });
-      updateSelectedAccount((account) => ({
-        ...account,
-        industryKnowledgeResearches: [
-          data.research,
-          ...(account.industryKnowledgeResearches || []).filter((item) => item.id !== data.research.id)
-        ]
-      }));
-      showToast("行业学习任务已生成。");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成行业学习任务失败。");
-    } finally {
-      setLoading(false);
-      setLoadingAction(null);
-    }
+    showToast("该功能即将上线，敬请期待", "error");
   }
 
   async function saveIndustryLearning(event: React.FormEvent<HTMLFormElement>) {
@@ -2696,9 +2635,9 @@ export function XhsMasterApp() {
           ...(account.industryKnowledgeResearches || []).filter((item) => item.id !== data.research.id)
         ]
       }));
-      showToast("行业学习材料已保存。");
+      showToast("行业学习材料已保存。", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存行业学习失败。");
+      showToast(error instanceof Error ? error.message : "保存行业学习失败。", "error");
     } finally {
       setLoading(false);
     }
@@ -2709,9 +2648,21 @@ export function XhsMasterApp() {
     setHealth(await readJsonResponse(res, { status: "error", checks: [], summary: "系统状态接口返回异常。" }));
   }
 
-  function showToast(message: string) {
-    setToast(message);
-    window.setTimeout(() => setToast(""), 2500);
+  function showToast(message: string, tone: FeedbackTone) {
+    if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
+    setToast({ message, tone });
+    if (tone === "success") {
+      feedbackTimerRef.current = window.setTimeout(() => {
+        setToast((current) => current?.message === message && current.tone === "success" ? null : current);
+        feedbackTimerRef.current = null;
+      }, 3000);
+    }
+  }
+
+  function dismissToast() {
+    if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = null;
+    setToast(null);
   }
 
   function copyWithTextarea(text: string) {
@@ -2730,7 +2681,7 @@ export function XhsMasterApp() {
 
   async function copy(text: string) {
     if (!text) {
-      showToast("当前没有可复制的内容。");
+      showToast("当前没有可复制的内容。", "error");
       return;
     }
 
@@ -2740,13 +2691,11 @@ export function XhsMasterApp() {
       } else {
         copyWithTextarea(text);
       }
-      showToast("已复制到剪贴板。");
     } catch {
       try {
         copyWithTextarea(text);
-        showToast("已复制到剪贴板。");
       } catch {
-        showToast("复制失败，请检查浏览器剪贴板权限。");
+        showToast("复制失败，请检查浏览器剪贴板权限。", "error");
       }
     }
   }
@@ -2864,7 +2813,26 @@ export function XhsMasterApp() {
         </header>
 
         <section className="px-4 py-6 lg:px-8">
-          {toast && <div className="fixed right-5 top-5 z-50 rounded bg-ink px-4 py-2 text-sm text-white shadow-panel">{toast}</div>}
+          {toast && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/20 px-4" role="presentation">
+              <div className="w-full max-w-md rounded-md border border-ink/10 bg-white p-5 shadow-panel" role="alertdialog" aria-modal="true" aria-live="assertive">
+                <div className="flex items-start gap-3">
+                  {toast.tone === "success" ? (
+                    <CircleCheck className="mt-0.5 shrink-0 text-teal" size={28} aria-hidden="true" />
+                  ) : (
+                    <CircleX className="mt-0.5 shrink-0 text-coral" size={28} aria-hidden="true" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-base font-semibold">{toast.tone === "success" ? "操作完成" : "操作提示"}</div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink/70">{toast.message}</p>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end">
+                  <button type="button" className="primary-button" autoFocus onClick={dismissToast}>确认</button>
+                </div>
+              </div>
+            </div>
+          )}
           {activeTab === "dashboard" && (
             <Dashboard
               selected={selected}
@@ -2947,6 +2915,8 @@ export function XhsMasterApp() {
               generateImagePrompt={generateImagePrompt}
               batchImagePostResult={selected ? batchImagePostResults[selected.id] : null}
               generateBatchImagePosts={generateBatchImagePosts}
+              showBatchImagePostsComingSoon={() => showToast("该功能即将上线，敬请期待", "error")}
+              notify={showToast}
               copy={copy}
               loading={loading}
               loadingAction={loadingAction}
@@ -2994,7 +2964,6 @@ export function XhsMasterApp() {
               loadingAction={loadingAction}
             />
           )}
-          {activeTab === "drafts" && <DraftPanel note={selectedNote} saveDraft={saveDraft} loading={loading} loadingAction={loadingAction} />}
           {activeTab === "reports" && (
             <ReportsPanel
               selected={selected}
@@ -3469,6 +3438,7 @@ function AccountsPanel(props: {
 function ReferenceResearchPanel(props: {
   selected?: Account;
   draft: {
+    accountId?: number;
     research?: ReferenceResearch;
     commands?: Array<{ category: string; command: string; description: string; safetyNote: string }>;
     researchPrompt?: string;
@@ -3484,10 +3454,11 @@ function ReferenceResearchPanel(props: {
   const { selected, draft, prepareReferenceResearch, saveReferenceResearch, copy, loading, loadingAction, setActiveTab } = props;
   if (!selected) return <EmptyState />;
 
-  const latest = draft.research || selected.referenceResearches?.[0];
-  const researchPrompt = draft.researchPrompt || latest?.researchPrompt || "";
-  const rawSummaryMarkdown = draft.summary?.summaryMarkdown || latest?.summaryMarkdown || "";
-  const writingStyleInsights = draft.summary?.writingStyleInsights || latest?.writingStyleInsights || "";
+  const scopedDraft = draft.accountId === selected.id ? draft : {};
+  const latest = scopedDraft.research || selected.referenceResearches?.[0];
+  const researchPrompt = scopedDraft.researchPrompt || latest?.researchPrompt || "";
+  const rawSummaryMarkdown = scopedDraft.summary?.summaryMarkdown || latest?.summaryMarkdown || "";
+  const writingStyleInsights = scopedDraft.summary?.writingStyleInsights || latest?.writingStyleInsights || "";
   const summaryMarkdown = [
     rawSummaryMarkdown,
     writingStyleInsights ? `## 爆款正文文风洞察\n\n${writingStyleInsights}` : ""
@@ -3562,23 +3533,15 @@ function ReferenceResearchPanel(props: {
 
         <form className="panel" onSubmit={saveReferenceResearch}>
           <h2 className="section-title">粘贴参考结果，增强现有策划</h2>
-          <p className="mt-1 text-sm text-ink/60">把 xiaohongshu_auto_op 返回的研究报告粘进来，大模型会优先提炼全国爆款规律，并更新当前策划。本地结果只作为补充对照。</p>
+          <p className="mt-1 text-sm text-ink/60">把龙虾智能体返回的研究报告粘进来，大模型会优先提炼全国爆款规律，并更新当前策划。本地结果只作为补充对照。</p>
           <div className="mt-4 grid gap-3">
             <label className="field">
-              <span>重点参考账号</span>
-              <textarea
-                name="selectedAccounts"
-                defaultValue={latest?.selectedAccounts || selected.referenceAccounts}
-                rows={4}
-                placeholder="账号名 / 主页 URL / 为什么值得参考。不确定可以留空。"
-              />
-            </label>
-            <label className="field">
-              <span>xiaohongshu_auto_op 返回结果</span>
+              <span>龙虾爆款研究报告</span>
               <textarea
                 name="rawResults"
                 defaultValue={latest?.rawResults || ""}
                 rows={12}
+                className="!h-[360px] resize-y py-3 leading-6"
                 placeholder="粘贴 xhs-explore 返回的帖子详情、作者主页和图片分析报告"
               />
             </label>
@@ -4141,6 +4104,8 @@ function ImagesPanel(props: {
   generateImagePrompt: (task: NoteTask, options?: SingleImagePromptOptions) => void;
   batchImagePostResult?: BatchImagePostsResult | null;
   generateBatchImagePosts: (options?: { weeks?: string; openclawImagePaths?: string; planningGoal?: string }) => void;
+  showBatchImagePostsComingSoon: () => void;
+  notify: (message: string, tone: FeedbackTone) => void;
   copy: (text: string) => void;
   loading: boolean;
   loadingAction: string | null;
@@ -4158,6 +4123,8 @@ function ImagesPanel(props: {
     generateImagePrompt,
     batchImagePostResult,
     generateBatchImagePosts,
+    showBatchImagePostsComingSoon,
+    notify,
     copy,
     loading,
     loadingAction
@@ -4258,33 +4225,7 @@ function ImagesPanel(props: {
               className="panel min-w-0 overflow-hidden border-teal/30"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (imageSubmitting) return;
-                setImageSubmitting("batch");
-                const form = new FormData(event.currentTarget);
-                const run = async () => {
-                  let imagePaths = collectRemoteImageUrls(form).join("\n");
-                  if (batchUploadFiles.length) {
-                    const uploadData = await uploadFilesWithAuth(batchUploadFiles, {
-                      tags: "批量自动模式上传",
-                      suitableTypes: selected?.accountType || ""
-                    });
-                    const uploadedUrls = (uploadData.assets || [])
-                      .map((asset) => asset.fileUrl)
-                      .filter(Boolean)
-                      .join("\n");
-                    imagePaths = [imagePaths, uploadedUrls].filter(Boolean).join("\n");
-                    onAssetsAdded(uploadData.assets || []);
-                  }
-                  await generateBatchImagePosts({
-                    weeks: String(form.get("weeks") || "1"),
-                    openclawImagePaths: imagePaths,
-                    planningGoal: String(form.get("planningGoal") || "")
-                  });
-                  setBatchUploadFiles([]);
-                };
-                run()
-                  .catch((error) => window.alert(error instanceof Error ? error.message : "生成批量帖子任务失败。"))
-                  .finally(() => setImageSubmitting(null));
+                showBatchImagePostsComingSoon();
               }}
             >
               <div className="mb-4">
@@ -4459,7 +4400,7 @@ function ImagesPanel(props: {
                   if (singleSourceMode === "remote_images") setSingleUploadFiles([]);
                 };
                 run()
-                  .catch((error) => window.alert(error instanceof Error ? error.message : "生成单篇图片方案失败。"))
+                  .catch((error) => notify(error instanceof Error ? error.message : "生成单篇图片方案失败。", "error"))
                   .finally(() => setImageSubmitting(null));
               }}
             >
@@ -5317,49 +5258,6 @@ function InteractionsPanel(props: {
   );
 }
 
-function DraftPanel({
-  note,
-  saveDraft,
-  loading,
-  loadingAction
-}: {
-  note?: NoteTask;
-  saveDraft: (event: React.FormEvent<HTMLFormElement>) => void;
-  loading: boolean;
-  loadingAction: string | null;
-}) {
-  if (!note) return <div className="panel"><EmptyState text="先选择或生成一篇本周内容。" /></div>;
-  const draft = parseDraftContent(note.bodyDraft);
-  return (
-    <form className="panel" onSubmit={saveDraft}>
-      <h2 className="section-title">保存 skill 返回的草稿结果</h2>
-      <p className="mb-4 text-sm text-ink/60">{note.topicTitle}</p>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Textarea name="titleCandidates" label="标题候选" defaultValue={draft.titleCandidates || ""} />
-        <Input name="finalTitle" label="最终标题" defaultValue={draft.finalTitle || ""} />
-        <Textarea name="coverCopyCandidates" label="封面文案候选" defaultValue={draft.coverCopyCandidates || ""} />
-        <Input name="finalCoverCopy" label="最终封面文案" defaultValue={draft.finalCoverCopy || ""} />
-        <Textarea name="body" label="正文" defaultValue={draft.body || ""} />
-        <Textarea name="imageOrderAdvice" label="图片排序建议" defaultValue={draft.imageOrderAdvice || ""} />
-        <Textarea name="imageCaptions" label="每张图配文" defaultValue={draft.imageCaptions || ""} />
-        <Input name="tags" label="标签" defaultValue={draft.tags || ""} />
-        <Textarea name="commentGuide" label="评论区引导" defaultValue={draft.commentGuide || ""} />
-        <Textarea name="publishAdvice" label="发布建议" defaultValue={draft.publishAdvice || ""} />
-        <Input name="publishStatus" label="发布状态" defaultValue={draft.publishStatus || "未发布"} />
-        <Textarea name="rawResult" label="原始返回内容" defaultValue={draft.rawResult || ""} />
-      </div>
-      <button type="submit" disabled={loading} aria-busy={loadingAction === "saveDraft"} className="primary-button mt-4">
-        <ActionButtonContent
-          loading={loadingAction === "saveDraft"}
-          icon={<Save size={17} />}
-          idleText="保存草稿结果"
-          loadingText="正在保存草稿结果..."
-        />
-      </button>
-    </form>
-  );
-}
-
 function ReportsPanel(props: {
   selected?: Account;
   latestPlan?: WeeklyPlan;
@@ -5420,7 +5318,7 @@ function ReportsPanel(props: {
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(380px,480px)_minmax(0,1fr)]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <form className="panel min-w-0" onSubmit={generatePostReview}>
           <div className="mb-4">
             <h2 className="section-title">单篇帖子复盘</h2>
