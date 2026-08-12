@@ -2695,11 +2695,9 @@ export function XhsMasterApp() {
       } else {
         copyWithTextarea(text);
       }
-      showToast("已复制到剪贴板。", "success");
     } catch {
       try {
         copyWithTextarea(text);
-        showToast("已复制到剪贴板。", "success");
       } catch {
         showToast("复制失败，请检查浏览器剪贴板权限。", "error");
       }
