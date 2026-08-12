@@ -2,6 +2,7 @@ import { accountTypeTemplates, getTemplateByKey } from "@/data/accountTypeTempla
 import { completeWithBackendAi } from "@/lib/backendAiClient";
 import type { RecentWeeklyTopicGroup } from "@/lib/weeklyTopicHistory";
 import { normalizeWeeklyTaskMedia } from "@/lib/weeklyPlan";
+import { formatWeeklyPlanningObjectiveRules, type SelectedWeeklyPlanningObjective } from "@/lib/weeklyPlanningObjectives";
 import { extractWritingStyleReferences, findWritingStyleReference } from "@/lib/writingStyles";
 
 type ClientAccountInput = {
@@ -66,6 +67,7 @@ type WeeklyPlanInput = {
   taboos: string;
   weeklyFocus?: string;
   recentTopicGroups?: RecentWeeklyTopicGroup[];
+  selectedObjectives?: SelectedWeeklyPlanningObjective[];
 };
 
 function appendOpenClawAccountIdentity(text: string, account: Pick<ClientAccountInput, "name" | "accountParam">) {
@@ -344,8 +346,10 @@ export async function generateWeeklyTasksWithBrowserLlm(input: {
     commercializationMove: input.weeklyInput.commercializationMove,
     interactionGoal: input.weeklyInput.interactionGoal,
     taboos: input.weeklyInput.taboos,
-    weeklyFocus: input.weeklyInput.weeklyFocus
+    weeklyFocus: input.weeklyInput.weeklyFocus,
+    selectedObjectives: input.weeklyInput.selectedObjectives?.map(({ id, name }) => ({ id, name }))
   };
+  const objectiveRules = formatWeeklyPlanningObjectiveRules(input.weeklyInput.selectedObjectives || []);
   const dedupRequirements = recentTopicGroups.length
     ? `
 - “最近两周历史主题”只用于排除重复，不是选题示例；不要复用或改写这些标题。
@@ -382,7 +386,7 @@ export async function generateWeeklyTasksWithBrowserLlm(input: {
 - 优先把每篇任务设计为围绕一个具体且可写的产品、菜品、服务、活动、体验或在地场景展开；有真实素材或可核验信息时，应在 topicTitle、contentGoal 和 coreView 中点出具体对象、可感知细节和用户能获得的体验，不要只给“菜单、预算、价格透明、避免踩雷、降低顾虑”等抽象理性设定。
 - 除非用户本周重点明确要求价格、预约、交通等决策信息，否则不得把它们单独设为一篇帖子的主轴；这类信息只能作为具体产品、服务、活动或体验内容的辅助事实。
 - contentGoal 和 coreView 应描述本篇要呈现的具体内容、关键词、真实细节与用户感受，不得写成点单教程、风险提示、运营分析或“先/再/最后”的行文规则。
-- 如果 weeklyInput.weeklyFocus 非空，它代表用户主动指定的本周重点，应作为本周选题的最高优先级；围绕该重点拆分具体且不重复的任务，同时遵循账号定位和平台安全边界。
+- 如果 weeklyInput.weeklyFocus 非空，它代表用户主动指定的本周重点，应作为本周选题的最高优先级；围绕该重点拆分具体且不重复的任务，但不得违反下方“已选本周运营目标的专项限制”。只有用户明确要求某项内容时，才可突破该目标中的对应默认限制。
 - 如果 weeklyInput.weeklyFocus 为空，则以完整 strategy 和本周运营目标为主要依据生成选题。
 - 当前执行模式是只生成计划、Prompt 和命令建议，不允许真实发布或互动。
 - 每篇任务必须具体到用户痛点、核心观点、可写事实与素材范围、图片或视频素材要求、评论区钩子。
@@ -390,6 +394,8 @@ export async function generateWeeklyTasksWithBrowserLlm(input: {
 - 信息不足时优先使用合理的创作性场景、情绪和感官表达补足内容，不要把资料缺口或核验说明写成帖子主内容。
 - 推荐素材只能来自输入素材或明确写“素材缺口”，禁止伪造真实素材。
 - 只返回 JSON，不要 Markdown 代码块。${dedupRequirements}
+
+${objectiveRules}
 
 输入：
 ${JSON.stringify(

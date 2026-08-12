@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clampWeeklyFrequency, normalizeWeeklyRatio } from "@/lib/weeklyPlan";
 import { generateWeeklyTasksWithLlm } from "@/lib/llm";
 import { collectRecentWeeklyTopicGroups } from "@/lib/weeklyTopicHistory";
+import { selectedWeeklyPlanningObjectives } from "@/lib/weeklyPlanningObjectives";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -29,6 +30,9 @@ export async function POST(request: Request) {
   };
 
   const weeklyFocus = String(body.weeklyFocus || "").trim();
+  const selectedObjectiveIds = Array.isArray(body.selectedObjectiveIds)
+    ? body.selectedObjectiveIds.map(String)
+    : String(body.selectedObjectiveIds || "").split(",").map((value) => value.trim()).filter(Boolean);
   const weeklyPlanInput = { ...body, frequency, ratio };
   const recentTopicGroups = weeklyFocus
     ? []
@@ -36,6 +40,7 @@ export async function POST(request: Request) {
   const weeklyInput = {
     ...weeklyPlanInput,
     weeklyFocus,
+    selectedObjectives: selectedWeeklyPlanningObjectives(account.accountType, selectedObjectiveIds),
     recentTopicGroups
   };
   try {
