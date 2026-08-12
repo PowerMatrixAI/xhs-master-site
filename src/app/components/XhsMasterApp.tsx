@@ -62,6 +62,12 @@ import { loadBrowserWorkspace, saveBrowserWorkspace } from "@/lib/browserWorkspa
 import { accountTypeTemplates } from "@/data/accountTypeTemplates";
 import { clampWeeklyFrequency, normalizeWeeklyTaskMedia } from "@/lib/weeklyPlan";
 import { collectRecentWeeklyTopicGroups } from "@/lib/weeklyTopicHistory";
+import {
+  combineWeeklyPlanningObjectives,
+  getWeeklyPlanningObjectives,
+  selectedWeeklyPlanningObjectives,
+  type WeeklyPlanningObjective
+} from "@/lib/weeklyPlanningObjectives";
 import { isExpertRuleEnabled } from "@/lib/expertLearning";
 import type React from "react";
 import clsx from "clsx";
@@ -924,29 +930,6 @@ function weeklyFocusCopy(accountType?: string) {
     }
   };
   return copies[mode];
-}
-
-type WeeklyPreset = {
-  name: string;
-  help: string;
-  theme: string;
-  goal: string;
-};
-
-function uniqueJoin(values: string[], separator = "；") {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).join(separator);
-}
-
-function combineWeeklyPresets(presets: WeeklyPreset[]): WeeklyPreset {
-  const active = presets.length ? presets : [weeklyPresets("restaurant")[0]];
-  if (active.length === 1) return active[0];
-  const names = active.map((preset) => preset.name);
-  return {
-    name: names.join(" + "),
-    help: uniqueJoin(active.map((preset) => preset.help)),
-    theme: `${names.join(" + ")}综合周`,
-    goal: uniqueJoin(active.map((preset) => preset.goal))
-  };
 }
 
 function emptyAccountForm(templates: Template[]) {
@@ -1839,12 +1822,14 @@ export function XhsMasterApp() {
     payload.frequency = String(frequency);
     payload.ratio = ratio;
     const weeklyFocus = String(payload.weeklyFocus || "").trim();
+    const selectedObjectiveIds = String(payload.selectedObjectiveIds || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const selectedObjectives = selectedWeeklyPlanningObjectives(selected.accountType, selectedObjectiveIds);
     if (weeklyFocus) {
       payload.theme = `${String(payload.theme || "本周主题")}｜本周重点：${weeklyFocus}`;
       payload.goal = `${String(payload.goal || "验证内容方向并积累可复用素材")}；优先围绕本周重点「${weeklyFocus}」安排内容。`;
-      payload.testHypothesis = `本周验证「${weeklyFocus}」是否能带来更高点击、收藏、评论咨询或到店转化。`;
-      payload.commercializationMove = `围绕「${weeklyFocus}」轻量提示预约、到店、活动期限、套餐权益或咨询入口；所有价格、活动和库存必须人工确认。`;
-      payload.interactionGoal = `引导用户围绕「${weeklyFocus}」留言人数、预算、时间、偏好、忌口或交通问题。`;
     }
     setLoading(true);
     setLoadingAction("generateWeeklyPlan");
@@ -1884,6 +1869,7 @@ export function XhsMasterApp() {
         ...weeklyPlanInput,
         videoCount,
         weeklyFocus,
+        selectedObjectives,
         recentTopicGroups
       };
       const llmResult = await generateWeeklyTasksWithBrowserLlm({
@@ -3905,7 +3891,7 @@ function WeeklyPanel({
   loadingAction: string | null;
 }) {
   const accountType = selected?.accountType || "restaurant";
-  const presets = useMemo(() => weeklyPresets(accountType), [accountType]);
+  const presets = useMemo(() => getWeeklyPlanningObjectives(accountType), [accountType]);
   const [selectedPresetNames, setSelectedPresetNames] = useState<string[]>([]);
   const [weeklyFrequency, setWeeklyFrequency] = useState("4");
   const [weeklyVideoCount, setWeeklyVideoCount] = useState("1");
@@ -3918,9 +3904,9 @@ function WeeklyPanel({
   if (!selected) return <EmptyState />;
   const selectedPresets = selectedPresetNames
     .map((name) => presets.find((preset) => preset.name === name))
-    .filter((preset): preset is WeeklyPreset => Boolean(preset));
+    .filter((preset): preset is WeeklyPlanningObjective => Boolean(preset));
   const activePresets = selectedPresets.length ? selectedPresets : [presets[0]].filter(Boolean);
-  const combinedPreset = combineWeeklyPresets(activePresets);
+  const combinedPreset = combineWeeklyPlanningObjectives(activePresets);
   const latestResearch = selected.referenceResearches?.[0];
   const hasStrategy = Boolean(selected.strategy?.markdown);
   const hasResearch = Boolean(latestResearch?.summaryMarkdown);
@@ -4039,6 +4025,7 @@ function WeeklyPanel({
             />
             <input type="hidden" name="theme" value={combinedPreset.theme} readOnly />
             <input type="hidden" name="goal" value={combinedPreset.goal} readOnly />
+            <input type="hidden" name="selectedObjectiveIds" value={activePresets.map((preset) => preset.id).join(",")} readOnly />
             <input type="hidden" name="taboos" defaultValue={selected.taboos} />
           </div>
 
@@ -5928,311 +5915,4 @@ ${plan.noteTasks
 - 预期目标：${task.expectedGoal}`
   )
   .join("\n\n")}`;
-}
-
-function weeklyPresets(accountType: string) {
-  if (accountType === "wedding_planning") {
-    return [
-      {
-        name: "婚礼细节拆解",
-        help: "适合婚礼账号冷启动：先从真实图片里拆出新人最想收藏的细节。",
-        theme: "婚礼细节拆解和备婚收藏周",
-        goal: "提升收藏和评论咨询，让备婚用户明确哪些细节值得参考、适合什么预算和场地",
-        testHypothesis: "真实婚礼细节图 + 风格/预算/适合人群信息卡，比泛泛案例展示更容易被备婚用户收藏。",
-        commercializationMove: "轻量提示婚礼策划咨询、档期、套餐和到店沟通，价格和档期必须人工确认。",
-        interactionGoal: "引导用户留言城市、婚期、预算、场地类型和喜欢的婚礼风格。",
-        availableAssets: "婚礼蛋糕、甜品台、花艺、仪式区、迎宾牌、桌花、席位卡、灯光布幔、纸品和场地动线等真实婚礼现场图。"
-      },
-      {
-        name: "真实案例转化",
-        help: "适合已有真实婚礼案例的策划公司：用授权案例建立信任。",
-        theme: "真实婚礼案例和咨询转化周",
-        goal: "展示真实案例的审美、流程和落地能力，沉淀有效咨询",
-        testHypothesis: "授权案例 + 细节拆解 + 待确认边界，会比单纯晒图更容易带来高质量咨询。",
-        commercializationMove: "自然提到档期咨询、方案沟通、套餐边界和到店预约，不虚构价格和成交。",
-        interactionGoal: "引导用户留言婚期、城市、预算、场地、桌数和喜欢的参考风格。",
-        availableAssets: "授权婚礼案例图、现场布置图、仪式区、迎宾区、桌面细节、花艺、灯光和流程花絮。"
-      },
-      {
-        name: "婚礼体验服务",
-        help: "适合展示策划服务、现场体验和新人决策过程，帮助用户理解服务价值。",
-        theme: "婚礼策划服务和现场体验周",
-        goal: "讲清婚礼策划服务能解决什么问题、体验流程和适合的新人类型，沉淀高意向咨询",
-        testHypothesis: "服务流程 + 新人体验细节 + 可核验案例，比单纯展示婚礼效果更容易建立咨询信任。",
-        commercializationMove: "自然介绍方案沟通、现场执行、套餐服务和预约方式，价格与档期以人工确认为准。",
-        interactionGoal: "引导用户留言婚期、预算、场地和最需要策划方解决的问题。",
-        availableAssets: "授权婚礼案例、策划沟通、现场执行、流程节点、场地布置和新人授权体验素材。"
-      }
-    ];
-  }
-  const mode = accountUiMode(accountType);
-  const presets = {
-    culture_tourism: [
-      {
-        name: "目的地动线",
-        help: "适合文旅项目冷启动：先让用户知道这里怎么逛、值不值得去。",
-        theme: "文旅目的地动线攻略周",
-        goal: "提升收藏和出行咨询，收集用户最关心的交通票务问题",
-        testHypothesis: "真实目的地图 + 动线信息，比单纯风景图更容易被收藏。",
-        commercializationMove: "轻量提到票务、活动报名、线路产品或官方咨询入口。",
-        interactionGoal: "每篇引导用户留言出行日期、同行人、交通方式和最想看的体验。",
-        availableAssets: "目的地图、活动现场图、导览图、票务/交通截图；缺图就生成补拍/补资料清单。"
-      },
-      {
-        name: "节庆活动",
-        help: "适合有民俗节庆、演出、市集或季节活动的目的地。",
-        theme: "节庆活动和周末玩法周",
-        goal: "让用户明确活动时间、看点、动线和是否适合自己",
-        testHypothesis: "活动现场图搭配日期和交通，会提升评论咨询。",
-        commercializationMove: "自然提到预约、票务、停车或活动报名，以人工确认信息为准。",
-        interactionGoal: "引导用户留言想来的日期、是否亲子、是否需要避开人流。",
-        availableAssets: "活动现场、节目单、导览图、交通停车、服务设施照片。"
-      },
-      {
-        name: "文旅体验产品",
-        help: "适合把目的地的特色体验、线路产品和活动讲清楚。",
-        theme: "目的地特色体验和文旅产品周",
-        goal: "让用户明确当地有什么值得参与的体验、适合谁、如何预约和如何融入行程",
-        testHypothesis: "体验过程 + 特色看点 + 适用人群，比单纯介绍景点更容易带来收藏和咨询。",
-        commercializationMove: "自然提到体验预约、线路产品、活动报名或官方咨询入口，信息以人工确认为准。",
-        interactionGoal: "引导用户留言想体验的项目、同行人、日期和预算。",
-        availableAssets: "体验过程、活动现场、特色项目、路线节点、预约说明和授权人物素材。"
-      }
-    ],
-    heritage: [
-      {
-        name: "工艺故事",
-        help: "适合民俗/非遗冷启动：先建立真实质感和文化信任。",
-        theme: "非遗工艺故事周",
-        goal: "提升收藏和体验咨询，收集用户想了解的工艺问题",
-        testHypothesis: "真实手作细节 + 制作流程，比单纯成品图更容易建立信任。",
-        commercializationMove: "轻量提到体验预约、研学课程或文创购买，不做硬转化。",
-        interactionGoal: "引导用户留言想体验的工艺、是否亲子/研学、想了解哪一步。",
-        availableAssets: "工艺细节、作品、工具、制作过程、授权人物图。"
-      },
-      {
-        name: "体验预约",
-        help: "适合已有工作坊、节庆活动或研学产品的项目。",
-        theme: "民俗体验和预约转化周",
-        goal: "让用户明确怎么参加、适合谁、时间地点和预约方式",
-        testHypothesis: "体验流程图搭配预约信息，会提升咨询和报名意愿。",
-        commercializationMove: "自然提到体验预约、亲子研学、团建或节庆活动。",
-        interactionGoal: "引导用户留言日期、人数、年龄段、预算和是否需要讲解。",
-        availableAssets: "活动现场、体验流程、场地、预约信息、注意事项。"
-      },
-      {
-        name: "民俗活动体验",
-        help: "适合展示节庆、工作坊和亲子研学等可参与的文化体验。",
-        theme: "民俗活动和非遗体验周",
-        goal: "让用户了解活动特色、参与流程、适合人群和体验价值，促进预约与研学咨询",
-        testHypothesis: "活动过程 + 手作成果 + 参与者感受，比抽象文化说明更容易激发参与意愿。",
-        commercializationMove: "自然提到体验预约、研学课程、团建和文创购买，具体信息人工确认。",
-        interactionGoal: "引导用户留言想参加的活动、人数、年龄段和可参与时间。",
-        availableAssets: "活动现场、体验流程、作品成果、场地、讲解和授权人物素材。"
-      }
-    ],
-    stay: [
-      {
-        name: "房型空间",
-        help: "适合民宿/酒店/营地冷启动：先把真实空间讲清楚。",
-        theme: "房型空间和入住场景周",
-        goal: "提升收藏和日期咨询，让用户判断是否适合入住",
-        testHypothesis: "真实房型图 + 设施信息，比氛围空镜更容易带来咨询。",
-        commercializationMove: "轻量提到订房、套餐、团建或亲子活动。",
-        interactionGoal: "引导用户留言日期、人数、预算、亲子/宠物/停车需求。",
-        availableAssets: "房间、窗景、公共区、早餐、营地设施、周边体验照片。"
-      },
-      {
-        name: "周边体验",
-        help: "适合把住宿从单一房间扩展成周末目的地。",
-        theme: "住宿周边玩法周",
-        goal: "让用户知道住这里能玩什么、适合几天几夜",
-        testHypothesis: "房型图搭配周边动线，会提升收藏和停留时长。",
-        commercializationMove: "自然提到套餐、活动、接驳或周边合作。",
-        interactionGoal: "引导用户留言是否亲子、是否自驾、想安静还是想活动丰富。",
-        availableAssets: "周边景点、路线、餐饮、活动、公共区和房间图。"
-      },
-      {
-        name: "住宿活动服务",
-        help: "适合展示住宿之外的餐饮、团建、亲子、接驳或季节活动服务。",
-        theme: "住宿配套服务和活动体验周",
-        goal: "让用户明确住宿能提供哪些配套服务和活动体验，提升预订咨询与停留时长",
-        testHypothesis: "服务流程 + 活动现场 + 适合人群，比单纯展示房间更容易促成预订咨询。",
-        commercializationMove: "自然提到套餐、活动、餐饮、接驳或团建服务，价格和档期人工确认。",
-        interactionGoal: "引导用户留言入住日期、同行人、想参加的活动和服务需求。",
-        availableAssets: "活动现场、餐饮、公共设施、亲子/团建体验、接驳和房间素材。"
-      }
-    ],
-    food: [
-      {
-        name: "单菜品爆款",
-        help: "适合餐饮冷启动：每篇只打透一道菜，让用户先记住招牌。",
-        theme: "单菜品图文种草周",
-        goal: "提升点击和收藏，收集用户最想点的菜品反馈",
-        testHypothesis: "图片文件名直接使用菜名，系统按菜名匹配图片和正文，会比人工挑图更稳定。",
-        commercializationMove: "轻量提到预约、套餐或适合几人来吃，不做强促销。",
-        interactionGoal: "每篇引导用户留言想看哪道菜、几个人来、有没有忌口、是否需要停车信息。",
-        availableAssets: "先把图片整理到素材库；文件名尽量体现菜名或环境名，方便后续自动识别。"
-      },
-      {
-        name: "活动转化",
-        help: "适合有团购、节日套餐、上新、限时活动或游客套餐的门店。",
-        theme: "营销活动和套餐转化周",
-        goal: "让用户明确活动主推菜、适合几个人、多少钱、怎么预约、什么时候结束",
-        testHypothesis: "主菜图 + 活动权益信息卡 + 交通漫画卡，会比只发套餐海报更容易带来到店咨询。",
-        commercializationMove: "自然提到团购、预约、节日套餐、活动期限或私域咨询入口，价格和期限必须人工确认。",
-        interactionGoal: "引导用户留言人数、预算、是否需要包间、用餐日期和停车问题。",
-        availableAssets: "活动主菜图、套餐菜品图、菜单/活动规则图、包间/大厅/门头/停车入口图。"
-      },
-      {
-        name: "当地特色",
-        help: "适合游客型、本地菜、农家菜或有地域食材记忆点的门店。",
-        theme: "当地特色菜和游客到店周",
-        goal: "让用户知道来本地为什么要吃这道菜、适合什么行程后到店",
-        testHypothesis: "当地特色菜 + 门头/交通漫画卡，会比普通菜品标题更容易吸引游客收藏。",
-        commercializationMove: "轻量提示适合游客、家庭、朋友局或逛完某个地点后来吃。",
-        interactionGoal: "引导用户留言从哪里出发、几个人、想吃本地菜还是套餐、是否开车。",
-        availableAssets: "当地特色菜图、食材/做法图、门头、停车入口、附近地标或交通节点照片。"
-      },
-      {
-        name: "到店体验",
-        help: "适合展示用餐氛围、服务流程和适合不同人群的消费体验。",
-        theme: "餐厅到店体验和服务周",
-        goal: "让用户明确到店后的环境、服务、用餐场景和适合人群，降低消费顾虑并促进到店",
-        testHypothesis: "真实用餐过程 + 服务细节 + 适合场景，比单独介绍环境更容易带来咨询。",
-        commercializationMove: "自然提到预约、包间、套餐和到店服务，价格、活动和库存人工确认。",
-        interactionGoal: "引导用户留言用餐人数、场景、预算和最在意的服务细节。",
-        availableAssets: "门店空间、服务流程、包间、大厅、上菜过程、菜单和授权顾客体验素材。"
-      }
-    ],
-    outdoor: [
-      {
-        name: "路线日记",
-        help: "适合冷启动：先让用户记住账号会提供真实、可判断的路线复盘。",
-        theme: "户外路线日记周",
-        goal: "提升点击和收藏，收集用户最想看的路线问题",
-        testHypothesis: "真实现场图 + 路线决策信息，比单纯风景图更容易带来收藏。",
-        commercializationMove: "轻量提到路线合集或装备清单，不做强转化。",
-        interactionGoal: "每篇引导用户留言体力基础、出发季节、交通方式和最担心的问题。",
-        availableAssets: "路线图、轨迹截图、现场图、关键路况图；缺图就生成补拍/补资料清单。"
-      },
-      {
-        name: "攻略收藏",
-        help: "适合把一条路线讲清楚，让用户觉得能照着走。",
-        theme: "户外路线攻略收藏周",
-        goal: "让用户明确路线难度、交通补给、时间和适合人群",
-        testHypothesis: "距离、爬升、起终点、撤退点写清楚，会提升收藏和评论提问。",
-        commercializationMove: "可以自然提到路线资料包、地图文件或装备清单。",
-        interactionGoal: "引导用户留言是否需要轨迹、交通方式、同行人数和体力水平。",
-        availableAssets: "轨迹截图、路线图、交通截图、补给点照片、路况节点图。"
-      },
-      {
-        name: "户外活动服务",
-        help: "适合有户外活动、领队、课程或装备服务的账号。",
-        theme: "户外活动和装备服务体验周",
-        goal: "讲清活动特色、参与门槛、服务流程和装备支持，沉淀报名与咨询",
-        testHypothesis: "活动过程 + 服务保障 + 适合人群，比单纯路线介绍更容易促进报名。",
-        commercializationMove: "自然提到活动报名、领队服务、课程和装备清单，名额与价格人工确认。",
-        interactionGoal: "引导用户留言体力基础、想参加的活动、同行人数和装备顾虑。",
-        availableAssets: "活动现场、领队过程、装备、路线节点、课程内容和授权参与者素材。"
-      }
-    ],
-    museum: [
-      {
-        name: "展览看点",
-        help: "适合展馆/研学冷启动：先让用户知道为什么值得看。",
-        theme: "展览看点和观展动线周",
-        goal: "提升收藏和预约咨询，让用户明确展期、看点和适合人群",
-        testHypothesis: "真实展品图 + 观展动线，比单张海报更容易被收藏。",
-        commercializationMove: "轻量提到预约票务、讲解服务、研学课程或文创。",
-        interactionGoal: "引导用户留言观展时间、孩子年龄、是否需要讲解和最想看的展区。",
-        availableAssets: "展品授权图、展厅图、导览图、展期/票务截图、活动照片。"
-      },
-      {
-        name: "亲子研学",
-        help: "适合有研学课程、亲子讲解或教育产品的展馆。",
-        theme: "亲子研学体验周",
-        goal: "让家长明确适合年龄、学习点、时长和预约方式",
-        testHypothesis: "年龄段和学习点写清楚，会提升家长收藏和咨询。",
-        commercializationMove: "自然提到研学课程、讲解预约或活动报名。",
-        interactionGoal: "引导用户留言孩子年龄、想学主题、可到馆时间。",
-        availableAssets: "研学活动、展品故事、教具、讲解空间、预约信息。"
-      },
-      {
-        name: "展馆活动体验",
-        help: "适合推广展览活动、讲解、工作坊和节假日特别体验。",
-        theme: "展馆活动和观展体验周",
-        goal: "让用户了解展馆活动特色、参与方式和适合人群，促进预约与到馆",
-        testHypothesis: "活动现场 + 参与成果 + 适龄信息，比单纯介绍展品更容易带来预约。",
-        commercializationMove: "自然提到讲解、工作坊、研学课程、票务或文创服务，信息人工确认。",
-        interactionGoal: "引导用户留言想参加的活动、孩子年龄、观展日期和需要的服务。",
-        availableAssets: "活动现场、讲解过程、工作坊、展品、教具、预约和票务信息。"
-      }
-    ],
-    product: [
-      {
-        name: "产品种草",
-        help: "适合特产/文创冷启动：先讲清楚产品是什么、适合谁。",
-        theme: "地域产品种草周",
-        goal: "提升收藏和购买咨询，收集用户对规格价格的反馈",
-        testHypothesis: "真实产品图 + 规格价格卡，比单纯氛围图更容易带来咨询。",
-        commercializationMove: "轻量提到购买方式、团购、伴手礼或文旅联动。",
-        interactionGoal: "引导用户留言用途、预算、口味偏好和送礼对象。",
-        availableAssets: "产品、包装、产地、原料、制作过程、规格价格图。"
-      },
-      {
-        name: "礼盒转化",
-        help: "适合节日礼盒、伴手礼或文创套装。",
-        theme: "伴手礼和礼盒转化周",
-        goal: "让用户明确送谁合适、规格价格、怎么购买",
-        testHypothesis: "送礼场景 + 价格规格，会提升收藏和询价。",
-        commercializationMove: "自然提到团购、预订、物流和库存，以人工确认信息为准。",
-        interactionGoal: "引导用户留言送礼对象、预算、数量和到货时间。",
-        availableAssets: "礼盒、包装、产品细节、使用场景、规格价格表。"
-      },
-      {
-        name: "文旅伴手礼体验",
-        help: "适合把产品与当地旅行、节庆和礼赠场景结合起来。",
-        theme: "地方伴手礼和文旅体验周",
-        goal: "让用户理解产品的地域特色、使用场景和购买方式，促进伴手礼咨询与转化",
-        testHypothesis: "产地故事 + 使用/送礼场景 + 产品体验，比单纯展示包装更容易被收藏。",
-        commercializationMove: "自然提到购买、团购、景区联动或节庆礼赠，库存与物流人工确认。",
-        interactionGoal: "引导用户留言旅行目的地、送礼对象、预算和想尝试的口味/功能。",
-        availableAssets: "产品体验、产地、景区/活动、包装、礼赠场景和授权人物素材。"
-      }
-    ],
-    service: [
-      {
-        name: "服务信任",
-        help: "适合本地服务冷启动：先把服务流程和边界讲清楚。",
-        theme: "本地服务流程和信任周",
-        goal: "提升评论咨询和预约意向，降低用户对价格和效果的顾虑",
-        testHypothesis: "真实流程图 + 价格边界，比单纯案例图更容易建立信任。",
-        commercializationMove: "轻量提到预约、套餐、会员或本地咨询。",
-        interactionGoal: "引导用户留言预算、时间、顾虑和是否需要预约。",
-        availableAssets: "门店空间、服务流程、设备资质、授权案例、价格表。"
-      },
-      {
-        name: "问题问答",
-        help: "适合收集用户真实顾虑，后续沉淀 FAQ。",
-        theme: "本地服务顾虑问答周",
-        goal: "收集用户关于价格、流程、适合人群和风险边界的问题",
-        testHypothesis: "明确说适合谁不适合谁，会提升有效咨询质量。",
-        commercializationMove: "本周不强转化，只沉淀 FAQ 和下周选题。",
-        interactionGoal: "引导用户留言最担心的问题、可接受预算和希望到店时间。",
-        availableAssets: "流程图、设备、门店空间、资质、授权案例。"
-      },
-      {
-        name: "服务活动体验",
-        help: "适合有体验课、主题活动、会员权益或阶段性服务项目的本地服务账号。",
-        theme: "本地服务活动和体验周",
-        goal: "讲清服务活动的特色、流程、适合人群和参与方式，促进预约与有效咨询",
-        testHypothesis: "活动过程 + 服务成果 + 适用边界，比泛泛介绍服务更容易建立信任。",
-        commercializationMove: "自然提到体验预约、活动报名、套餐或会员服务，价格和名额人工确认。",
-        interactionGoal: "引导用户留言想参加的活动、时间、预算和最关心的服务问题。",
-        availableAssets: "活动现场、服务流程、设备、成果案例、门店空间、资质和授权人物素材。"
-      }
-    ]
-  };
-  return presets[mode].map(({ name, help, theme, goal }) => ({ name, help, theme, goal }));
 }
