@@ -11,6 +11,7 @@ import {
   CircleCheck,
   CircleX,
   Clipboard,
+  Database,
   Download,
   FileText,
   Gauge,
@@ -71,6 +72,7 @@ import {
   type WeeklyPlanningObjective
 } from "@/lib/weeklyPlanningObjectives";
 import { isExpertRuleEnabled } from "@/lib/expertLearning";
+import { KnowledgeBasePanel } from "@/app/components/KnowledgeBasePanel";
 import type React from "react";
 import clsx from "clsx";
 
@@ -322,6 +324,7 @@ const mainTabs = [
   ["videos", "视频方案", Video],
   ["prompts", "笔记草稿", Wand2],
   ["assets", "素材库", Library],
+  ["knowledgeBase", "知识库", Database],
   ["interactions", "发布后互动", MessageCircle],
   ["reports", "专家复盘", Activity],
   ["learning", "行业学习", BookOpen]
@@ -2892,6 +2895,7 @@ export function XhsMasterApp() {
               loadingAction={loadingAction}
             />
           )}
+          {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
           {activeTab === "images" && (
             <ImagesPanel

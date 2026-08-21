@@ -121,8 +121,7 @@ function rhex(value: number) {
   return out;
 }
 
-function md5Hex(input: string) {
-  const bytes = new TextEncoder().encode(input);
+function md5HexBytes(bytes: Uint8Array) {
   const state = [1732584193, -271733879, -1732584194, 271733878];
 
   let offset = 0;
@@ -146,6 +145,17 @@ function md5Hex(input: string) {
   md5cycle(state, tail);
 
   return state.map(rhex).join("");
+}
+
+function concatBytes(...chunks: Uint8Array[]) {
+  const totalLength = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
 }
 
 function last8(value: string) {
@@ -172,18 +182,23 @@ export function toRequestUri(urlOrPath: string) {
 export function buildXhsSignature(input: {
   method: string;
   requestUri: string;
-  body?: string;
+  body?: string | Uint8Array;
   requestId: string;
   token: string;
   uid: string;
   time: string;
 }) {
-  const parts: string[] = [];
-  if (input.method.toUpperCase() !== "GET" && input.body && input.body !== "\"\"") {
-    parts.push(input.body);
-  }
-  parts.push(input.requestUri, input.requestId, last8(input.token), input.uid, input.time);
-  return md5Hex(parts.join(""));
+  const body = typeof input.body === "string"
+    ? input.body && input.body !== "\"\"" ? new TextEncoder().encode(input.body) : null
+    : input.body && input.body.length ? input.body : null;
+  const suffix = new TextEncoder().encode([
+    input.requestUri,
+    input.requestId,
+    last8(input.token),
+    input.uid,
+    input.time
+  ].join(""));
+  return md5HexBytes(body ? concatBytes(body, suffix) : suffix);
 }
 
 export function buildProxyAuthHeaders(input: {
@@ -212,7 +227,7 @@ export function buildBackendSignedHeaders(input: {
   time?: string;
   requestId?: string;
   test?: string;
-  body?: string;
+  body?: string | Uint8Array;
   includeJsonContentType?: boolean;
 }) {
   const baseHeaders = buildProxyAuthHeaders(input);

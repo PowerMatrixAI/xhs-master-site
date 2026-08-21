@@ -159,6 +159,26 @@ export interface BackendAsset {
   updatedAt?: string;
 }
 
+export interface BackendKnowledgeDocument {
+  id: number;
+  title: string;
+  description: string;
+  originalFilename: string;
+  contentChars: number;
+  status: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BackendKnowledgeDocumentListResponse {
+  data: BackendKnowledgeDocument[];
+  hasMore: boolean;
+  limit: number;
+  total: number;
+  page: number;
+}
+
 export interface BackendNoteTask {
   id?: number;
   type: "image_text" | "video_text";
@@ -557,6 +577,93 @@ export async function saveBackendAssets(accountId: number, assets: BackendAsset[
     throw new Error(res.message || "保存素材失败");
   }
   return res.data.assets || [];
+}
+
+export async function fetchBackendKnowledgeDocuments(accountId: number) {
+  const query = new URLSearchParams({
+    accountId: String(accountId),
+    page: "1",
+    limit: "50"
+  });
+  const res = await authRequest<BackendKnowledgeDocumentListResponse>(`/knowledgeBase/v1/listDocuments?${query.toString()}`);
+  if (!res.status || !res.data) {
+    throw new Error(res.message || "获取知识库文档失败");
+  }
+  return res.data;
+}
+
+async function uploadBackendKnowledgeDocument(form: FormData, operation: "upload" | "replace" = "upload") {
+  const path = operation === "replace"
+    ? "/api/knowledge-base/documents?operation=replace"
+    : "/api/knowledge-base/documents";
+  const response = await authenticatedFetch(path, {
+    method: "POST",
+    headers: buildProxyHeaders(),
+    body: form
+  });
+  const res = await response.json().catch(() => ({})) as ApiResponse<BackendKnowledgeDocument> & { error?: string };
+  if (!response.ok || !res.status || !res.data) {
+    throw new Error(res.message || res.error || "上传知识库文档失败");
+  }
+  return res.data;
+}
+
+export async function uploadBackendKnowledgeDocumentFile(
+  accountId: number,
+  file: File,
+  fields: { title?: string; description?: string } = {}
+) {
+  const form = new FormData();
+  form.set("accountId", String(accountId));
+  form.set("title", fields.title || "");
+  form.set("description", fields.description || "");
+  form.set("file", file);
+  return uploadBackendKnowledgeDocument(form, "upload");
+}
+
+export async function updateBackendKnowledgeDocument(
+  accountId: number,
+  documentId: number,
+  fields: { title?: string; description?: string }
+) {
+  const res = await authRequest<BackendKnowledgeDocument>("/knowledgeBase/v1/updateDocument", {
+    method: "POST",
+    body: {
+      accountId,
+      documentId,
+      title: fields.title ?? null,
+      description: fields.description ?? null
+    }
+  });
+  if (!res.status || !res.data) {
+    throw new Error(res.message || "更新知识库文档失败");
+  }
+  return res.data;
+}
+
+export async function replaceBackendKnowledgeDocumentFile(
+  accountId: number,
+  documentId: number,
+  file: File,
+  fields: { title?: string; description?: string } = {}
+) {
+  const form = new FormData();
+  form.set("accountId", String(accountId));
+  form.set("documentId", String(documentId));
+  form.set("title", fields.title || "");
+  form.set("description", fields.description || "");
+  form.set("file", file);
+  return uploadBackendKnowledgeDocument(form, "replace");
+}
+
+export async function deleteBackendKnowledgeDocument(accountId: number, documentId: number) {
+  const res = await authRequest("/knowledgeBase/v1/deleteDocument", {
+    method: "POST",
+    body: { accountId, documentId }
+  });
+  if (!res.status) {
+    throw new Error(res.message || "删除知识库文档失败");
+  }
 }
 
 export async function saveBackendWeeklyPlan(accountId: number, plan: BackendWeeklyPlan) {
