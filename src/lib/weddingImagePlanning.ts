@@ -59,7 +59,7 @@ export function buildWeddingImagePlanPrompt(account: WeddingPlanAccount, options
   const specifiedImages = compact(options.openclawImagePaths, "未指定；请先选择婚礼图片。");
   const planningGoal = compact(options.planningGoal, "优先从真实婚礼图片里找高收藏细节，直接形成可执行的小红书批量帖子方案。");
 
-  return `# 给龙虾 skill 的婚礼批量帖子生成 Prompt
+  return `# 给 Agent 的婚礼批量帖子生成 Prompt
 
 ## 当前执行模式
 只读研究 + 素材库图片分析 + 生成方案。不得发布、评论、点赞、收藏、关注或私信。

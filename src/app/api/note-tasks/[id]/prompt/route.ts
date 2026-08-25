@@ -23,7 +23,7 @@ function buildOpenclawDraftTask(input: {
   const { account, noteTask, prompt, selectedDraft } = input;
   const accountName = shellQuote(account.accountParam);
   const accountFlag = `--account ${accountName}`;
-  const imageTaskDir = `$PWD/.openclaw_tasks/xhs-image-task-${noteTask.id}`;
+  const imageTaskDir = `$PWD/.tasks/xhs-image-task-${noteTask.id}`;
   const checkLoginCommand = `uv run python scripts/cli.py ${accountFlag} check-login`;
   const fillCommand = `uv run python scripts/cli.py ${accountFlag} fill-publish \\
   --title-file "$TASK_DIR/title.txt" \\
@@ -49,9 +49,9 @@ ${fillCommand} && \\
 ${saveCommand}`;
 
   return {
-    title: `${noteTask.topicTitle} OpenClaw 图文草稿箱任务`,
+    title: `${noteTask.topicTitle} Agent 图文草稿箱任务`,
     command,
-    content: `# OpenClaw 图文草稿箱任务
+    content: `# Agent 图文草稿箱任务
 
 请使用 **xiaohongshu_auto_op** 的 **xhs-publish** skill，为指定账号生成一篇图文笔记并保存到小红书草稿箱。只允许保存草稿，严禁调用 \`publish\` 或 \`click-publish\`，不得真实发布。
 
@@ -119,7 +119,7 @@ export async function POST(request: Request, _context: { params: { id: string } 
   const selectedDraft = body.selectedDraft as Partial<SelectedDraft> | undefined;
   if (!noteTask || !account || !weeklyPlan) return NextResponse.json({ error: "缺少任务上下文" }, { status: 400 });
   if (!String(account.accountParam || "").trim()) {
-    return NextResponse.json({ error: "当前账号未配置 OpenClaw skill 账号参数，无法生成草稿箱任务。" }, { status: 400 });
+    return NextResponse.json({ error: "当前账号未配置智能体执行账号参数，无法生成草稿箱任务。" }, { status: 400 });
   }
   if (!String(noteTask.writingStyleName || "").trim() || !String(noteTask.writingStyleReference || "").trim()) {
     return NextResponse.json({ error: "当前笔记任务缺少已选爆款文风资料。请重新生成本周计划后再生成草稿指令。" }, { status: 400 });
@@ -143,7 +143,7 @@ export async function POST(request: Request, _context: { params: { id: string } 
     body: String(selectedDraft.body).trim()
   };
   const openclawTask = isVideo
-    ? { title: `${noteTask.topicTitle} OpenClaw 视频草稿箱任务`, content: buildVideoDraftTask({ account, noteTask, bodyPrompt: content, selectedDraft: resolvedDraft }), command: "" }
+    ? { title: `${noteTask.topicTitle} Agent 视频草稿箱任务`, content: buildVideoDraftTask({ account, noteTask, bodyPrompt: content, selectedDraft: resolvedDraft }), command: "" }
     : buildOpenclawDraftTask({ account, noteTask, prompt: content, selectedDraft: resolvedDraft });
   const prompt = {
     id: Date.now(),

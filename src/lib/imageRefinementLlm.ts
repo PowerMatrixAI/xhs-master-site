@@ -543,7 +543,7 @@ export async function generateAiAuxiliaryImagePlanWithLlm(input: {
 
 硬性要求：
 - images 必须恰好包含 ${input.imageCount} 项，order 必须从 1 连续到 ${input.imageCount}，不得遗漏、重复或增加。
-- generationPrompt 必须是完整、明确、可单独直接传给 generate-image 的中文提示词，不能让 OpenClaw 再自行策划画面。
+- generationPrompt 必须是完整、明确、可单独直接传给 generate-image 的中文提示词，不能让 Agent 再自行策划画面。
 - 每条 generationPrompt 必须明确：图片用途、主体与信息层级、构图、视觉风格、光线或配色、3:4 竖版构图，以及希望观众获得的情绪和记忆点。
 - 输出尺寸由 CLI 统一请求为 1536x2048，Prompt 中只需使用 3:4 竖版构图语言，不要编写 CLI 命令。该尺寸仅作为请求参数，不得在 reviewNotes 或 globalReviewNotes 中要求核验成品实际像素，也不得因实际像素与请求值不同而判定失败。
 - 各张图片必须承担不同信息职责，并共同服务笔记叙事顺序。
@@ -552,7 +552,7 @@ export async function generateAiAuxiliaryImagePlanWithLlm(input: {
 - visual 如果需要文字，同样必须提供 textBlocks 和 textEditPrompt；不需要文字时两者留空。
 - 每个文字块尽量不超过 12 个汉字，每张图片不超过 6 个文字块。文字必须准确、简短、可直接发布，禁止使用“待填写”“后期添加”等占位词。
 - 不得生成 Logo、水印、车牌、手机号或可识别个人信息。
-- negativePrompt 要写本图特有的禁止项；OpenClaw 会把它与 generationPrompt 一起传给图片模型。
+- negativePrompt 要写本图特有的禁止项；Agent 会把它与 generationPrompt 一起传给图片模型。
 - 不得把 AI 画面描述成真实现场、真实案例、真实测量结果或真实用户反馈。
 - 若笔记缺少具体地点、路线、产品或业务资料，优先使用创作性氛围画面、生活方式场景或不指向具体事实的视觉表达，不要让缺口限制画面的感染力。
 

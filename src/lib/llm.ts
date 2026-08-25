@@ -51,12 +51,12 @@ type WeeklyPlanInput = {
   selectedObjectives?: SelectedWeeklyPlanningObjective[];
 };
 
-function appendOpenClawAccountIdentity(text: string, account: Pick<Account, "name" | "accountParam">) {
+function appendAgentAccountIdentity(text: string, account: Pick<Account, "name" | "accountParam">) {
   const accountParam = account.accountParam?.trim() || "未设置";
-  const marker = `OpenClaw 账号 ID（accountParam）：\`${accountParam}\``;
+  const marker = `Agent 账号 ID（accountParam）：\`${accountParam}\``;
   if (text.includes(marker)) return text;
 
-  return `${text.trim()}\n\n## OpenClaw 账号标识\n- 业务账号名称：${account.name}\n- ${marker}\n- 所有需要切换小红书账号的 CLI 命令必须使用：\`--account ${accountParam}\`。账号名称和本系统数据库编号均不可替代该参数。\n`;
+  return `${text.trim()}\n\n## Agent 账号标识\n- 业务账号名称：${account.name}\n- ${marker}\n- 所有需要切换小红书账号的 CLI 命令必须使用：\`--account ${accountParam}\`。账号名称和本系统数据库编号均不可替代该参数。\n`;
 }
 
 /** Remove legacy fixed planning sections if an LLM still emits them. */
@@ -99,7 +99,7 @@ export async function generateStrategyWithLlm(
 - 必须保留 xiaohongshu_auto_op 的执行边界：真实账号操作只输出命令建议，人工确认。
 - 不得输出正文结构、正文结构模板、行文结构模板或固定段落顺序；具体每篇帖子的结构留到周计划/单篇任务阶段，根据主题事实和所选爆款文风生成。
 - 不得输出 30 天冷启动计划、一周内容模板、一周内容比例或发布频率比例。
-- 策划案 Markdown 和 AGENTS.md 都必须包含“OpenClaw 账号标识”章节，写明业务账号名称、OpenClaw 账号 ID（accountParam）以及唯一可用的 \`--account <accountParam>\` 参数。
+- 策划案 Markdown 和 AGENTS.md 都必须包含“Agent 账号标识”章节，写明业务账号名称、Agent 账号 ID（accountParam）以及唯一可用的 \`--account <accountParam>\` 参数。
 - 允许使用创作性第一人称、生活场景、情绪和感官体验，让账号内容自然、有画面、有传播力；不要为了形式上的真实性把策划和文案收束成理性说明。
 - 以中文输出。
 - 只返回 JSON，不要 Markdown 代码块。
@@ -157,8 +157,8 @@ JSON 字段：
   }
 
   const positioning = readString(parsed, "positioning") || fallback.positioning;
-  const markdown = appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "markdown") || fallback.markdown), account);
-  const agentsMdContent = appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "agentsMdContent") || fallback.agentsMdContent), account);
+  const markdown = appendAgentAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "markdown") || fallback.markdown), account);
+  const agentsMdContent = appendAgentAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "agentsMdContent") || fallback.agentsMdContent), account);
   const execGuide = readString(parsed, "execGuide") || fallback.execGuide;
   const strategyJson = JSON.stringify(readObject(parsed, "strategy") || safeJson(fallback.strategyJson), null, 2);
 
@@ -206,7 +206,7 @@ export async function regenerateStrategyFromReferenceResearchWithLlm(input: {
 - 必须在完整策划案 Markdown 中增加“爆款正文文风库”章节，严格保留 5 种文风，每种 2-4 个案例；案例的标题、作者、URL 与“原文全文”应优先保留，不能仅保留链接、短摘录或改写为概括性标签。整体策划案和 AGENTS.md 单份均控制在 15,000 个中文字符以内，超限时先压缩重复说明和案例数量至每种 2 篇，再适度压缩案例正文。
 - 策划案和 AGENTS.md 不要写入本地绝对路径、$PWD、任务目录路径、文件系统调试信息或命令日志。
 - 必须在 AGENTS.md 中保留精简版文风库及选择规则：每篇按内容类型、目标用户和内容目标选择一种主文风，必要时最多使用一种辅助文风；学习表达规律，不复制案例原句、个人经历或具体数据；商家账号不得伪装成普通消费者亲历。
-- 策划案 Markdown 和 AGENTS.md 都必须包含“OpenClaw 账号标识”章节，写明业务账号名称、OpenClaw 账号 ID（accountParam）以及唯一可用的 \`--account <accountParam>\` 参数。
+- 策划案 Markdown 和 AGENTS.md 都必须包含“Agent 账号标识”章节，写明业务账号名称、Agent 账号 ID（accountParam）以及唯一可用的 \`--account <accountParam>\` 参数。
 - 必须生成完整策划案 Markdown 和可直接保存为 profiles/<账号名>/AGENTS.md 的内容。
 - 只返回 JSON，不要 Markdown 代码块。
 
@@ -267,8 +267,8 @@ JSON 字段：
     data: {
       positioning: readString(parsed, "positioning") || input.fallback.positioning,
       strategyJson: JSON.stringify(readObject(parsed, "strategy") || safeJson(input.fallback.strategyJson), null, 2),
-      markdown: appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "markdown") || input.fallback.markdown), input.account),
-      agentsMdContent: appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "agentsMdContent") || input.fallback.agentsMdContent), input.account),
+      markdown: appendAgentAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "markdown") || input.fallback.markdown), input.account),
+      agentsMdContent: appendAgentAccountIdentity(stripStrategyFixedPlanningSections(readString(parsed, "agentsMdContent") || input.fallback.agentsMdContent), input.account),
       execGuide: readString(parsed, "execGuide") || input.fallback.execGuide
     }
   };

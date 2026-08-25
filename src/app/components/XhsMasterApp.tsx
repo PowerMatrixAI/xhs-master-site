@@ -2119,7 +2119,7 @@ export function XhsMasterApp() {
         ...account,
         interactionPlans: [data.plan, ...(account.interactionPlans || []).filter((item) => item.id !== data.plan.id)]
       }));
-      showToast("OpenClaw 互动执行指令已生成。", "success");
+      showToast("智能体互动执行指令已生成。", "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "生成目标用户互动研究包失败。", "error");
     } finally {
@@ -2250,7 +2250,7 @@ export function XhsMasterApp() {
           }
         )
       }));
-      if (controls.showSuccessToast ?? true) showToast("草稿箱任务已生成，OpenClaw 将原样使用所选标题和正文。", "success");
+      if (controls.showSuccessToast ?? true) showToast("草稿箱任务已生成，智能体将原样使用所选标题和正文。", "success");
       return data as PromptResult;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "生成图文草稿箱任务失败。", "error");
@@ -3122,7 +3122,7 @@ function Dashboard({
               </span>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-ink/60">先准备图片或视频方案，再选择一个标题正文版本，最后复制草稿箱指令交给 OpenClaw。</p>
+          <p className="mt-1 text-sm text-ink/60">先准备图片或视频方案，再选择一个标题正文版本，最后复制草稿箱指令交给智能体。</p>
         </div>
 
         {!selected ? (
@@ -3287,7 +3287,7 @@ function Dashboard({
 
                 {hasImagePlan && hasDraftTask ? (
                   <div className="mt-5 rounded border border-teal/20 bg-teal/5 p-3 text-sm leading-6 text-teal">
-                    两项任务已就绪。先把{isVideoTask ? "视频" : "图片"}方案交给 OpenClaw；素材完成后，再发送文字方案生成{isVideoTask ? "视频" : "图文"}笔记并保存到草稿箱。
+                    两项任务已就绪。先把{isVideoTask ? "视频" : "图片"}方案交给智能体；素材完成后，再发送文字方案生成{isVideoTask ? "视频" : "图文"}笔记并保存到草稿箱。
                   </div>
                 ) : null}
               </div>
@@ -3492,7 +3492,7 @@ function ReferenceResearchPanel(props: {
           <div className={clsx("rounded border p-4", hasSearchPack ? "border-teal/30 bg-teal/5" : "border-ink/10 bg-white")}>
             <div className="text-xs font-medium text-ink/55">1. 搜索要求</div>
             <div className="mt-2 font-semibold">{hasSearchPack ? "已生成" : "待生成"}</div>
-          <p className="mt-2 text-sm text-ink/60">复制一条研究任务给龙虾，优先只读搜索全国同类型爆款。</p>
+          <p className="mt-2 text-sm text-ink/60">复制一条研究任务给智能体，优先只读搜索全国同类型爆款。</p>
           </div>
           <div className={clsx("rounded border p-4", latest?.rawResults ? "border-teal/30 bg-teal/5" : "border-ink/10 bg-white")}>
             <div className="text-xs font-medium text-ink/55">2. 返回结果</div>
@@ -3512,13 +3512,13 @@ function ReferenceResearchPanel(props: {
         <div className="panel">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h2 className="section-title">给龙虾的爆款研究任务</h2>
-              <p className="mt-1 text-sm text-ink/60">只需要复制下面这一条任务给龙虾执行。</p>
+              <h2 className="section-title">给智能体的爆款研究任务</h2>
+              <p className="mt-1 text-sm text-ink/60">只需要复制下面这一条任务给智能体执行。</p>
             </div>
           </div>
 
           {!hasSearchPack ? (
-            <EmptyState text="点击“生成爆款研究”后，这里会出现一条可复制给龙虾的研究任务。" />
+            <EmptyState text="点击“生成爆款研究”后，这里会出现一条可复制给智能体的研究任务。" />
           ) : (
             <div className="space-y-3">
               <div className="rounded border border-ink/10 bg-white p-3">
@@ -3537,10 +3537,10 @@ function ReferenceResearchPanel(props: {
 
         <form className="panel" onSubmit={saveReferenceResearch}>
           <h2 className="section-title">粘贴参考结果，增强现有策划</h2>
-          <p className="mt-1 text-sm text-ink/60">把龙虾智能体返回的研究报告粘进来，大模型会优先提炼全国爆款规律，并更新当前策划。本地结果只作为补充对照。</p>
+          <p className="mt-1 text-sm text-ink/60">把智能体返回的研究报告粘进来，大模型会优先提炼全国爆款规律，并更新当前策划。本地结果只作为补充对照。</p>
           <div className="mt-4 grid gap-3">
             <label className="field">
-              <span>龙虾爆款研究报告</span>
+              <span>智能体爆款研究报告</span>
               <textarea
                 name="rawResults"
                 defaultValue={latest?.rawResults || ""}
@@ -3597,7 +3597,7 @@ function stripStrategyResearchAndCommandSections(markdown: string) {
   for (const line of lines) {
     const heading = line.match(/^##\s+(.+?)\s*$/);
     if (heading) {
-      skipping = /研究.*命令|命令.*建议|研究建议|给.*(?:OpenClaw|xiaohongshu_auto_op).*执行说明/i.test(heading[1]);
+      skipping = /研究.*命令|命令.*建议|研究建议|给.*(?:Agent|智能体|xiaohongshu_auto_op).*执行说明/i.test(heading[1]);
     }
     if (!skipping) kept.push(line);
   }
@@ -4193,8 +4193,8 @@ function ImagesPanel(props: {
     const accountKindLabel = isWedding ? "婚礼已上传图片" : "已上传素材图片";
     const batchTitle = isWedding ? "用婚礼素材库图片自动生成批量帖子" : "用素材库图片自动生成批量帖子";
     const batchDescription = isWedding
-      ? "适合已经有一批婚礼素材库图片，但还没有想好每篇发什么。龙虾会先读图，再结合全国同类型爆款，直接产出多篇帖子方案。"
-      : "适合已经有一批素材图，但还没有想好每篇发什么。龙虾会先读图，再结合全国同类型爆款，直接产出多篇帖子方案。";
+      ? "适合已经有一批婚礼素材库图片，但还没有想好每篇发什么。智能体会先读图，再结合全国同类型爆款，直接产出多篇帖子方案。"
+      : "适合已经有一批素材图，但还没有想好每篇发什么。智能体会先读图，再结合全国同类型爆款，直接产出多篇帖子方案。";
     const defaultBatchGoal = isWedding
       ? "例如：优先从婚礼蛋糕、花艺、仪式区、迎宾区、桌花中找高收藏选题。"
       : "例如：优先从真实素材里找高收藏主题，直接生成一周内容。";
@@ -4296,7 +4296,7 @@ function ImagesPanel(props: {
                   value={weddingPlanningGoal}
                   onChange={setWeddingPlanningGoal}
                   placeholder={defaultBatchGoal}
-                  help="这会写进给龙虾的批量任务。"
+                  help="这会写进给智能体的批量任务。"
                 />
               </div>
 
@@ -4315,7 +4315,7 @@ function ImagesPanel(props: {
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="section-title">批量任务结果</h2>
-                  <p className="mt-1 text-sm text-ink/60">一条任务给龙虾：读图、分组选题、生成多篇帖子。</p>
+                  <p className="mt-1 text-sm text-ink/60">一条任务给智能体：读图、分组选题、生成多篇帖子。</p>
                 </div>
                 <div className="flex gap-2">
                   <IconButton title="复制批量任务" onClick={() => copy(batchImagePostResult?.planningPrompt.content || "")} icon={<Clipboard size={17} />} />
@@ -4368,7 +4368,7 @@ function ImagesPanel(props: {
                     });
                     const uploadedUrls = (uploadData.assets || []).map((asset) => String(asset.fileUrl || "").trim());
                     if (!uploadedUrls.length || uploadedUrls.some((url) => !/^https?:\/\//i.test(url))) {
-                      throw new Error("上传成功，但未返回 OpenClaw 可访问的完整图片 URL。");
+                      throw new Error("上传成功，但未返回智能体可访问的完整图片 URL。");
                     }
                     imagePaths = [imagePaths, uploadedUrls.join("\n")].filter(Boolean).join("\n");
                     selectedImageAssets = [...selectedImageAssets, ...(uploadData.assets || [])];
@@ -4575,14 +4575,14 @@ function ImagesPanel(props: {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <h2 className="section-title">单篇任务结果</h2>
-                    <p className="mt-1 text-sm text-ink/60">可直接复制给 OpenClaw；任务中包含真实 CLI、图片来源和完整执行要求。</p>
+                    <p className="mt-1 text-sm text-ink/60">可直接复制给智能体；任务中包含真实 CLI、图片来源和完整执行要求。</p>
                   </div>
                   <div className="flex gap-2">
-                    <IconButton title="复制 OpenClaw 任务" onClick={() => copy(singleTaskContent)} icon={<Clipboard size={17} />} />
-                    <IconButton title="导出 OpenClaw 任务" onClick={() => downloadText(`note-${note?.id || "draft"}-openclaw-image-task.md`, singleTaskContent)} icon={<Download size={17} />} />
+                    <IconButton title="复制智能体任务" onClick={() => copy(singleTaskContent)} icon={<Clipboard size={17} />} />
+                    <IconButton title="导出智能体任务" onClick={() => downloadText(`note-${note?.id || "draft"}-agent-image-task.md`, singleTaskContent)} icon={<Download size={17} />} />
                   </div>
                 </div>
-                <textarea className="code-textarea min-h-[620px]" value={singleTaskContent || "选择单篇来源并点击生成后，这里会显示可直接交给 OpenClaw 的完整任务。"} readOnly />
+                <textarea className="code-textarea min-h-[620px]" value={singleTaskContent || "选择单篇来源并点击生成后，这里会显示可直接交给智能体的完整任务。"} readOnly />
               </div>
             </div>
           </div>
@@ -4677,7 +4677,7 @@ function ImagesPanel(props: {
             <div className="mb-4 grid gap-3 md:grid-cols-3">
               {[ 
                 ["1", "准备婚礼素材库图片", "建议 20-40 张，优先选择清晰大图。"],
-                ["2", "生成龙虾 Prompt", "让龙虾读图并研究小红书爆款。"],
+                ["2", "生成智能体 Prompt", "让智能体读图并研究小红书爆款。"],
                 ["3", "得到周计划", "输出标题、配图顺序、正文方向和风险核验。"]
               ].map(([step, title, desc]) => (
                 <div key={step} className="rounded border border-teal/15 bg-teal/5 p-3">
@@ -4711,7 +4711,7 @@ function ImagesPanel(props: {
                 pickerHelp="从当前账号婚礼素材里多选；没有素材就先上传图片。"
               />
               <div>
-                <div className="mb-2 text-sm font-medium text-ink/70">本次希望龙虾重点完成什么？</div>
+                <div className="mb-2 text-sm font-medium text-ink/70">本次希望智能体重点完成什么？</div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {weddingPlanningGoalPresets.map((preset) => (
                     <button
@@ -4739,7 +4739,7 @@ function ImagesPanel(props: {
             </div>
 
             <button type="submit" disabled={loading || !selected} className="primary-button mt-4">
-              <Sparkles size={17} /> 生成给龙虾的一键规划 Prompt
+              <Sparkles size={17} /> 生成给智能体的一键规划 Prompt
             </button>
 
             {batchImagePostResult?.planningPrompt.path && (
@@ -4812,7 +4812,7 @@ function ImagesPanel(props: {
         </form>
 
         <div className="panel">
-          <h2 className="section-title">给龙虾的执行命令</h2>
+          <h2 className="section-title">给智能体的执行命令</h2>
           <div className="mt-3 space-y-3">
             {commandList.map((command) => (
               <div key={`${command.category}-${command.command}`} className="rounded border border-ink/10 bg-white p-3">
@@ -4827,7 +4827,7 @@ function ImagesPanel(props: {
                 <div className="mt-2 text-xs text-coral">{command.safetyNote}</div>
               </div>
             ))}
-            {!commandList.length && <EmptyState text={isWedding ? "先生成批量规划 Prompt，或生成单篇图片方案后，这里会显示可以复制给龙虾的执行命令。" : "生成图片方案后，这里会显示可以复制给龙虾的执行命令。"} />}
+            {!commandList.length && <EmptyState text={isWedding ? "先生成批量规划 Prompt，或生成单篇图片方案后，这里会显示可以复制给智能体的执行命令。" : "生成图片方案后，这里会显示可以复制给智能体的执行命令。"} />}
           </div>
         </div>
       </div>
@@ -4838,7 +4838,7 @@ function ImagesPanel(props: {
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <h2 className="section-title">婚礼批量规划 Prompt</h2>
-                <p className="mt-1 text-sm text-ink/60">用于让龙虾先读 30 张婚礼图、研究同行热门笔记，再输出一周或两周内容规划。</p>
+                <p className="mt-1 text-sm text-ink/60">用于让智能体先读 30 张婚礼图、研究同行热门笔记，再输出一周或两周内容规划。</p>
               </div>
               <div className="flex gap-2">
                 <IconButton title="复制批量规划 Prompt" onClick={() => copy(batchImagePostResult?.planningPrompt.content || "")} icon={<Clipboard size={17} />} />
@@ -4853,7 +4853,7 @@ function ImagesPanel(props: {
             {batchImagePostResult ? (
               <div className="mb-3 grid gap-2 sm:grid-cols-3">
                 {[
-                  ["复制 Prompt", "给龙虾读取图片和研究爆款。"],
+                  ["复制 Prompt", "给智能体读取图片和研究爆款。"],
                   ["执行命令", "用左侧命令生成规划草稿。"],
                   ["人工核验", "检查肖像授权、价格、档期和场地。"]
                 ].map(([title, desc]) => (
@@ -4972,7 +4972,7 @@ function VideosPanel(props: {
             <div className="font-semibold">直接使用视频</div><div className="mt-1 text-xs text-ink/60">上传或选择一个素材库视频，不做精修。</div>
           </button>
           <button type="button" onClick={() => setMode("image_to_video")} className={clsx("rounded border p-4 text-left", mode === "image_to_video" ? "border-teal bg-teal/10" : "border-ink/10 bg-white")}>
-            <div className="font-semibold">图片生成视频</div><div className="mt-1 text-xs text-ink/60">AI 生成逐图精修和动态 Prompt，OpenClaw 生成片段后拼接。</div>
+            <div className="font-semibold">图片生成视频</div><div className="mt-1 text-xs text-ink/60">AI 生成逐图精修和动态 Prompt，智能体生成片段后拼接。</div>
           </button>
         </div>
 
@@ -5010,7 +5010,7 @@ function VideosPanel(props: {
         </button>
       </div>
       <div className="panel">
-        <div className="mb-3 flex items-center justify-between"><div><h2 className="section-title">OpenClaw 视频任务</h2><p className="mt-1 text-sm text-ink/60">复制后交给 OpenClaw 准备最终视频和 video-path.txt。</p></div><IconButton title="复制视频任务" onClick={() => copy(videoTaskContent)} icon={<Clipboard size={17} />} /></div>
+        <div className="mb-3 flex items-center justify-between"><div><h2 className="section-title">智能体视频任务</h2><p className="mt-1 text-sm text-ink/60">复制后交给智能体准备最终视频和 video-path.txt。</p></div><IconButton title="复制视频任务" onClick={() => copy(videoTaskContent)} icon={<Clipboard size={17} />} /></div>
         <textarea className="code-textarea min-h-[560px]" value={videoTaskContent || "生成后显示视频执行任务。"} readOnly />
       </div>
     </div>
@@ -5070,7 +5070,7 @@ function PromptsPanel(props: {
         <div className="panel">
           <div className="mb-4">
             <h2 className="section-title">选择标题和正文</h2>
-            <p className="mt-1 text-sm text-ink/60">三个版本只保存在当前页面。选择后生成的 OpenClaw 指令会原样使用标题和正文，不再由 OpenClaw 改写。</p>
+            <p className="mt-1 text-sm text-ink/60">三个版本只保存在当前页面。选择后生成的智能体指令会原样使用标题和正文，不再由智能体改写。</p>
           </div>
           {variants.length ? <div className="divide-y divide-ink/10 border-y border-ink/10">
             {variants.map((variant) => (
@@ -5103,12 +5103,12 @@ function PromptsPanel(props: {
         {openclawTaskContent && <div className="panel">
           <div className="mb-3 flex items-center justify-between">
             <div>
-              <h2 className="section-title">已复制的 OpenClaw {isVideo ? "视频" : "图文"}草稿箱任务</h2>
+              <h2 className="section-title">已复制的智能体{isVideo ? "视频" : "图文"}草稿箱任务</h2>
               <p className="mt-1 text-sm text-ink/60">任务会使用所选版本的原文、已有{isVideo ? "视频" : "图片"}方案成品，并保存到指定账号草稿箱。</p>
             </div>
             <div className="flex gap-2">
               <IconButton title="复制完整任务" onClick={() => copy(openclawTaskContent)} icon={<Clipboard size={17} />} />
-              <IconButton title="导出 Markdown" onClick={() => downloadText(`note-${note.id}-openclaw-draft-task.md`, openclawTaskContent)} icon={<Download size={17} />} />
+              <IconButton title="导出 Markdown" onClick={() => downloadText(`note-${note.id}-agent-draft-task.md`, openclawTaskContent)} icon={<Download size={17} />} />
             </div>
           </div>
           <textarea className="code-textarea min-h-[360px]" value={openclawTaskContent} readOnly />
@@ -5170,7 +5170,7 @@ function InteractionsPanel(props: {
           <div>
             <h2 className="section-title">目标用户互动</h2>
             <p className="mt-1 max-w-3xl text-sm text-ink/60">
-              根据当篇笔记和互动目标生成完整执行任务。OpenClaw 将负责选词、搜索、过滤普通用户、生成评论并累计完成 10 篇有效互动。
+              根据当篇笔记和互动目标生成完整执行任务。智能体将负责选词、搜索、过滤普通用户、生成评论并累计完成 10 篇有效互动。
             </p>
           </div>
         </div>
@@ -5189,7 +5189,7 @@ function InteractionsPanel(props: {
           <div className={clsx("rounded border p-4", taskPrompt ? "border-teal/30 bg-teal/5" : "border-ink/10 bg-white")}>
             <div className="text-xs font-medium text-ink/55">3. 互动指令</div>
             <div className="mt-2 font-semibold">{taskPrompt ? "已生成" : "待生成"}</div>
-            <p className="mt-2 text-sm text-ink/60">复制整份任务给 OpenClaw 执行。</p>
+            <p className="mt-2 text-sm text-ink/60">复制整份任务给智能体执行。</p>
           </div>
         </div>
       </div>
@@ -5246,7 +5246,7 @@ function InteractionsPanel(props: {
           <div className="panel min-w-0 overflow-hidden">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <h2 className="section-title">给 OpenClaw 的互动执行任务</h2>
+                <h2 className="section-title">给智能体的互动执行任务</h2>
                 <p className="mt-1 text-sm text-ink/60">包含真实 CLI、主/子会话分工、20 篇候选池、普通用户筛选和成功计数要求。</p>
               </div>
               <div className="flex gap-2">

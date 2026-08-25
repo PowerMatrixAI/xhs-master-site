@@ -297,14 +297,14 @@ uv run python scripts/cli.py edit-image \\
   --quality "medium"`;
   const sourceSteps = usesExistingImages
     ? `1. 进入已安装的 xiaohongshu_auto_op skill 根目录。
-2. 设置 \`ACCOUNT_NAME=${accountName}\`、\`TASK_DIR="$PWD/.openclaw_tasks/${taskName}"\`、\`ACCOUNT_ASSETS_DIR="$PWD/assets/$ACCOUNT_NAME"\`，然后创建 \`$TASK_DIR/assets\` 和 \`$ACCOUNT_ASSETS_DIR\`。
+2. 设置 \`ACCOUNT_NAME=${accountName}\`、\`TASK_DIR="$PWD/.tasks/${taskName}"\`、\`ACCOUNT_ASSETS_DIR="$PWD/assets/$ACCOUNT_NAME"\`，然后创建 \`$TASK_DIR/assets\` 和 \`$ACCOUNT_ASSETS_DIR\`。
 3. 下载“指定图片”中的全部 URL 到 \`$TASK_DIR/assets\`，保留原始扩展名，并取得每张图片的本地绝对路径。只允许使用这些指定图片，不得扫描或替换为其他素材。
 4. 主会话必须先完成建目录、下载和原图校验，再将仅包含图片编辑与验收的部分委派给后台子会话；禁止把整个任务未经初始化直接交给子会话。
 5. 此处原图校验只确认文件完整可读、下载数量正确且本地路径与指定图片顺序一致，不比较素材标签，也不因标签差异中止任务。
 6. 后台子会话严格按照下方“逐图任务”的顺序和“本图精修 Prompt”逐张执行。每次把当前图片的本地绝对路径设置为 \`INPUT_IMAGE\`，把该图 Prompt 设置为 \`IMAGE_PROMPT\`，执行一次图片编辑命令，并完成对应成品验收。
 7. 任务完成后，无论图片核验是否通过，都必须在最终回复中将全量图片作为附件或可直接查看的文件提供给用户，不得以压缩包形式提供；如果当前会话无法附加文件，必须逐张明确返回其本地绝对路径和文件名，确保用户能够自行查看。如果某张图片核验未通过：不得删除、覆盖或隐瞒该图片；不得把它写入 \`image-paths.txt\`，但必须继续处理其余图片。最终回复还必须单独列出该图片的图片序号、原图路径或 URL、生成后的 \`local_path\`、未通过的具体核验项和原因。`
     : `1. 进入已安装的 xiaohongshu_auto_op skill 根目录。
-2. 设置 \`ACCOUNT_NAME=${accountName}\`、\`TASK_DIR="$PWD/.openclaw_tasks/${taskName}"\`、\`BASE_OUTPUT_DIR="$TASK_DIR/base-images"\`、\`ACCOUNT_ASSETS_DIR="$PWD/assets/$ACCOUNT_NAME"\`，然后创建这些目录。
+2. 设置 \`ACCOUNT_NAME=${accountName}\`、\`TASK_DIR="$PWD/.tasks/${taskName}"\`、\`BASE_OUTPUT_DIR="$TASK_DIR/base-images"\`、\`ACCOUNT_ASSETS_DIR="$PWD/assets/$ACCOUNT_NAME"\`，然后创建这些目录。
 3. 严格按照下方“逐图任务”的顺序执行；每张图的“本图生成 Prompt”和“本图文字编辑 Prompt”已经由 AI 生成，不得擅自改写、合并或省略。
 4. 如果本图“成品文字”为“无”，设置 \`IMAGE_OUTPUT_DIR="$ACCOUNT_ASSETS_DIR"\`，将“本图负向约束”追加到 \`IMAGE_PROMPT\` 后执行一次 generate-image；其返回 JSON 中的 \`local_path\` 就是最终成品。
 5. 如果本图存在“成品文字”，设置 \`IMAGE_OUTPUT_DIR="$BASE_OUTPUT_DIR"\`，先执行 generate-image 取得返回 JSON 中的 \`local_path\`，并将该路径设置为 \`BASE_IMAGE\`。该底图只是中间产物，不得写入 \`image-paths.txt\`。
@@ -312,7 +312,7 @@ uv run python scripts/cli.py edit-image \\
 7. 对文字成品逐字核对，不得存在空白气泡、空白文字框、占位词、错字、漏字或额外文字。如有错误，只重试本图的 edit-image 文字编辑步骤，最多两次，不要重新生成底图；仍失败则报告失败，不得把底图当成品。
 8. 任务完成后，无论图片核验是否通过，都必须在最终回复中将全量图片作为附件或可直接查看的文件提供给用户，不得以压缩包形式提供；如果当前会话无法附加文件，必须逐张明确返回其本地绝对路径和文件名，确保用户能够自行查看。如果某张图片核验未通过：不得删除、覆盖或隐瞒该图片；不得把它写入 \`image-paths.txt\`，但必须继续处理其余图片。最终回复还必须单独列出该图片的图片序号、原图路径或 URL、生成后的 \`local_path\`、未通过的具体核验项和原因。`;
   const commandVariables = usesExistingImages
-    ? "`IMAGE_PROMPT` 必须替换为当前单张图片对应的完整精修提示词；`INPUT_IMAGE` 必须替换为 OpenClaw 下载后的本地绝对路径。"
+    ? "`IMAGE_PROMPT` 必须替换为当前单张图片对应的完整精修提示词；`INPUT_IMAGE` 必须替换为 Agent 下载后的本地绝对路径。"
     : "`IMAGE_PROMPT` 必须替换为当前图片对应的完整“本图生成 Prompt”并追加负向约束；`IMAGE_OUTPUT_DIR` 根据是否存在成品文字选择最终素材目录或底图目录。存在成品文字时，`BASE_IMAGE` 使用 generate-image 返回的 `local_path`，`TEXT_EDIT_PROMPT` 使用完整“本图文字编辑 Prompt”。";
   const watermarkSection = usesExistingImages && removeWatermarks
     ? `## 去除图片中的所有水印
@@ -325,9 +325,9 @@ uv run python scripts/cli.py edit-image \\
     : "";
 
   return {
-    title: `${noteTask.topicTitle} OpenClaw 图片执行任务`,
+    title: `${noteTask.topicTitle} Agent 图片执行任务`,
     command,
-    content: `# OpenClaw 图片执行任务
+    content: `# Agent 图片执行任务
 
 请使用 **xiaohongshu_auto_op** 的 **xhs-creative** skill 完成本篇配图，不要使用其他图片工具。
 
@@ -371,7 +371,7 @@ function commandCopy(account: { accountType: string; name: string; personaBase: 
   if (isWeddingAccount(account)) {
       return {
         source: "选择婚礼素材库图片",
-        image2: "让龙虾直接读取婚礼素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
+        image2: "让 Agent 直接读取婚礼素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
         draftCategory: "调用已有婚礼图片做细节拆解",
         draft: "读取婚礼素材库图片，先判断每张图片可写成什么小红书选题，再围绕一个高收藏细节规划图集和正文。",
         safety: "命令只作建议；确保婚礼案例、新人/宾客隐私、场地、价格、档期和套餐信息经过人工核验。"
@@ -382,56 +382,56 @@ function commandCopy(account: { accountType: string; name: string; personaBase: 
   const copies = {
     culture_tourism: {
       source: "选择目的地/活动素材库图片",
-      image2: "让龙虾直接读取文旅素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
+      image2: "让 Agent 直接读取文旅素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
       draftCategory: "调用已有文旅素材改图",
       draft: "读取素材库图片，优先识别真实目的地图、活动现场图、导览图和票务截图，再规划图生图、信息卡和图集顺序。",
       safety: "命令只作建议；确保这些素材真实存在、来源清楚，开放时间、票价和活动日期需要人工核验。"
     },
     heritage: {
       source: "选择民俗/非遗素材库图片",
-      image2: "让龙虾直接读取民俗非遗素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
+      image2: "让 Agent 直接读取民俗非遗素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
       draftCategory: "调用已有民俗/非遗素材改图",
       draft: "读取素材库图片，优先识别真实工艺、作品、活动现场和人物图，再规划图生图、信息卡和图集顺序。",
       safety: "命令只作建议；确保人物隐私、作品来源、文化禁忌和表达边界经过人工核验。"
     },
     stay: {
       source: "选择房型/空间素材库图片",
-      image2: "让龙虾直接读取住宿素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
+      image2: "让 Agent 直接读取住宿素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
       draftCategory: "调用已有住宿素材改图",
       draft: "读取素材库图片，优先识别真实房型、窗景、公共区、周边体验和价格政策截图，再规划图集顺序。",
       safety: "命令只作建议；确保房型、景观、价格、房态和政策都需要人工核验。"
     },
     food: {
       source: "选择餐厅素材库图片",
-      image2: "让龙虾直接读取餐厅素材库图片，优先按文件名识别菜品和环境，根据逐张 Prompt 做照片级精修。",
+      image2: "让 Agent 直接读取餐厅素材库图片，优先按文件名识别菜品和环境，根据逐张 Prompt 做照片级精修。",
       draftCategory: "调用已有餐厅图片改图",
       draft: "读取素材库图片，要求链接文件名尽量是菜品名、环境名或交通节点名，再按“前几张菜品、后面环境、最后交通漫画卡”的惯例规划图集。",
       safety: "命令只作建议；确保图片真实存在、来源清楚，菜品、活动、价格和交通信息需要人工核验。"
     },
     outdoor: {
       source: "选择路线/现场素材库图片",
-      image2: "让龙虾直接读取路线/现场素材库图片，根据逐张 Prompt 做照片级精修并保持路线事实不变。",
+      image2: "让 Agent 直接读取路线/现场素材库图片，根据逐张 Prompt 做照片级精修并保持路线事实不变。",
       draftCategory: "调用已有路线/现场图片改图",
       draft: "读取素材库图片，优先识别真实现场图、路线图和轨迹截图，再规划图生图、轻处理和图集顺序。",
       safety: "命令只作建议；确保这些图片真实存在、来源清楚，路线信息需要人工核验。"
     },
     museum: {
       source: "选择展品/展厅素材库图片",
-      image2: "让龙虾直接读取展馆研学素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
+      image2: "让 Agent 直接读取展馆研学素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
       draftCategory: "调用已有展馆/研学素材改图",
       draft: "读取素材库图片，优先识别真实展品图、展厅图、导览图和票务截图，再规划图集顺序。",
       safety: "命令只作建议；确保展期、票务、拍摄规则和展品版权需要人工核验。"
     },
     product: {
       source: "选择产品/包装素材库图片",
-      image2: "让龙虾直接读取产品素材库图片，根据逐张 Prompt 做照片级精修并保持产品事实不变。",
+      image2: "让 Agent 直接读取产品素材库图片，根据逐张 Prompt 做照片级精修并保持产品事实不变。",
       draftCategory: "调用已有产品/文创素材改图",
       draft: "读取素材库图片，优先识别真实产品、包装、产地、原料和规格价格图，再规划图集顺序。",
       safety: "命令只作建议；确保产地、规格、价格、库存和资质需要人工核验。"
     },
     service: {
       source: "选择服务/空间素材库图片",
-      image2: "让龙虾直接读取本地服务素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
+      image2: "让 Agent 直接读取本地服务素材库图片，根据逐张 Prompt 做照片级精修；仅在明确要求时直接加入准确短字。",
       draftCategory: "调用已有本地服务素材改图",
       draft: "读取素材库图片，优先识别真实空间、服务流程、设备资质和案例，再规划图集顺序。",
       safety: "命令只作建议；确保案例真实性、隐私、价格、资质和效果表达需要人工核验。"
@@ -460,7 +460,7 @@ async function buildImagePromptResult(body: any, requestId: string) {
   const account = body.account;
   if (!noteTask || !account) throw new Error("缺少任务上下文");
   if (!String(account.accountParam || "").trim()) {
-    throw new Error("当前账号未配置 OpenClaw skill 账号参数，无法确定账号素材目录。");
+    throw new Error("当前账号未配置智能体执行账号参数，无法确定账号素材目录。");
   }
   const remoteImageUrls = nonEmptyLines(openclawImagePaths);
   if (imageSourceMode === "remote_images" && (!remoteImageUrls.length || remoteImageUrls.some((url) => !remotePath(url)))) {
@@ -688,7 +688,7 @@ async function buildImagePromptResult(body: any, requestId: string) {
     {
       category,
       command: openclawTask.command,
-      description: "由 OpenClaw 在 xiaohongshu_auto_op skill 目录中准备本地图片，并按单张 Prompt 逐次执行真实 CLI。",
+      description: "由 Agent 在 xiaohongshu_auto_op skill 目录中准备本地图片，并按单张 Prompt 逐次执行真实 CLI。",
       safetyNote: imageSourceMode === "ai_generate"
         ? "AI 辅助图不得伪装成真实案例、真实现场或真实客户反馈。"
         : copy.safety

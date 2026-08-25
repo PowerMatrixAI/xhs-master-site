@@ -25,7 +25,7 @@ async function buildResult(body: Record<string, unknown>) {
       expertRules: formatExpertRulesForPrompt((account as { expertRules?: Array<{ module: string; rule: string; source?: string; enabled?: boolean; updatedAt?: string }> }).expertRules || [], ["cover", "video_plan", "risk"])
     });
   }
-  return { videoPrompt: { title: `${noteTask.topicTitle} 视频方案`, content }, openclawTask: { title: `${noteTask.topicTitle} OpenClaw 视频任务`, content }, ai: { used: mode === "image_to_video", calls: mode === "image_to_video" ? 1 : 0 } };
+  return { videoPrompt: { title: `${noteTask.topicTitle} 视频方案`, content }, openclawTask: { title: `${noteTask.topicTitle} Agent 视频任务`, content }, ai: { used: mode === "image_to_video", calls: mode === "image_to_video" ? 1 : 0 } };
 }
 
 export async function POST(request: Request) {

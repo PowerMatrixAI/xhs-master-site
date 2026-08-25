@@ -119,7 +119,7 @@ export function buildInteractionCommands(
   return [
     {
       category: "搜索候选笔记",
-      command: `${base} search-feeds --keyword ${q("替换为 OpenClaw 生成的关键词")} --sort-by ${q("最新")} --publish-time ${q("一周内")} --search-scope ${q("未看过")}`,
+      command: `${base} search-feeds --keyword ${q("替换为 Agent 生成的关键词")} --sort-by ${q("最新")} --publish-time ${q("一周内")} --search-scope ${q("未看过")}`,
       description: "使用 xhs-explore 搜索近期候选笔记。",
       safetyNote: "搜索结果必须继续读取详情并过滤营销账号，不能直接评论。"
     },
@@ -147,7 +147,7 @@ export function buildInteractionDiscoveryPrompt(input: {
 }) {
   const { account, strategy, noteTask, publishedNoteUrl, interactionGoal } = input;
   const accountParam = account.accountParam?.trim() || "请填写账号参数";
-  return `# OpenClaw 小红书发布后互动执行任务
+  return `# Agent 小红书发布后互动执行任务
 
 请使用 **xiaohongshu_auto_op** 的 **xhs-explore** 和 **xhs-interact** skill 完成本任务。所有搜索、帖子详情读取和评论操作，只能在该 skill 根目录中通过 \`uv run python scripts/cli.py\` 执行，不得改用其他小红书工具。本任务不读取作者主页，不执行 \`user-profile\`。
 
@@ -175,7 +175,7 @@ ${interactionGoal?.trim() || "根据这篇已发布笔记，找到可能对该�
 - AGENTS.md：${account.profilePath}
 
 ## 会话分工要求
-1. OpenClaw 主会话必须亲自完成“第一步：生成搜索关键词”，先产出最终的 3 个主题实词和 3 个通用型关键词。
+1. Agent 主会话必须亲自完成“第一步：生成搜索关键词”，先产出最终的 3 个主题实词和 3 个通用型关键词。
 2. 只有关键词生成完成后，主会话才能把已经确定的 6 个关键词、账号参数、笔记上下文、互动目标和第二步至第五步的执行要求一起交给后台子会话。
 3. 后台子会话只负责搜索建池、读取详情、过滤、生成评论、执行评论和汇总结果。
 4. 禁止主会话在尚未生成关键词时把整个任务原样交给后台子会话，也禁止让后台子会话重新决定或改写关键词。

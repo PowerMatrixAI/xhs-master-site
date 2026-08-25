@@ -64,8 +64,8 @@ export function buildDirectVideoTask(input: {
   asset: VideoSourceAsset;
 }) {
   const { account, noteTask, asset } = input;
-  const taskDir = `$PWD/.openclaw_tasks/xhs-video-task-${noteTask.id}`;
-  return `# OpenClaw 视频准备任务
+  const taskDir = `$PWD/.tasks/xhs-video-task-${noteTask.id}`;
+  return `# Agent 视频准备任务
 
 请在 **xiaohongshu_auto_op** skill 根目录完成本任务。这里只准备视频文件，不发布、不填写小红书表单。
 
@@ -120,9 +120,9 @@ ${JSON.stringify(input.assets, null, 2)}
   const shots = parseShots(parsed?.shots, input.assets);
   if (!shots) throw new Error("后端 AI 返回的视频分镜 JSON 不完整或素材对应关系无效，请重试。");
 
-  const taskDir = `$PWD/.openclaw_tasks/xhs-video-task-${input.noteTask.id}`;
+  const taskDir = `$PWD/.tasks/xhs-video-task-${input.noteTask.id}`;
   const assetsDir = `$PWD/assets/${input.account.accountParam}`;
-  const taskDirLiteral = `.openclaw_tasks/xhs-video-task-${input.noteTask.id}`;
+  const taskDirLiteral = `.tasks/xhs-video-task-${input.noteTask.id}`;
   const sourceDownloads = shots.map((shot, index) => {
     const number = String(index + 1).padStart(2, "0");
     return `curl --fail --location --retry 3 --connect-timeout 20 --output "$TASK_DIR/source-${number}.jpg" ${shellQuote(shot.assetUrl)}\ntest -s "$TASK_DIR/source-${number}.jpg"`;
@@ -141,7 +141,7 @@ ${JSON.stringify(input.assets, null, 2)}
 - 图片精修 Prompt：${shot.editPrompt}
 - 视频动态 Prompt：${shot.videoPrompt}`).join("\n\n");
 
-  return `# OpenClaw 图片转视频执行任务
+  return `# Agent 图片转视频执行任务
 
 请使用 **xiaohongshu_auto_op** 的 **xhs-creative** skill 完成本任务。不要发布或填写小红书表单。
 
@@ -302,8 +302,8 @@ export function buildVideoDraftTask(input: {
 }) {
   const { account, noteTask, bodyPrompt, selectedDraft } = input;
   const accountName = shellQuote(account.accountParam);
-  const taskDir = `$PWD/.openclaw_tasks/xhs-video-task-${noteTask.id}`;
-  return `# OpenClaw 视频笔记草稿箱任务
+  const taskDir = `$PWD/.tasks/xhs-video-task-${noteTask.id}`;
+  return `# Agent 视频笔记草稿箱任务
 
 请使用 **xiaohongshu_auto_op** 的 **xhs-publish** skill，为指定账号生成视频笔记的标题和正文，使用视频方案阶段准备好的视频，并保存到小红书草稿箱。严禁真实发布。
 

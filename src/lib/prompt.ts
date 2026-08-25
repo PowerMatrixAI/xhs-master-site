@@ -87,7 +87,7 @@ function baseContext(input: {
 
 ## 上下文
 - 账号素材目录：assets/${account.accountParam}/
-- ${isVideo ? "视频任务输出：.openclaw_tasks/xhs-video-task-" + noteTask.id + "/video-path.txt" : "图片任务输出：.openclaw_tasks/xhs-image-task-" + noteTask.id + "/image-paths.txt"}
+- ${isVideo ? "视频任务输出：.tasks/xhs-video-task-" + noteTask.id + "/video-path.txt" : "图片任务输出：.tasks/xhs-image-task-" + noteTask.id + "/image-paths.txt"}
 - ${isVideo ? "视频处理：先在“视频方案”完成视频任务；本阶段只读取最终视频路径，不重新生成或替换视频。" : `图片处理：先在“${imagePanelName}”完成图片任务；本阶段只读取其成品图片清单，不重新生成或替换图片。`}
 - 账号定位：${strategySummary}
 - 账号对外人设：${account.personaBase || "真实、具体、克制，以能够核验的信息帮助用户做判断"}
@@ -105,7 +105,7 @@ function baseContext(input: {
 - 预期目标：${noteTask.expectedGoal}
 - 封面方向：${noteTask.coverCopyDirection}
 - 评论钩子：${noteTask.commentHook}
-- 禁忌：${stripCreativityRestrictions(weeklyPlan.taboos || account.taboos) || "无创作性表达限制；遵守账号和 OpenClaw 执行边界"}
+- 禁忌：${stripCreativityRestrictions(weeklyPlan.taboos || account.taboos) || "无创作性表达限制；遵守账号和 Agent 执行边界"}
 
 ## 本篇唯一爆款文风参考
 ${buildReferenceStyleBrief(noteTask)}

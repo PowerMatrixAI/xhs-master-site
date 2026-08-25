@@ -70,12 +70,12 @@ type WeeklyPlanInput = {
   selectedObjectives?: SelectedWeeklyPlanningObjective[];
 };
 
-function appendOpenClawAccountIdentity(text: string, account: Pick<ClientAccountInput, "name" | "accountParam">) {
+function appendAgentAccountIdentity(text: string, account: Pick<ClientAccountInput, "name" | "accountParam">) {
   const accountParam = account.accountParam?.trim() || "未设置";
-  const marker = `OpenClaw 账号 ID（accountParam）：\`${accountParam}\``;
+  const marker = `Agent 账号 ID（accountParam）：\`${accountParam}\``;
   if (text.includes(marker)) return text;
 
-  return `${text.trim()}\n\n## OpenClaw 账号标识\n- 业务账号名称：${account.name}\n- ${marker}\n- 所有需要切换小红书账号的 CLI 命令必须使用：\`--account ${accountParam}\`。账号名称和本系统数据库编号均不可替代该参数。\n`;
+  return `${text.trim()}\n\n## Agent 账号标识\n- 业务账号名称：${account.name}\n- ${marker}\n- 所有需要切换小红书账号的 CLI 命令必须使用：\`--account ${accountParam}\`。账号名称和本系统数据库编号均不可替代该参数。\n`;
 }
 
 function stripStrategyResearchAndCommandSections(markdown: string) {
@@ -86,7 +86,7 @@ function stripStrategyResearchAndCommandSections(markdown: string) {
     const heading = line.match(/^##\s+(.+?)\s*$/);
     if (heading) {
       const title = heading[1];
-      skipping = /研究.*命令|命令.*建议|研究建议|给.*(?:OpenClaw|xiaohongshu_auto_op).*执行说明/i.test(title);
+      skipping = /研究.*命令|命令.*建议|研究建议|给.*(?:Agent|xiaohongshu_auto_op).*执行说明/i.test(title);
     }
     if (!skipping) kept.push(line);
   }
@@ -233,13 +233,13 @@ export async function generateStrategyWithBrowserLlm(account: ClientAccountInput
     "账号基础判断：账号类型判断、账号阶段、所在城市/区域、账号定位、人设设定、目标用户、用户顾虑、当前目标",
     "账号核心策略：核心价值、差异化定位、内容主线、内容栏目、选题方向、内容优先级、暂不建议涉及的方向、商业化方向概览",
     "阶段执行计划：当前阶段目标、数据观察指标、复盘与调整策略",
-    "事实与执行边界：客户信息、创作空间、账号运营边界、素材使用说明、OpenClaw 账号标识"
+    "事实与执行边界：客户信息、创作空间、账号运营边界、素材使用说明、Agent 账号标识"
   ];
   const safetyRules = [
     "只生成策划、Prompt 和命令建议，不执行真实发布、评论、点赞、收藏、关注或私信。",
     "允许根据账号定位创作第一人称体验、情绪、场景和感官细节，让策划具有生活感和传播力。",
     "参考账号只用于学习表达风格和内容灵感，不复制原文、标题、人物经历或独特案例。",
-    "账号和 OpenClaw 的真实发布、互动、素材路径及权限仍按系统安全边界执行。"
+    "账号和 Agent 的真实发布、互动、素材路径及权限仍按系统安全边界执行。"
   ];
   const prompt = `请为一个小红书账号生成一份针对客户实际情况的账号策划案和 AGENTS.md。
 
@@ -249,8 +249,8 @@ export async function generateStrategyWithBrowserLlm(account: ClientAccountInput
 - 最终策划案不得包含正文结构、正文结构模板、行文结构模板、段落顺序等固定写作模板；每篇帖子的结构留到周计划/单篇任务阶段，再结合主题事实和所选爆款文风生成。
 - 最终策划案不得包含 30 天冷启动计划、一周内容模板、一周内容比例或发布频率比例。
 - 本阶段只生成账号定位、核心策略、简化执行计划和内容创作边界，不生成统一正文结构模板；标题、封面、正文表达和爆款文风留给后续研究及单篇任务阶段。
-- 策划案 Markdown 不得包含研究任务、研究建议、命令建议、CLI 命令或 OpenClaw 执行说明章节。
-- 必须包含 OpenClaw 账号标识，写明业务账号名称、OpenClaw 账号 ID（accountParam）以及唯一可用的 \`--account <accountParam>\` 参数。
+- 策划案 Markdown 不得包含研究任务、研究建议、命令建议、CLI 命令或 Agent 执行说明章节。
+- 必须包含 Agent 账号标识，写明业务账号名称、Agent 账号 ID（accountParam）以及唯一可用的 \`--account <accountParam>\` 参数。
 - ${safetyRules.join("\n- ")}
 - 以中文输出。
 - 只返回 JSON，不要 Markdown 代码块。
@@ -305,8 +305,8 @@ JSON 字段：
       data: {
         positioning,
         strategyJson: JSON.stringify(strategy, null, 2),
-        markdown: appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(stripStrategyResearchAndCommandSections(markdown)), accountRecord),
-        agentsMdContent: appendOpenClawAccountIdentity(stripStrategyFixedPlanningSections(agentsMdContent), accountRecord),
+        markdown: appendAgentAccountIdentity(stripStrategyFixedPlanningSections(stripStrategyResearchAndCommandSections(markdown)), accountRecord),
+        agentsMdContent: appendAgentAccountIdentity(stripStrategyFixedPlanningSections(agentsMdContent), accountRecord),
         execGuide
       }
     };

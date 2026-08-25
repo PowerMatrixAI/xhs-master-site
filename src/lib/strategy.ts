@@ -81,9 +81,9 @@ ${positioning}
 - 账号阶段：${account.stage}
 - 所在城市：${account.city || "未设置"}
 
-## OpenClaw 账号标识
+## Agent 账号标识
 - 业务账号名称：${account.name}
-- OpenClaw 账号 ID（accountParam）：\`${account.accountParam || "未设置"}\`
+- Agent 账号 ID（accountParam）：\`${account.accountParam || "未设置"}\`
 - 所有需要切换小红书账号的 CLI 命令必须使用：\`--account ${account.accountParam || "请先填写账号 ID"}\`。账号名称和本系统数据库编号均不可替代该参数。
 
 ## 人设设定
@@ -143,9 +143,9 @@ ${listBlock(strategyObject.xhsAutoOpGuide)}
 ## 账号身份
 ${positioning}
 
-## OpenClaw 账号标识
+## Agent 账号标识
 - 业务账号名称：${account.name}
-- OpenClaw 账号 ID（accountParam）：\`${account.accountParam || "未设置"}\`
+- Agent 账号 ID（accountParam）：\`${account.accountParam || "未设置"}\`
 - 所有需要切换小红书账号的 CLI 命令必须使用：\`--account ${account.accountParam || "请先填写账号 ID"}\`。账号名称和本系统数据库编号均不可替代该参数。
 
 ## 人设设定

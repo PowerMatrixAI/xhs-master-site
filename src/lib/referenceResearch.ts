@@ -1,8 +1,8 @@
 import type { Account, AccountTypeTemplate } from "@/types/domain";
 
 export function buildReferenceResearchPrompt(account: Account, template: AccountTypeTemplate, researchId: number) {
-  const researchDir = `.openclaw_tasks/xhs-reference-research-${researchId}`;
-  return `# 给 OpenClaw 的爆款研究任务
+  const researchDir = `.tasks/xhs-reference-research-${researchId}`;
+  return `# 给 Agent 的爆款研究任务
 
 ## 当前执行模式
 只读研究，不允许真实发布、评论、点赞、收藏、关注或私信。请使用 **xiaohongshu_auto_op** 的 **xhs-explore** skill；根据当前安装版本自行拟定命令，不要使用其他小红书搜索工具。不要读取、加载、引用或分析评论。
@@ -11,7 +11,7 @@ export function buildReferenceResearchPrompt(account: Account, template: Account
 
 ## 我方账号基础信息
 - 账号名称：${account.name}
-- OpenClaw 账号 ID（accountParam）：${account.accountParam || "未设置"}
+- Agent 账号 ID（accountParam）：${account.accountParam || "未设置"}
 - 账号对应规则：后续任何需要切换小红书账号的 CLI 操作，必须使用 \`--account ${account.accountParam || "请先填写账号 ID"}\`；不得使用账号名称或本系统数据库编号替代。
 - 账号类型：${template.name}
 - 阶段：${account.stage}
