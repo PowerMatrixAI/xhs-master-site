@@ -63,6 +63,8 @@ export async function generateDraftVariants(input: {
   weeklyPlan: Parameters<typeof buildTaskPrompt>[0]["weeklyPlan"];
   noteTask: Parameters<typeof buildTaskPrompt>[0]["noteTask"];
   expertRules?: unknown[];
+  knowledgeSnapshotId?: string;
+  knowledgeSourceKeys?: string[];
 }) {
   const context = buildTaskPrompt({
     account: input.account,
@@ -78,6 +80,8 @@ export async function generateDraftVariants(input: {
 
   const response = await completeWithBackendAi({
     instructions: "你是擅长模仿小红书爆款表达的中文文案作者。严格输出合法 JSON，不输出解释、Markdown 代码块或版本生成过程。",
+    knowledgeSnapshotId: input.knowledgeSnapshotId,
+    knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `基于以下单篇笔记上下文，直接生成 3 个可发布到小红书草稿箱的标题和正文版本。\n\n${context}${objectiveRules ? `\n\n${objectiveRules}\n- 上述专项限制的优先级高于品类通用规则、contentGoal 和 coreView 中可能出现的相反暗示；不得自行补写被限制的内容。` : ""}\n\n## 三档表达强度\n${variantDefinitions.map((variant) => `- ${variant.id}（${variant.label}）：${variant.requirement}`).join("\n")}\n\n## 强制要求\n1. 固定输出上述 3 个版本，各出现一次，顺序必须为 playful、lively、balanced。\n2. 三个版本围绕同一主题和同一组图片，不得偏离本篇选题；语气梯度必须明显，不能只替换少量形容词。\n3. 优先模仿“本篇唯一爆款文风参考”中的语气、Emoji、标点、口语、情绪密度、生活细节和句式节奏；不得复制参考标题、原句、独特比喻或具体数据。\n4. 每个 body 必须是完整成品正文，使用简体中文、自然分段，最后一行写 5-6 个话题标签。不要出现版本名称、创作说明、运营术语、AI、Prompt、素材或生成过程。\n5. title 必须是单行成品标题，建议充分使用标题额度，长度优先为 14-20 个小红书标题字符，最多不得超过 20。计数规则：中文汉字、中文标点和全角符号各计 1；英文、数字等半角字符约每 2 个计 1。不要附带话题标签。\n\nJSON 格式：\n{\n  "variants": [\n    { "id": "playful", "label": "版本1", "title": "", "body": "" },\n    { "id": "lively", "label": "版本2", "title": "", "body": "" },\n    { "id": "balanced", "label": "版本3", "title": "", "body": "" }\n  ]\n}`
   });
 

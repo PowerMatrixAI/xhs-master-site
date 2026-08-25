@@ -1,5 +1,6 @@
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
-import { authenticatedFetch } from "@/lib/api";
+import { authenticatedFetch, getToken, getUser } from "@/lib/api";
+import { buildBackendSignedHeaders } from "@/lib/xhs-signature";
 
 type BackendAiResult =
   | { ok: true; text: string; model: string }
@@ -19,6 +20,32 @@ type BackendAiResponse = {
 
 const POLL_INTERVAL_MS = 30_000;
 const POLL_MAX_ATTEMPTS = 20;
+
+function buildBackendAiRequestHeaders(input: {
+  url: string;
+  method: string;
+  body?: string;
+}): Record<string, string> {
+  const token = getToken();
+  const user = getUser();
+
+  // AI 调用既可能由浏览器直接发起，也可能经 Next.js Route 转发。
+  // 浏览器侧具备当前登录态时，必须带上与业务接口一致的签名头。
+  if (token && user) {
+    return buildBackendSignedHeaders({
+      url: input.url,
+      method: input.method,
+      body: input.body,
+      token,
+      uid: String(user.uid),
+      includeJsonContentType: input.method !== "GET"
+    }) as Record<string, string>;
+  }
+
+  return input.method === "GET"
+    ? { "xhs-language": "zh-cn" }
+    : { "content-type": "application/json", "xhs-language": "zh-cn" };
+}
 
 function abortMessage(signal?: AbortSignal) {
   if (!signal?.aborted) return "";
@@ -62,7 +89,7 @@ async function waitForBackendAiResult(input: {
 
     const response = await authenticatedFetch(resultUrl, {
       method: "GET",
-      headers: { "xhs-language": "zh-cn" },
+      headers: buildBackendAiRequestHeaders({ url: resultUrl, method: "GET" }),
       signal: input.signal
     });
     const json = (await response.json().catch(() => ({}))) as BackendAiResponse;
@@ -103,19 +130,26 @@ export async function completeWithBackendAi(input: {
   input: string;
   model?: string;
   signal?: AbortSignal;
+  knowledgeSnapshotId?: string;
+  knowledgeSourceKeys?: string[];
 }): Promise<BackendAiResult> {
   try {
-    const response = await authenticatedFetch(`${getBackendApiBaseUrl()}/ai/v1/complete`, {
+    const url = `${getBackendApiBaseUrl()}/ai/v1/complete`;
+    const body = JSON.stringify({
+      instructions: input.instructions,
+      input: input.input,
+      model: input.model,
+      ...(input.knowledgeSnapshotId
+        ? {
+            knowledgeSnapshotId: input.knowledgeSnapshotId,
+            knowledgeSourceKeys: input.knowledgeSourceKeys || []
+          }
+        : {})
+    });
+    const response = await authenticatedFetch(url, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "xhs-language": "zh-cn"
-      },
-      body: JSON.stringify({
-        instructions: input.instructions,
-        input: input.input,
-        model: input.model
-      }),
+      headers: buildBackendAiRequestHeaders({ url, method: "POST", body }),
+      body,
       signal: input.signal
     });
 

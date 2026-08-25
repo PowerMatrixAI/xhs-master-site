@@ -24,6 +24,7 @@ export async function POST(request: Request) {
     interactionGoal: body.interactionGoal || "",
     availableAssets: body.availableAssets || "",
     taboos: body.taboos || "",
+    knowledgeSnapshotId: String(body.knowledgeSnapshotId || ""),
     status: "draft",
     createdAt: new Date(),
     updatedAt: new Date()
@@ -50,7 +51,8 @@ export async function POST(request: Request) {
       assets: account.assets || [],
       weeklyPlan: plan,
       weeklyInput,
-      taskCount: frequency
+      taskCount: frequency,
+      knowledgeSnapshotId: String(body.knowledgeSnapshotId || "")
     });
     return NextResponse.json({
       ...plan,

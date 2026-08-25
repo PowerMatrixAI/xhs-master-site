@@ -8,6 +8,10 @@ async function buildResult(body: Record<string, unknown>) {
   const noteTask = body.noteTask as { id: number; topicTitle: string };
   const mode = body.mode === "direct_video" ? "direct_video" : "image_to_video";
   const assets = (Array.isArray(body.assets) ? body.assets : []) as VideoSourceAsset[];
+  const knowledgeSnapshotId = String(body.knowledgeSnapshotId || "").trim();
+  const knowledgeSourceKeys = Array.isArray(body.knowledgeSourceKeys)
+    ? body.knowledgeSourceKeys.map((value) => String(value).trim()).filter(Boolean)
+    : [];
   if (!account?.accountParam || !noteTask?.id) throw new Error("缺少账号或视频任务上下文。");
 
   let content = "";
@@ -22,7 +26,9 @@ async function buildResult(body: Record<string, unknown>) {
       account,
       noteTask,
       assets,
-      expertRules: formatExpertRulesForPrompt((account as { expertRules?: Array<{ module: string; rule: string; source?: string; enabled?: boolean; updatedAt?: string }> }).expertRules || [], ["cover", "video_plan", "risk"])
+      expertRules: formatExpertRulesForPrompt((account as { expertRules?: Array<{ module: string; rule: string; source?: string; enabled?: boolean; updatedAt?: string }> }).expertRules || [], ["cover", "video_plan", "risk"]),
+      knowledgeSnapshotId,
+      knowledgeSourceKeys
     });
   }
   return { videoPrompt: { title: `${noteTask.topicTitle} 视频方案`, content }, openclawTask: { title: `${noteTask.topicTitle} Agent 视频任务`, content }, ai: { used: mode === "image_to_video", calls: mode === "image_to_video" ? 1 : 0 } };

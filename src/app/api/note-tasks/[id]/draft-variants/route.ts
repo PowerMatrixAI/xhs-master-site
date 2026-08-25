@@ -18,7 +18,9 @@ async function buildDraftVariantsResult(body: Record<string, any>) {
     strategy: account.strategy || null,
     weeklyPlan,
     noteTask,
-    expertRules: account.expertRules || []
+    expertRules: account.expertRules || [],
+    knowledgeSnapshotId: String(weeklyPlan.knowledgeSnapshotId || ""),
+    knowledgeSourceKeys: Array.isArray(noteTask.knowledgeSourceKeys) ? noteTask.knowledgeSourceKeys : []
   });
 }
 

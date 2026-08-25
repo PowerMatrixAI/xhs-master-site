@@ -33,6 +33,7 @@ type NoteTaskSeed = {
   writingStyleName: string;
   writingStyleReference: string;
   status: string;
+  knowledgeSourceKeys: string[];
 };
 
 type WeeklyPlanInput = {
@@ -281,6 +282,7 @@ export async function generateWeeklyTasksWithLlm(input: {
   weeklyPlan: WeeklyPlan;
   weeklyInput: WeeklyPlanInput;
   taskCount: number;
+  knowledgeSnapshotId?: string;
 }): Promise<LlmResult<NoteTaskSeed[]>> {
   const status = getLlmStatus();
   if (!status.enabled) throw new Error("AI 未启用，无法生成本周内容计划。");
@@ -348,6 +350,7 @@ export async function generateWeeklyTasksWithLlm(input: {
 - 不要输出正文结构、段落顺序、开场方式、文风、句式节奏或任何“先/再/最后”的行文指令。
 - 信息不足时优先使用合理的创作性场景、情绪和感官表达补足内容，不要把资料缺口或核验说明写成帖子主内容。
 - 推荐素材只能来自输入素材或明确写“素材缺口”，禁止伪造真实素材。
+- 如果服务端注入了“当前账号知识库检索结果”，每篇任务必须返回 knowledgeSourceKeys 字符串数组，只能选择其中标识为 K1-Kn 的来源 key；无相关资料时返回空数组。
 - 只返回 JSON，不要 Markdown 代码块。${dedupRequirements}
 
 ${objectiveRules}
@@ -393,6 +396,7 @@ JSON 字段：
       "commentHook": "",
       "expectedGoal": "",
       "writingStyleName": "必须与 availableWritingStyles 中的一项完全一致",
+      "knowledgeSourceKeys": ["只能使用服务端知识上下文中的 K1-Kn；无相关资料时为空数组"],
       "status": "待生成Prompt"
     }
   ]
@@ -400,7 +404,8 @@ JSON 字段：
 
   const response = await createTextResponse({
     instructions: "你是小红书周运营计划专家，擅长把账号定位、素材条件和测试假设拆成可执行 note_tasks。",
-    input: prompt
+    input: prompt,
+    knowledgeSnapshotId: input.knowledgeSnapshotId
   });
 
   if (!response.ok) throw new Error(response.error || "AI 未能生成本周内容计划。");
@@ -436,6 +441,9 @@ JSON 字段：
       expectedGoal: required("expectedGoal"),
       writingStyleName: required("writingStyleName"),
       writingStyleReference: "",
+      knowledgeSourceKeys: input.knowledgeSnapshotId && Array.isArray(task.knowledgeSourceKeys)
+        ? task.knowledgeSourceKeys.map((value) => String(value).trim()).filter(Boolean)
+        : [],
       status: "待生成Prompt"
     } satisfies NoteTaskSeed;
   }).map((task, index) => {
@@ -643,7 +651,7 @@ JSON 字段：
   };
 }
 
-async function createTextResponse(input: { instructions: string; input: string }): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+async function createTextResponse(input: { instructions: string; input: string; knowledgeSnapshotId?: string; knowledgeSourceKeys?: string[] }): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   const status = getLlmStatus();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort("backend ai timeout"), 11 * 60 * 1000);
@@ -653,6 +661,8 @@ async function createTextResponse(input: { instructions: string; input: string }
       model: status.model,
       instructions: input.instructions,
       input: input.input,
+      knowledgeSnapshotId: input.knowledgeSnapshotId,
+      knowledgeSourceKeys: input.knowledgeSourceKeys,
       signal: controller.signal
     });
 

@@ -5,9 +5,11 @@ export type WeeklyPlanningObjective = {
   theme: string;
   goal: string;
   planningRules: string[];
+  knowledgeRetrievalQuery: string;
 };
 
-export type SelectedWeeklyPlanningObjective = Pick<WeeklyPlanningObjective, "id" | "name" | "planningRules">;
+export type SelectedWeeklyPlanningObjective = Pick<WeeklyPlanningObjective, "id" | "name" | "planningRules" | "knowledgeRetrievalQuery">;
+type WeeklyPlanningObjectiveSeed = Omit<WeeklyPlanningObjective, "knowledgeRetrievalQuery">;
 
 type WeeklyPlanningMode =
   | "wedding"
@@ -27,7 +29,7 @@ const sharedPlanningRules = [
   "除非用户在本周重点中明确要求，否则价格、预约、交通、人数、套餐、流程等只能作为辅助信息，不得自动成为选题主轴。"
 ];
 
-const objectiveRules: Record<WeeklyPlanningMode, WeeklyPlanningObjective[]> = {
+const objectiveRules: Record<WeeklyPlanningMode, WeeklyPlanningObjectiveSeed[]> = {
   wedding: [
     {
       id: "wedding_details",
@@ -385,6 +387,44 @@ const objectiveRules: Record<WeeklyPlanningMode, WeeklyPlanningObjective[]> = {
   ]
 };
 
+const objectiveKnowledgeRetrievalQueries: Record<string, string> = {
+  wedding_details: "婚礼细节、花艺、甜品、仪式区、桌花、纸品、灯光、材质、配色、可确认场景",
+  wedding_case_conversion: "真实婚礼案例、场地条件、设计细节、已确认服务范围、案例边界",
+  wedding_service_experience: "婚礼策划服务、现场体验、沟通方式、服务边界、适合的新人场景",
+  destination_route: "目的地动线、游览体验、景观、停留场景、可确认服务信息",
+  festival_activity: "节庆活动、演出、市集、季节体验、活动看点、可确认参与条件",
+  tourism_experience_product: "目的地体验、特色活动、线路产品、场景亮点、可确认服务内容",
+  craft_story: "工艺细节、材料、工具、作品、制作体验、文化背景、可确认事实",
+  heritage_booking: "体验活动、工作坊、参与条件、时间地点、预约方式、限制条件",
+  heritage_activity: "民俗活动、亲子研学、现场体验、活动内容、可确认参与信息",
+  room_space: "房型、空间、窗景、设施、入住体验、可确认房间细节",
+  surrounding_experience: "住宿周边、自然风景、餐饮、活动、停留体验、可确认出行信息",
+  stay_activity_service: "住宿配套、餐饮、亲子活动、团建、接驳、服务边界",
+  single_dish: "主推菜品、食材、风味、口感、分量、制作特点、用餐场景",
+  food_activity_conversion: "套餐、活动规则、适用条件、预约方式、时间限制、不可承诺事项",
+  local_food: "本地食材、地域风味、地点、体验、可确认特色",
+  dining_experience: "门店空间、服务、到店场景、真实体验细节",
+  route_diary: "路线风景、行走体验、关键路况、季节体感、可确认路线事实",
+  route_guide: "路线难度、距离爬升、交通补给、装备、撤退点、可确认安全边界",
+  outdoor_activity_service: "户外活动、装备支持、参与门槛、服务流程、可确认活动信息",
+  exhibition_highlights: "展览看点、展品、展厅、观展体验、展期与可确认服务信息",
+  family_study: "亲子研学、讲解内容、适合年龄、活动体验、可确认参与条件",
+  museum_activity: "展馆活动、教育体验、现场内容、预约方式、可确认活动信息",
+  product_seeding: "产品、原料、工艺、使用场景、规格、可确认产品特点",
+  gift_box_conversion: "礼盒、包装、送礼场景、规格、购买方式、时间限制",
+  tourism_souvenir: "地方伴手礼、地域特色、产品体验、送礼场景、可确认购买信息",
+  service_trust: "服务内容、真实空间、设备、流程、资质、可确认服务边界",
+  service_questions: "服务常见问题、适合人群、流程、风险边界、可确认说明",
+  service_activity: "服务活动、会员体验、参与条件、时间限制、可确认权益"
+};
+
+function withKnowledgeRetrievalQuery(objective: WeeklyPlanningObjectiveSeed): WeeklyPlanningObjective {
+  return {
+    ...objective,
+    knowledgeRetrievalQuery: objectiveKnowledgeRetrievalQueries[objective.id] || objective.name
+  };
+}
+
 function modeForAccountType(accountType?: string): WeeklyPlanningMode {
   if (accountType === "wedding_planning") return "wedding";
   if (["hiking_diary", "outdoor_travel", "mountain_route", "city_walk_nature", "overseas_hiking"].includes(accountType || "")) return "outdoor";
@@ -398,7 +438,7 @@ function modeForAccountType(accountType?: string): WeeklyPlanningMode {
 }
 
 export function getWeeklyPlanningObjectives(accountType?: string) {
-  return objectiveRules[modeForAccountType(accountType)];
+  return objectiveRules[modeForAccountType(accountType)].map(withKnowledgeRetrievalQuery);
 }
 
 export function combineWeeklyPlanningObjectives(objectives: WeeklyPlanningObjective[]) {
@@ -410,7 +450,8 @@ export function combineWeeklyPlanningObjectives(objectives: WeeklyPlanningObject
     help: active.map((objective) => objective.help).filter(Boolean).join("；"),
     theme: `${active.map((objective) => objective.name).join(" + ")}综合周`,
     goal: active.map((objective) => objective.goal).filter(Boolean).join("；"),
-    planningRules: active.flatMap((objective) => objective.planningRules)
+    planningRules: active.flatMap((objective) => objective.planningRules),
+    knowledgeRetrievalQuery: active.map((objective) => objective.knowledgeRetrievalQuery).filter(Boolean).join("；")
   } satisfies WeeklyPlanningObjective;
 }
 
@@ -421,14 +462,14 @@ export function selectedWeeklyPlanningObjectives(
   const available = getWeeklyPlanningObjectives(accountType);
   const selected = available.filter((objective) => ids.includes(objective.id));
   const active = selected.length ? selected : available.slice(0, 1);
-  return active.map(({ id, name, planningRules }) => ({ id, name, planningRules }));
+  return active.map(({ id, name, planningRules, knowledgeRetrievalQuery }) => ({ id, name, planningRules, knowledgeRetrievalQuery }));
 }
 
 export function selectedWeeklyPlanningObjectivesFromTheme(accountType: string | undefined, theme: string | null | undefined) {
   const text = String(theme || "");
   return getWeeklyPlanningObjectives(accountType)
     .filter((objective) => text.includes(objective.name))
-    .map(({ id, name, planningRules }) => ({ id, name, planningRules }));
+    .map(({ id, name, planningRules, knowledgeRetrievalQuery }) => ({ id, name, planningRules, knowledgeRetrievalQuery }));
 }
 
 export function formatWeeklyPlanningObjectiveRules(objectives: SelectedWeeklyPlanningObjective[]) {

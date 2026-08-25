@@ -522,6 +522,10 @@ async function buildImagePromptResult(body: any, requestId: string) {
   const aiImageCount = isMixed ? normalizeOptionalImageCount(body.aiImageCount) : 0;
   const realImageRefinementRequirement = String(body.realImageRefinementRequirement || "").trim();
   const aiAssistantRequirement = String(body.aiAssistantRequirement || "").trim();
+  const knowledgeSnapshotId = String(body.knowledgeSnapshotId || "").trim();
+  const knowledgeSourceKeys = Array.isArray(body.knowledgeSourceKeys)
+    ? body.knowledgeSourceKeys.map((value: unknown) => String(value).trim()).filter(Boolean)
+    : [];
   const removeWatermarks =
     imageSourceMode !== "ai_generate"
     && (
@@ -630,7 +634,9 @@ async function buildImagePromptResult(body: any, requestId: string) {
       styleBrief: resolvedStyleBrief,
       expertRules,
       imageCount: requestedAutoImageCount,
-      assets: selectionCandidates
+      assets: selectionCandidates,
+      knowledgeSnapshotId,
+      knowledgeSourceKeys
     });
     if (!selectionResult.usedLlm) {
       console.error("[image-auto-selection] backend AI failed", {
@@ -708,7 +714,9 @@ async function buildImagePromptResult(body: any, requestId: string) {
       autoImageCount,
       aiImageCount,
       baseRequirements: content,
-      removeWatermarks
+      removeWatermarks,
+      knowledgeSnapshotId,
+      knowledgeSourceKeys
     });
     if (!mixedResult.usedLlm) {
       throw new Error(`AI 未能生成混合图集方案：${mixedResult.error}`);
@@ -738,7 +746,9 @@ async function buildImagePromptResult(body: any, requestId: string) {
       assets: selectedAssets,
       baseRequirements: content,
       selectionMode: imageSourceMode === "ai_auto_select" ? "ai_auto" : "manual",
-      removeWatermarks
+      removeWatermarks,
+      knowledgeSnapshotId,
+      knowledgeSourceKeys
     });
 
     if (!refinementResult.usedLlm) {
@@ -779,7 +789,9 @@ async function buildImagePromptResult(body: any, requestId: string) {
       styleBrief: resolvedStyleBrief,
       expertRules,
       imageCount: normalizedImageCount,
-      baseRequirements: content
+      baseRequirements: content,
+      knowledgeSnapshotId,
+      knowledgeSourceKeys
     });
 
     if (!generationResult.usedLlm) {

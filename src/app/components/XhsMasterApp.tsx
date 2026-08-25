@@ -49,6 +49,7 @@ import {
   saveBackendNoteTask,
   saveBackendPostReviewResult,
   saveBackendWeeklyPlan,
+  retrieveBackendKnowledgeSnapshot,
   setBackendExpertRulesEnabled,
   updateBackendAccount,
   authenticatedFetch,
@@ -228,6 +229,7 @@ type WeeklyPlan = {
   availableAssets: string;
   taboos: string;
   status?: string;
+  knowledgeSnapshotId?: string;
   noteTasks: NoteTask[];
 };
 
@@ -249,6 +251,7 @@ type NoteTask = {
   commentHook: string;
   expectedGoal: string;
   status: string;
+  knowledgeSourceKeys?: string[];
   bodyDraft?: string;
   plan?: string;
 };
@@ -1221,6 +1224,7 @@ function mapBackendAccountToUiAccount(account: BackendAccountDetail): Account {
     availableAssets: plan.availableAssets,
     taboos: plan.taboos,
     status: plan.status || "draft",
+    knowledgeSnapshotId: plan.knowledgeSnapshotId || "",
     noteTasks: normalizeWeeklyTaskMedia((plan.noteTasks || []).map((task) => ({
       id: task.id || Date.now(),
       publishAt: task.publishAt || "",
@@ -1239,6 +1243,7 @@ function mapBackendAccountToUiAccount(account: BackendAccountDetail): Account {
       commentHook: task.commentHook || "",
       expectedGoal: task.expectedGoal || "",
       status: task.status || "待生成",
+      knowledgeSourceKeys: task.knowledgeSourceKeys || [],
       bodyDraft: task.bodyDraft || "",
       plan: task.plan || ""
     })), (plan.noteTasks || []).filter((task) => task.type === "video_text").length)
@@ -1343,6 +1348,7 @@ function mapBackendAssetToUiAsset(asset: BackendAsset, fallback?: Partial<Asset>
 }
 
 function toBackendNoteTask(task: NoteTask): BackendNoteTask {
+  const knowledgeSourceKeys = task.knowledgeSourceKeys?.filter(Boolean) || [];
   return {
     id: task.id,
     type: task.type,
@@ -1362,6 +1368,7 @@ function toBackendNoteTask(task: NoteTask): BackendNoteTask {
     commentHook: task.commentHook,
     expectedGoal: task.expectedGoal,
     status: task.status,
+    ...(knowledgeSourceKeys.length ? { knowledgeSourceKeys } : {}),
     bodyDraft: task.bodyDraft || "",
     plan: task.plan || ""
   };
@@ -1380,6 +1387,7 @@ function toBackendWeeklyPlan(plan: WeeklyPlan): BackendWeeklyPlan {
     availableAssets: plan.availableAssets,
     taboos: plan.taboos,
     status: plan.status || "draft",
+    ...(plan.knowledgeSnapshotId ? { knowledgeSnapshotId: plan.knowledgeSnapshotId } : {}),
     noteTasks: plan.noteTasks.map((task) => {
       const backendTask = toBackendNoteTask(task);
       delete backendTask.id;
@@ -1853,6 +1861,20 @@ export function XhsMasterApp() {
     setLoading(true);
     setLoadingAction("generateWeeklyPlan");
     try {
+      const knowledgeQueries = weeklyFocus
+        ? [`${weeklyFocus}；业务事实、特点、可表达细节、不可虚构边界`]
+        : selectedObjectives.map((objective) => objective.knowledgeRetrievalQuery).filter(Boolean);
+      let knowledgeSnapshotId = "";
+      if (knowledgeQueries.length) {
+        try {
+          const snapshot = await retrieveBackendKnowledgeSnapshot(selected.id, knowledgeQueries);
+          if (snapshot?.hasReferences && snapshot.status.toLowerCase() === "ready") {
+            knowledgeSnapshotId = snapshot.snapshotId;
+          }
+        } catch (error) {
+          console.warn("[knowledge-base] retrieval skipped", error);
+        }
+      }
       const plan = {
         id: Date.now(),
         accountId: selected.id,
@@ -1866,6 +1888,7 @@ export function XhsMasterApp() {
         interactionGoal: String(payload.interactionGoal || ""),
         availableAssets: "",
         taboos: String(payload.taboos || ""),
+        knowledgeSnapshotId,
         noteTasks: []
       };
       const weeklyPlanInput = {
@@ -1895,7 +1918,8 @@ export function XhsMasterApp() {
         strategy: selected.strategy || null,
         weeklyPlan: { id: plan.id },
         weeklyInput,
-        taskCount: frequency
+        taskCount: frequency,
+        knowledgeSnapshotId
       });
       const nextPlan = {
         ...plan,
@@ -2284,7 +2308,13 @@ export function XhsMasterApp() {
       const res = await authenticatedFetch(`/api/note-tasks/${task.id}/image-prompt`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...(options || {}), account: selected, noteTask: task })
+        body: JSON.stringify({
+          ...(options || {}),
+          account: selected,
+          noteTask: task,
+          knowledgeSnapshotId: latestPlan.knowledgeSnapshotId || "",
+          knowledgeSourceKeys: task.knowledgeSourceKeys || []
+        })
       });
       const data = await readApiJsonResponse(res, "创建图片方案任务失败");
       if (!res.ok) throw new Error(data.error || "生成图片方案失败。");
@@ -2341,7 +2371,14 @@ export function XhsMasterApp() {
       const res = await authenticatedFetch(`/api/note-tasks/${task.id}/video-prompt`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ account: selected, noteTask: task, mode, assets })
+        body: JSON.stringify({
+          account: selected,
+          noteTask: task,
+          mode,
+          assets,
+          knowledgeSnapshotId: latestPlan.knowledgeSnapshotId || "",
+          knowledgeSourceKeys: task.knowledgeSourceKeys || []
+        })
       });
       const data = await readApiJsonResponse(res, "创建视频方案任务失败");
       if (!res.ok) throw new Error(data.error || "生成视频方案失败。");

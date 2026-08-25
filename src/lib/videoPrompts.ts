@@ -92,9 +92,13 @@ export async function buildImageToVideoTask(input: {
   noteTask: Record<string, unknown> & { id: number; topicTitle: string };
   assets: VideoSourceAsset[];
   expertRules?: string;
+  knowledgeSnapshotId?: string;
+  knowledgeSourceKeys?: string[];
 }) {
   const response = await completeWithBackendAi({
     instructions: "你是小红书竖屏短视频分镜策划师。根据任务信息和用户已经排序的图片文字元数据，为每张图片生成有情绪、有画面感的图片精修提示词和首帧生视频动态提示词。不得声称看过图片；允许为氛围、情绪和叙事补充创作性画面。只返回 JSON。",
+    knowledgeSnapshotId: input.knowledgeSnapshotId,
+    knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `为以下任务生成逐图视频方案。图片顺序已经由用户确定，不得增删、替换或重新排序。
 
 要求：

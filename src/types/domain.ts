@@ -69,6 +69,7 @@ export type NoteTask = {
   commentHook: string;
   expectedGoal: string;
   status: string;
+  knowledgeSourceKeys?: string[];
   bodyDraft?: string;
   imagePlan?: string;
   createdAt?: DateLike;
@@ -89,6 +90,7 @@ export type WeeklyPlan = {
   availableAssets: string;
   taboos: string;
   status?: string;
+  knowledgeSnapshotId?: string;
   noteTasks?: NoteTask[];
   createdAt?: DateLike;
   updatedAt?: DateLike;

@@ -179,6 +179,12 @@ export interface BackendKnowledgeDocumentListResponse {
   page: number;
 }
 
+export interface BackendKnowledgeSnapshot {
+  snapshotId: string;
+  status: string;
+  hasReferences: boolean;
+}
+
 export interface BackendNoteTask {
   id?: number;
   type: "image_text" | "video_text";
@@ -201,6 +207,7 @@ export interface BackendNoteTask {
   status: string;
   bodyDraft?: string;
   plan?: string;
+  knowledgeSourceKeys?: string[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -218,6 +225,7 @@ export interface BackendWeeklyPlan {
   availableAssets: string;
   taboos: string;
   status?: string;
+  knowledgeSnapshotId?: string;
   noteTasks: BackendNoteTask[];
   createdAt?: string;
   updatedAt?: string;
@@ -664,6 +672,19 @@ export async function deleteBackendKnowledgeDocument(accountId: number, document
   if (!res.status) {
     throw new Error(res.message || "删除知识库文档失败");
   }
+}
+
+export async function retrieveBackendKnowledgeSnapshot(accountId: number, queries: string[]) {
+  const normalizedQueries = queries.map((query) => query.trim()).filter(Boolean);
+  if (!normalizedQueries.length) return null;
+  const res = await authRequest<BackendKnowledgeSnapshot>("/knowledgeBase/v1/retrieve", {
+    method: "POST",
+    body: { accountId, queries: normalizedQueries }
+  });
+  if (!res.status || !res.data) {
+    throw new Error(res.message || "创建知识库检索快照失败");
+  }
+  return res.data;
 }
 
 export async function saveBackendWeeklyPlan(accountId: number, plan: BackendWeeklyPlan) {

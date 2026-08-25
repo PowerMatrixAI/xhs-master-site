@@ -319,6 +319,8 @@ export async function generateImageAutoSelectionWithLlm(input: {
   expertRules: string;
   imageCount: number;
   assets: ImageRefinementAsset[];
+  knowledgeSnapshotId?: string;
+  knowledgeSourceKeys?: string[];
 }): Promise<ImageAutoSelectionResult> {
   const model = process.env.AI_MODEL || "gpt-5.5";
   const controller = new AbortController();
@@ -341,6 +343,8 @@ export async function generateImageAutoSelectionWithLlm(input: {
     const response = await completeWithBackendAi({
       model,
       signal: controller.signal,
+      knowledgeSnapshotId: input.knowledgeSnapshotId,
+      knowledgeSourceKeys: input.knowledgeSourceKeys,
       instructions: `你是小红书单篇笔记的素材选图策划师。你只能读取素材标签、文件名和其他文字元数据，不能查看图片本身。你的任务是从当前账号的候选素材中，选择最符合本篇笔记目标、内容方向和图集叙事的指定数量图片，并给出最终使用顺序。
 
 不得声称看过图片，不得根据 URL 猜测画面，不得虚构标签中没有的信息。标签缺失或过于笼统时，应降低该素材优先级，但候选素材不足时仍可结合文件名、适用内容、地点和尺寸做保守判断。
@@ -412,6 +416,8 @@ export async function generateImageRefinementPlanWithLlm(input: {
   baseRequirements: string;
   selectionMode?: "manual" | "ai_auto";
   removeWatermarks?: boolean;
+  knowledgeSnapshotId?: string;
+  knowledgeSourceKeys?: string[];
 }): Promise<ImageRefinementResult> {
   const model = process.env.AI_MODEL || "gpt-5.5";
   const controller = new AbortController();
@@ -433,6 +439,8 @@ export async function generateImageRefinementPlanWithLlm(input: {
     const response = await completeWithBackendAi({
       model,
       signal: controller.signal,
+      knowledgeSnapshotId: input.knowledgeSnapshotId,
+      knowledgeSourceKeys: input.knowledgeSourceKeys,
       instructions: `你是小红书图文内容的图片精修策划师。你的任务是根据账号、笔记目标和已经确定的素材元数据，为每张素材生成一条可供 xiaohongshu_auto_op edit-image 使用的精修 Prompt。
 
 当前接口只能读取文字和素材元数据，不能直接查看 URL 对应的图片。不得声称已经看过图片，不得虚构图片中不存在的人物、空间、产品、景观、设施、文字或事实。Prompt 必须采用保守编辑策略，要求执行端以指定原图为准，保留真实主体、结构和关键信息。
@@ -539,6 +547,8 @@ export async function generateMixedImagePlanWithLlm(input: {
   aiImageCount: number;
   baseRequirements: string;
   removeWatermarks?: boolean;
+  knowledgeSnapshotId?: string;
+  knowledgeSourceKeys?: string[];
 }): Promise<MixedImagePlanResult> {
   const model = process.env.AI_MODEL || "gpt-5.5";
   const controller = new AbortController();
@@ -555,6 +565,8 @@ export async function generateMixedImagePlanWithLlm(input: {
     const response = await completeWithBackendAi({
       model,
       signal: controller.signal,
+      knowledgeSnapshotId: input.knowledgeSnapshotId,
+      knowledgeSourceKeys: input.knowledgeSourceKeys,
       instructions: "你是小红书混合图集策划师。你只能读取真实素材的文字元数据，不能查看图片本身。你需要对已经确定顺序的真实素材生成保守精修 Prompt，并为末尾 AI 辅助图生成完整画面 Prompt。只返回合法 JSON，不返回 Markdown、解释或代码块。",
       input: `请为当前笔记生成一份混合图集逐图计划。
 
@@ -679,6 +691,8 @@ export async function generateAiAuxiliaryImagePlanWithLlm(input: {
   expertRules: string;
   imageCount: number;
   baseRequirements: string;
+  knowledgeSnapshotId?: string;
+  knowledgeSourceKeys?: string[];
 }): Promise<
   | { usedLlm: true; data: AiAuxiliaryImagePlan; model: string }
   | { usedLlm: false; error: string }
@@ -691,6 +705,8 @@ export async function generateAiAuxiliaryImagePlanWithLlm(input: {
     const response = await completeWithBackendAi({
       model,
       signal: controller.signal,
+      knowledgeSnapshotId: input.knowledgeSnapshotId,
+      knowledgeSourceKeys: input.knowledgeSourceKeys,
       instructions: `你是小红书图文内容的 AI 辅助图策划师。你只能读取文字上下文，不能查看任何图片。你的任务是把账号定位、单篇笔记目标和内容方向转换成一组可由 xiaohongshu_auto_op xhs-creative 完整执行的逐图中文 Prompt。
 
 这些图片服务于内容表达和种草氛围。没有真实素材时，可以生成带有创作性的地点、场景、产品、人物、体验和情绪画面；涉及具体账号业务时，应让画面服务于本篇主题和品牌记忆，不要写成内部核验说明。凡是包含信息框、气泡、标题区、流程节点或卡片栏位的画面，最终成品必须填入完整文字，不能留下空白占位框。
