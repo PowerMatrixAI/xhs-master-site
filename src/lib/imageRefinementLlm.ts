@@ -74,12 +74,24 @@ export type AiAuxiliaryImagePlan = {
   globalReviewNotes: string[];
 };
 
+export type MixedImagePlan = {
+  setStrategy: string;
+  globalRules: string[];
+  realPlan: ImageRefinementPlan;
+  aiPlan: AiAuxiliaryImagePlan | null;
+  globalReviewNotes: string[];
+};
+
 type ImageRefinementResult =
   | { usedLlm: true; data: ImageRefinementPlan; model: string }
   | { usedLlm: false; error: string };
 
 type ImageAutoSelectionResult =
   | { usedLlm: true; data: ImageAutoSelectionPlan; model: string }
+  | { usedLlm: false; error: string };
+
+type MixedImagePlanResult =
+  | { usedLlm: true; data: MixedImagePlan; model: string }
   | { usedLlm: false; error: string };
 
 function extractJson(text: string): Record<string, unknown> | null {
@@ -288,7 +300,7 @@ function parseAiAuxiliaryImagePlan(text: string, imageCount: number): AiAuxiliar
     });
   }
 
-  if (seenOrders.size !== imageCount) return null;
+  if (seenOrders.size !== imageCount || images.filter((item) => item.renderMode === "info_card").length > 1) return null;
   images.sort((a, b) => a.order - b.order);
   return {
     setStrategy: readString(parsed.setStrategy) || "围绕笔记内容生成一组结构明确、风格统一的辅助图片。",
@@ -513,6 +525,151 @@ ${input.baseRequirements}
   }
 }
 
+export async function generateMixedImagePlanWithLlm(input: {
+  account: Record<string, unknown>;
+  noteTask: Record<string, unknown>;
+  noteContent: string;
+  realImageRefinementRequirement: string;
+  aiAssistantRequirement: string;
+  styleBrief: string[];
+  expertRules: string;
+  realAssets: ImageRefinementAsset[];
+  manualImageCount: number;
+  autoImageCount: number;
+  aiImageCount: number;
+  baseRequirements: string;
+  removeWatermarks?: boolean;
+}): Promise<MixedImagePlanResult> {
+  const model = process.env.AI_MODEL || "gpt-5.5";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort("backend ai timeout"), 8 * 60 * 1000);
+  const realAssets = input.realAssets.map((asset, index) => ({
+    assetKey: imageRefinementAssetKey(asset, index),
+    ...asset
+  }));
+  const watermarkRequirement = input.removeWatermarks
+    ? "\n- 用户开启去水印：所有真实素材的 editPrompt 必须要求完整去除水印、账号角标和来源文字，并自然补全背景；AI 辅助图不需要写去水印要求。"
+    : "";
+
+  try {
+    const response = await completeWithBackendAi({
+      model,
+      signal: controller.signal,
+      instructions: "你是小红书混合图集策划师。你只能读取真实素材的文字元数据，不能查看图片本身。你需要对已经确定顺序的真实素材生成保守精修 Prompt，并为末尾 AI 辅助图生成完整画面 Prompt。只返回合法 JSON，不返回 Markdown、解释或代码块。",
+      input: `请为当前笔记生成一份混合图集逐图计划。
+
+固定来源顺序：
+1. 前 ${input.manualImageCount} 张为用户手动指定的真实素材，顺序不可改变；第 1 张在此数量大于 0 时固定为封面。
+2. 接下来 ${input.autoImageCount} 张为后端 AI 已选中的真实素材，顺序不可改变；仅当手动素材为 0 时，其中第 1 张为封面。
+3. 最后 ${input.aiImageCount} 张为 AI 辅助图，不得作为封面。
+
+硬性要求：
+- realImages 必须与输入真实素材一一对应，assetKey 必须原样返回，不能遗漏、重复、增删或重排。真实素材只能做照片级精修，不得改造成信息卡、流程图或空白文字框。
+- 真实素材的 editPrompt 必须明确保留真实主体、结构和事实信息；只有确实需要图上文字时才使用 photo_with_text，并在 textBlocks 与 editPrompt 中逐字写明所有文字。
+- “真实素材精修要求”只用于 realImages，必须直接体现在真实素材的 editPrompt 中；不得把“AI 辅助图要求”写入真实素材的 editPrompt、negativePrompt 或文字块。
+- aiImages 必须恰好输出 ${input.aiImageCount} 项，order 从 1 连续到 ${input.aiImageCount}。每张必须有完整 generationPrompt、negativePrompt、正文对应句和核验项。
+- AI 辅助图位于真实素材之后，服务于补足表达；可以生成创作性实拍感画面，但不得声称其是已核验的具体地点、路线、案例或用户反馈。
+- “AI 辅助图要求”只用于 aiImages，必须直接体现在 generationPrompt、文字块或 textEditPrompt 中；不得把“真实素材精修要求”写入 AI 辅助图的生成或文字编辑要求。
+- AI 辅助图优先使用 visual 生成自然风景、步道、装备、抵达感、生活方式或局部氛围画面；只有确实需要结构化提醒时才使用 info_card，整组最多 1 张。
+- AI 辅助图若包含信息卡、气泡、文字框、标题区、流程节点或要点栏位，必须提供非空 textBlocks 和 textEditPrompt；所有文字必须逐字写入 textEditPrompt，不得留空白占位区域。
+- 每个文字块尽量不超过 12 个汉字，每张不超过 6 个文字块；不得写未经确认的价格、活动、库存、营业时间、路线参数、资质或联系方式。${watermarkRequirement}
+
+账号和任务上下文：
+${JSON.stringify({
+  account: input.account,
+  noteTask: input.noteTask,
+  noteContent: input.noteContent,
+  realImageRefinementRequirement: input.realImageRefinementRequirement,
+  aiAssistantRequirement: input.aiAssistantRequirement,
+  styleBrief: input.styleBrief,
+  expertRules: input.expertRules
+}, null, 2)}
+
+真实素材（已按“手动 → 自动”最终顺序排列）：
+${JSON.stringify(realAssets, null, 2)}
+
+现有图片规则：
+${input.baseRequirements}
+
+返回 JSON：
+{
+  "setStrategy": "整组混合图集策略",
+  "globalRules": ["整组统一规则"],
+  "realImages": [
+    {
+      "assetKey": "原样返回输入 assetKey",
+      "role": "封面/场景图/细节图等",
+      "recognitionBasis": "仅根据文件名和文字元数据概括",
+      "renderMode": "photo_refine 或 photo_with_text",
+      "editPrompt": "可直接用于 edit-image 的完整中文 Prompt",
+      "negativePrompt": "真实素材不得改变的内容",
+      "textBlocks": [],
+      "reviewNotes": "真实素材核验项"
+    }
+  ],
+  "aiImages": [
+    {
+      "order": 1,
+      "role": "AI 辅助图用途",
+      "visualBasis": "本图依据的笔记内容",
+      "renderMode": "visual 或 info_card",
+      "generationPrompt": "可直接用于 generate-image 的完整中文 Prompt",
+      "negativePrompt": "本图禁止生成内容",
+      "textBlocks": [],
+      "textEditPrompt": "有文字时基于底图调用 edit-image 的完整 Prompt；无文字留空",
+      "bodySentence": "对应正文句",
+      "reviewNotes": "核验项"
+    }
+  ],
+  "globalReviewNotes": ["整组核验项"]
+}`
+    });
+
+    if (!response.ok) return { usedLlm: false, error: response.error };
+    const parsed = extractJson(response.text);
+    if (!parsed) return { usedLlm: false, error: "AI 返回的混合图集计划无法解析。" };
+    const realPlan = parsePlan(
+      JSON.stringify({
+        setStrategy: readString(parsed.setStrategy),
+        globalEditRules: readStringArray(parsed.globalRules),
+        images: parsed.realImages,
+        globalReviewNotes: readStringArray(parsed.globalReviewNotes)
+      }),
+      input.realAssets,
+      "manual"
+    );
+    const aiPlan = input.aiImageCount
+      ? parseAiAuxiliaryImagePlan(
+          JSON.stringify({
+            setStrategy: readString(parsed.setStrategy),
+            globalGenerationRules: readStringArray(parsed.globalRules),
+            images: parsed.aiImages,
+            globalReviewNotes: readStringArray(parsed.globalReviewNotes)
+          }),
+          input.aiImageCount
+        )
+      : null;
+    if (!realPlan || (input.aiImageCount > 0 && !aiPlan)) {
+      return { usedLlm: false, error: "AI 返回的混合图集计划不完整或顺序无效，请重试。" };
+    }
+    return {
+      usedLlm: true,
+      data: {
+        setStrategy: readString(parsed.setStrategy) || "按真实素材和 AI 辅助图的固定来源顺序组成统一图集。",
+        globalRules: readStringArray(parsed.globalRules),
+        realPlan,
+        aiPlan,
+        globalReviewNotes: readStringArray(parsed.globalReviewNotes)
+      },
+      model: response.model || model
+    };
+  } catch (error) {
+    return { usedLlm: false, error: error instanceof Error ? error.message : "AI 调用失败。" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function generateAiAuxiliaryImagePlanWithLlm(input: {
   account: Record<string, unknown>;
   noteTask: Record<string, unknown>;
@@ -547,13 +704,13 @@ export async function generateAiAuxiliaryImagePlanWithLlm(input: {
 - 每条 generationPrompt 必须明确：图片用途、主体与信息层级、构图、视觉风格、光线或配色、3:4 竖版构图，以及希望观众获得的情绪和记忆点。
 - 输出尺寸由 CLI 统一请求为 1536x2048，Prompt 中只需使用 3:4 竖版构图语言，不要编写 CLI 命令。该尺寸仅作为请求参数，不得在 reviewNotes 或 globalReviewNotes 中要求核验成品实际像素，也不得因实际像素与请求值不同而判定失败。
 - 各张图片必须承担不同信息职责，并共同服务笔记叙事顺序。
-- renderMode 只能是 visual 或 info_card。普通辅助画面使用 visual；包含信息框、气泡、流程节点、标题区、要点栏位的图片必须使用 info_card。
+- renderMode 只能是 visual 或 info_card。优先使用 visual 生成自然风景、步道、装备、抵达感、生活方式或局部氛围画面；只有笔记确实需要结构化提醒时才使用 info_card，整组最多 1 张。
 - info_card 必须提供非空 textBlocks 和 textEditPrompt；textEditPrompt 必须逐字包含所有 textBlocks.text，并明确要求基于生成底图使用 edit-image 完成文字排版。不得生成只有空白框、空白气泡或占位区域的最终成品。
 - visual 如果需要文字，同样必须提供 textBlocks 和 textEditPrompt；不需要文字时两者留空。
 - 每个文字块尽量不超过 12 个汉字，每张图片不超过 6 个文字块。文字必须准确、简短、可直接发布，禁止使用“待填写”“后期添加”等占位词。
 - 不得生成 Logo、水印、车牌、手机号或可识别个人信息。
 - negativePrompt 要写本图特有的禁止项；Agent 会把它与 generationPrompt 一起传给图片模型。
-- 不得把 AI 画面描述成真实现场、真实案例、真实测量结果或真实用户反馈。
+- 不得把 AI 画面声称为已核验的具体地点、路线、案例、测量结果或用户反馈。
 - 若笔记缺少具体地点、路线、产品或业务资料，优先使用创作性氛围画面、生活方式场景或不指向具体事实的视觉表达，不要让缺口限制画面的感染力。
 
 账号和任务上下文：
@@ -580,7 +737,7 @@ ${input.baseRequirements}
   "images": [
     {
       "order": 1,
-      "role": "封面辅助图/结构说明图/信息卡底图等",
+      "role": "风景补充图/氛围画面/装备或抵达感画面/必要信息卡等",
       "visualBasis": "本图依据的笔记内容，以及为何不构成事实证据",
       "renderMode": "visual 或 info_card",
       "generationPrompt": "可直接用于 generate-image 的完整中文 Prompt",

@@ -285,7 +285,11 @@ type BatchImagePostsResult = {
   commands: Array<{ category: string; command: string; description: string; safetyNote: string }>;
 };
 
-type SingleImageSourceMode = "ai_auto_select" | "remote_images" | "ai_generate";
+type SingleImageSourceMode = "ai_auto_select" | "remote_images" | "ai_generate" | "mixed";
+
+const DEFAULT_REAL_IMAGE_REFINEMENT_REQUIREMENT = "保留真实主体、空间结构和业务事实，只做自然光、构图、色彩、清晰度和必要背景整理的保守精修。";
+const DEFAULT_AI_ASSISTANT_REQUIREMENT = "根据笔记目标、内容、方向生成所需要的画面或完整信息卡。";
+const DEFAULT_MIXED_AI_ASSISTANT_REQUIREMENT = "根据笔记目标、内容、方向生成所需要的画面或完整信息卡，用于补足素材库图片未覆盖的内容。";
 
 type SingleImagePromptOptions = {
   openclawImagePaths?: string;
@@ -295,6 +299,10 @@ type SingleImagePromptOptions = {
   noteContent?: string;
   singleGoal?: string;
   imageCount?: string;
+  autoImageCount?: string;
+  aiImageCount?: string;
+  realImageRefinementRequirement?: string;
+  aiAssistantRequirement?: string;
   removeWatermarks?: boolean;
 };
 
@@ -4146,8 +4154,13 @@ function ImagesPanel(props: {
   const [weddingPlanningGoal, setWeddingPlanningGoal] = useState(weddingPlanningGoalPresets[0].value);
   const [imageWorkflowMode, setImageWorkflowMode] = useState<"batch" | "single">("single");
   const [singleSourceMode, setSingleSourceMode] = useState<SingleImageSourceMode>("ai_auto_select");
-  const [singleImageGoal, setSingleImageGoal] = useState("围绕这篇笔记主题和可用事实，生成封面、图集顺序、图上文字和风险核验。");
+  const [singleRealImageRequirement, setSingleRealImageRequirement] = useState(DEFAULT_REAL_IMAGE_REFINEMENT_REQUIREMENT);
+  const [singleAiAssistantRequirement, setSingleAiAssistantRequirement] = useState(DEFAULT_AI_ASSISTANT_REQUIREMENT);
   const [singleImageCount, setSingleImageCount] = useState("5");
+  const [mixedAutoImageCount, setMixedAutoImageCount] = useState("2");
+  const [mixedAiImageCount, setMixedAiImageCount] = useState("1");
+  const [mixedRealImageRequirement, setMixedRealImageRequirement] = useState(DEFAULT_REAL_IMAGE_REFINEMENT_REQUIREMENT);
+  const [mixedAiAssistantRequirement, setMixedAiAssistantRequirement] = useState(DEFAULT_MIXED_AI_ASSISTANT_REQUIREMENT);
   const [batchUploadFiles, setBatchUploadFiles] = useState<File[]>([]);
   const [singleUploadFiles, setSingleUploadFiles] = useState<File[]>([]);
   const [imageSubmitting, setImageSubmitting] = useState<"batch" | "single" | null>(null);
@@ -4353,15 +4366,19 @@ function ImagesPanel(props: {
                 setImageSubmitting("single");
                 const form = new FormData(event.currentTarget);
                 const run = async () => {
+                  const isMixedMode = singleSourceMode === "mixed";
+                  const acceptsManualImages = singleSourceMode === "remote_images" || isMixedMode;
                   const selectedUrls = collectRemoteImageUrls(form);
                   let selectedImageAssets = (selected?.assets || []).filter((asset) => asset.fileUrl && selectedUrls.includes(asset.fileUrl));
                   let imagePaths = selectedUrls.join("\n");
-                  const candidateAssets = (selected?.assets || []).filter(isRemoteImageAsset);
+                  let candidateAssets = (selected?.assets || []).filter(isRemoteImageAsset);
                   const requestedImageCount = Math.max(1, Math.min(Number.parseInt(String(form.get("imageCount") || "5"), 10) || 5, 9));
+                  const requestedAutoImageCount = Math.max(0, Math.min(Number.parseInt(String(form.get("autoImageCount") || "0"), 10) || 0, 9));
+                  const requestedAiImageCount = Math.max(0, Math.min(Number.parseInt(String(form.get("aiImageCount") || "0"), 10) || 0, 9));
                   if (singleSourceMode === "ai_auto_select" && candidateAssets.length < requestedImageCount) {
                     throw new Error(`当前素材库只有 ${candidateAssets.length} 张可用图片，无法自动选择 ${requestedImageCount} 张。请补充素材或减少图片数量。`);
                   }
-                  if (singleSourceMode === "remote_images" && singleUploadFiles.length) {
+                  if (acceptsManualImages && singleUploadFiles.length) {
                     const uploadData = await uploadFilesWithAuth(singleUploadFiles, {
                       tags: "单篇精修上传",
                       suitableTypes: note.topicTitle
@@ -4372,22 +4389,40 @@ function ImagesPanel(props: {
                     }
                     imagePaths = [imagePaths, uploadedUrls.join("\n")].filter(Boolean).join("\n");
                     selectedImageAssets = [...selectedImageAssets, ...(uploadData.assets || [])];
+                    candidateAssets = [...candidateAssets, ...(uploadData.assets || [])];
                     onAssetsAdded(uploadData.assets || []);
                   }
                   const imageUrls = imagePaths.split("\n").map((url) => url.trim()).filter(Boolean);
                   if (singleSourceMode === "remote_images" && (!imageUrls.length || imageUrls.some((url) => !/^https?:\/\//i.test(url)))) {
                     throw new Error("请选择或上传至少一张具有完整 HTTP(S) URL 的图片。");
                   }
+                  if (isMixedMode) {
+                    const enabledSources = [imageUrls.length > 0, requestedAutoImageCount > 0, requestedAiImageCount > 0].filter(Boolean).length;
+                    const totalCount = imageUrls.length + requestedAutoImageCount + requestedAiImageCount;
+                    if (enabledSources < 2) throw new Error("混合模式至少需要启用手动素材、AI 自动选图、AI 辅助图中的两类来源。");
+                    if (totalCount > 9) throw new Error(`混合模式共 ${totalCount} 张图片，超过单篇最多 9 张的限制。`);
+                    const autoCandidates = candidateAssets.filter((asset) => {
+                      const assetUrl = String(asset.fileUrl || "");
+                      return Boolean(assetUrl) && !imageUrls.includes(assetUrl);
+                    });
+                    if (requestedAutoImageCount > autoCandidates.length) {
+                      throw new Error(`排除手动素材后，素材库只有 ${autoCandidates.length} 张可供自动选择，无法选择 ${requestedAutoImageCount} 张。`);
+                    }
+                  }
                   await generateImagePrompt(note, {
                     imageSourceMode: singleSourceMode,
                     noteContent: String(form.get("noteContent") || ""),
                     singleGoal: String(form.get("singleGoal") || ""),
                     imageCount: String(form.get("imageCount") || ""),
+                    autoImageCount: String(form.get("autoImageCount") || "0"),
+                    aiImageCount: String(form.get("aiImageCount") || "0"),
+                    realImageRefinementRequirement: String(form.get("realImageRefinementRequirement") || ""),
+                    aiAssistantRequirement: String(form.get("aiAssistantRequirement") || ""),
                     removeWatermarks:
                       singleSourceMode !== "ai_generate"
                       && form.get("removeWatermarks") === "true",
                     openclawImagePaths: imagePaths,
-                    candidateAssets: singleSourceMode === "ai_auto_select" ? candidateAssets : undefined,
+                    candidateAssets: singleSourceMode === "ai_auto_select" || isMixedMode ? candidateAssets : undefined,
                     selectedAssets: imageUrls.map((url, index) => selectedImageAssets.find((asset) => asset.fileUrl === url) || {
                       id: index + 1,
                       filePath: url,
@@ -4401,7 +4436,7 @@ function ImagesPanel(props: {
                       riskNotes: ""
                     })
                   });
-                  if (singleSourceMode === "remote_images") setSingleUploadFiles([]);
+                  if (acceptsManualImages) setSingleUploadFiles([]);
                 };
                 run()
                   .catch((error) => notify(error instanceof Error ? error.message : "生成单篇图片方案失败。", "error"))
@@ -4429,11 +4464,12 @@ function ImagesPanel(props: {
 
               <div className="mt-4">
                 <div className="mb-2 text-sm font-medium text-ink/70">图片来源</div>
-                <div className="grid gap-2 md:grid-cols-3">
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                   {[
                     ["ai_auto_select", "AI 自动选图", "根据本篇笔记和当前素材标签，自动选择并排序最匹配的图片。"],
                     ["remote_images", "多张素材库图片", "从素材库多选已经上传到后端的图片。"],
-                    ["ai_generate", "AI 辅助图", "没有真实图时，只生成信息卡、结构图或低拟真辅助画面。"]
+                    ["ai_generate", "AI 辅助图", "没有真实图时，生成自然、有画面感的补充图或必要信息卡。"],
+                    ["mixed", "混合模式", "组合手动素材、AI 自动选图和 AI 辅助图，生成一份统一图集任务。"]
                   ].map(([mode, title, desc]) => (
                     <button
                       key={mode}
@@ -4465,7 +4501,31 @@ function ImagesPanel(props: {
                   defaultValue={note?.coreView || ""}
                   placeholder="写清楚这一篇要表达什么，例如：围绕婚礼蛋糕细节，拆解为什么它能提升整场婚礼高级感。"
                 />
-                {singleSourceMode === "remote_images" ? (
+                {singleSourceMode === "mixed" ? (
+                  <>
+                    <div className="grid min-w-0 gap-3 md:grid-cols-[120px_120px_minmax(0,1fr)]">
+                      <Input name="autoImageCount" label="AI 自动选图" type="number" min={0} max={9} step={1} value={mixedAutoImageCount} onChange={setMixedAutoImageCount} placeholder="2" />
+                      <Input name="aiImageCount" label="AI 辅助图" type="number" min={0} max={9} step={1} value={mixedAiImageCount} onChange={setMixedAiImageCount} placeholder="1" />
+                      <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
+                        手动素材数量由下方选择器决定。图集顺序固定为：手动素材 → AI 自动选图 → AI 辅助图；有手动素材时首图为封面，否则自动选图首图为封面。三类来源中至少启用两类，总数最多 9 张。
+                      </div>
+                    </div>
+                    <Textarea
+                      name="realImageRefinementRequirement"
+                      label="真实素材精修要求"
+                      value={mixedRealImageRequirement}
+                      onChange={setMixedRealImageRequirement}
+                      placeholder="例如：保留菜品真实摆盘，只增强自然光和焦香质感；不要增加文字。"
+                    />
+                    <Textarea
+                      name="aiAssistantRequirement"
+                      label="AI 辅助图生成要求"
+                      value={mixedAiAssistantRequirement}
+                      onChange={setMixedAiAssistantRequirement}
+                      placeholder="例如：补一张口感要点卡和一张朋友聚餐氛围图，整体延续暖色餐厅风格。"
+                    />
+                  </>
+                ) : singleSourceMode === "remote_images" ? (
                   <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
                     用户手动选择本篇需要精修的图片；一张输入素材对应一张精修成品，不自动推荐、增删或替换图片。
                   </div>
@@ -4479,7 +4539,7 @@ function ImagesPanel(props: {
                     </div>
                   </div>
                 )}
-                {singleSourceMode === "remote_images" && (
+                {(singleSourceMode === "remote_images" || singleSourceMode === "mixed") && (
                   <>
                     <div className="grid gap-1.5 text-sm">
                       <span className="text-xs font-medium text-ink/60">本篇先上传图片（可选）</span>
@@ -4521,8 +4581,8 @@ function ImagesPanel(props: {
                     <RemoteAssetPicker
                       key={`single-picker-${note?.id || "none"}`}
                       assets={selected?.assets || []}
-                      pickerLabel="这篇要用的素材库图片"
-                      pickerHelp="按选择顺序加入图集；选中后可在下方调整顺序，第一张作为封面。"
+                      pickerLabel={singleSourceMode === "mixed" ? "混合图集中的手动素材库图片" : "这篇要用的素材库图片"}
+                      pickerHelp={singleSourceMode === "mixed" ? "按选择顺序放在图集最前；选中后可调整顺序，第一张会作为封面。" : "按选择顺序加入图集；选中后可在下方调整顺序，第一张作为封面。"}
                       orderable
                     />
                   </>
@@ -4543,13 +4603,15 @@ function ImagesPanel(props: {
                     </span>
                   </label>
                 )}
-                <Textarea
-                  name="singleGoal"
-                  label="本篇精修要求"
-                  value={singleImageGoal}
-                  onChange={setSingleImageGoal}
-                  placeholder="例如：封面要突出蛋糕近景，正文偏备婚收藏，不要虚构价格和新人反馈。"
-                />
+                {singleSourceMode !== "mixed" && (
+                  <Textarea
+                    name="singleGoal"
+                    label={singleSourceMode === "ai_generate" ? "AI 辅助图生成要求" : "真实素材精修要求"}
+                    value={singleSourceMode === "ai_generate" ? singleAiAssistantRequirement : singleRealImageRequirement}
+                    onChange={singleSourceMode === "ai_generate" ? setSingleAiAssistantRequirement : setSingleRealImageRequirement}
+                    placeholder={singleSourceMode === "ai_generate" ? "例如：根据笔记内容补一张氛围画面和一张完整信息卡。" : "例如：保留菜品真实摆盘，只增强自然光和焦香质感；不要增加文字。"}
+                  />
+                )}
               </div>
 
               <button type="submit" disabled={loading || Boolean(imageSubmitting) || !note} aria-busy={imageSubmitting === "single"} className="primary-button mt-4">
@@ -4560,11 +4622,15 @@ function ImagesPanel(props: {
                     ? "AI 自动选图并生成单篇方案"
                     : singleSourceMode === "ai_generate"
                     ? "生成 AI 辅助图方案"
+                    : singleSourceMode === "mixed"
+                    ? "生成混合图集方案"
                     : "用素材库多图生成单篇方案"}
                   loadingText={singleSourceMode === "ai_auto_select"
                     ? "正在自动选图并生成单篇方案..."
                     : singleSourceMode === "ai_generate"
                     ? "正在生成 AI 辅助图方案..."
+                    : singleSourceMode === "mixed"
+                    ? "正在生成混合图集方案..."
                     : "正在生成单篇方案..."}
                 />
               </button>

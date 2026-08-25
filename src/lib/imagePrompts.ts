@@ -81,8 +81,8 @@ const strategyByMode: Record<AccountVisualMode, VisualStrategy> = {
   },
   outdoor: {
     modeName: "户外路线图文协同图集",
-    coverStyle: "真实徒步、骑行或户外现场图做视觉锚点，路线风景或关键路况占画面主体；如需要文字，直接排入路线名、距离/爬升、季节和难度信息。",
-    imageSetStyle: "默认 5 张：封面现场图、路线图/轨迹截图、关键路况图、风景情绪图、装备/注意事项信息卡。",
+    coverStyle: "优先使用真实徒步、骑行或户外现场图做视觉锚点；没有真实素材时，可使用不指向具体地点或真实路线的自然山林、步道、装备、抵达感等创作性风景画面。",
+    imageSetStyle: "默认 5 张：封面现场图、路线图/轨迹截图、关键路况图、风景情绪图、装备或抵达感画面。",
     highEngagementRules: ["路线名和记忆点一眼可见", "现场图要有身体感和目的地氛围", "AI 可以补光、构图和氛围统一", "天气、开放状态、交通和轨迹作为创作素材灵活使用"],
     avoid: ["避免户外内容写成冷冰冰参数表", "避免只罗列路线数据", "优先强化抵达、行走和风景体验", "避免过度滤镜导致画面缺乏现场感"]
   },
@@ -179,13 +179,13 @@ function modeCopy(accountType: string) {
     },
     outdoor: {
       sourceHint: "优先识别真实现场图、路线图和轨迹截图；指定真实图片默认只做照片级精修，并保持路线数据真实。",
-      noSourceHint: "未提供图片：请先输出拍摄清单和素材缺口；如必须出图，只能生成低拟真辅助图或信息卡，不得伪装为真实路线或真实亲历。",
+      noSourceHint: "未提供图片时，可生成不指向具体地点、路线或真实亲历的自然山林、步道、装备、抵达感等创作性风景画面；信息卡只在笔记确实需要结构化提醒时使用。",
       promptTitle: "户外路线图片执行 Prompt",
       imageAnchorRule: "真实现场图是视觉锚点；AI 只能做图生图补光、构图、天气氛围和局部画面延展。",
       textRule: "现场图讲风景、路况、季节和身体感受；路线图讲旅程记忆；信息卡按主题补充装备和参与提示。",
       factRule: "允许对抵达、行走、天气氛围和同行体验进行创作性延展，但保持户外内容的基本安全意识。",
-      defaultStyleBrief: ["封面必须以真实现场图为锚点，需要时可直接排入准确短字。", "图集按“封面现场 / 路线轨迹 / 关键路况 / 风景情绪 / 装备安全”组织。", "AI 图生图只做轻度优化和补图，不改变真实路况。"],
-      layoutRules: ["封面：现场或氛围图占主体，短字突出目的地、季节和情绪。", "路线图：用画面感呈现旅程、节点和风景变化。", "信息卡：按主题补充交通、装备、天气或开放信息，不要压过体验感。"]
+      defaultStyleBrief: ["真实现场图优先作为封面锚点；无真实素材时可用创作性自然风景、步道或抵达感画面承担视觉锚点。", "图集按“封面现场 / 路线轨迹 / 关键路况 / 风景情绪 / 装备或抵达感”组织。", "AI 图生图只做轻度优化和补图，不改变已有真实路况。"],
+      layoutRules: ["封面：现场、自然风景或抵达感画面占主体，短字突出季节和情绪。", "路线图：用画面感呈现旅程、节点和风景变化。", "信息卡仅在本篇确实需要结构化提醒时使用，且不得压过体验感。"]
     },
     museum: {
       sourceHint: "优先识别真实展品图、展厅图、导览图、活动海报和票务预约截图；指定真实图片默认只做照片级精修。",
@@ -273,7 +273,7 @@ function imageStructureFor(accountType: string) {
       "图 2｜路线图/轨迹截图：展示起终点、距离、爬升、补给和撤退点。",
       "图 3｜关键路况图：岔路、碎石坡、林道、台阶、渡口、垭口等。",
       "图 4｜风景情绪图：展示值得去的视野、季节、海岸、山谷或森林。",
-      "图 5｜装备/注意事项信息卡：交通、天气、补给、装备、开放状态和适合人群。"
+      "图 5｜装备或抵达感画面：登山鞋、背包、补给、林间停留或准备出发的自然细节。"
     ],
     museum: [
       "图 1｜封面展品/展厅图：真实展品、展厅空间或活动资料。",
@@ -431,13 +431,31 @@ export function buildImagePrompt(input: {
   noteContent?: string;
   singleGoal?: string;
   imageCount?: string;
+  autoImageCount?: string;
+  aiImageCount?: string;
+  realImageRefinementRequirement?: string;
+  aiAssistantRequirement?: string;
   expertRules?: string;
 }) {
-  const { account, noteTask, styleBrief, openclawImagePaths, imageSourceMode, noteContent, singleGoal, imageCount, expertRules } = input;
+  const {
+    account,
+    noteTask,
+    styleBrief,
+    openclawImagePaths,
+    imageSourceMode,
+    noteContent,
+    singleGoal,
+    imageCount,
+    autoImageCount,
+    aiImageCount,
+    realImageRefinementRequirement,
+    aiAssistantRequirement,
+    expertRules
+  } = input;
   const strategy = strategyForAccount(account);
   const structure = imageStructureForAccount(account);
   const copy = modeCopyForAccount(account);
-  const sourceMode = imageSourceMode === "ai_generate" || imageSourceMode === "remote_images" || imageSourceMode === "ai_auto_select"
+  const sourceMode = imageSourceMode === "ai_generate" || imageSourceMode === "remote_images" || imageSourceMode === "ai_auto_select" || imageSourceMode === "mixed"
     ? imageSourceMode
     : "remote_images";
   const usesSelectedAssets = sourceMode !== "ai_generate";
@@ -449,10 +467,10 @@ export function buildImagePrompt(input: {
     .slice(0, 3);
   const modeLines = {
     ai_generate: [
-      "图片来源模式：AI 辅助图，按笔记内容生成补充画面或包含准确文字的完整信息卡、结构说明图。",
+      "图片来源模式：AI 辅助图，优先按笔记内容生成自然、有画面感的补充画面；仅在确有结构化提醒需求时生成包含准确文字的完整信息卡。",
       `希望图片数量：${imageCount || "按图集结构决定"}`,
-      `本篇额外要求：${singleGoal || "根据笔记内容生成辅助画面、封面候选和信息卡提示词。"}`,
-      "真实素材优先；如果没有真实素材，可以生成完整信息卡、结构说明图、路线/流程/要点卡、低拟真辅助画面，不生成伪真实现场、伪真实案例、伪真实菜品、伪真实路线或伪真实客户反馈。信息卡等带文字版式必须填入准确文字，不得留下空白框或占位区域。",
+      `AI 辅助图生成要求：${singleGoal || "根据笔记目标、内容、方向生成所需要的画面或完整信息卡。"}`,
+      "没有真实素材时，可生成不指向具体地点、路线、产品或真实亲历的创作性自然风景、生活方式、装备、抵达感或氛围画面。信息卡仅在笔记确实需要结构化提醒时使用，整组最多 1 张；如使用，必须填入准确文字，不得留下空白框或占位区域。",
       "画面必须降低平台可感知的 AI 味：普通手机拍摄感、自然光、轻微构图不完美、真实环境细节少量保留、不过度磨皮、不过度锐化、不过度景深、不过分干净、不过分梦幻、不要商业广告棚拍、不要 3D 渲染质感、不要超现实光影。",
       "对外发布的图片、标题、正文、图上文字和图注里，不要标注任何来源说明；来源和风险只写入内部审核备注。",
       "输出每张图的生成提示词、准确文字块、文字编辑提示词、正文对应句、负向提示和内部合规备注。"
@@ -461,15 +479,23 @@ export function buildImagePrompt(input: {
       "图片来源模式：用户已经手动指定多张图片链接。",
       `指定图片链接：${openclawImagePaths || "未填写"}`,
       `本次精修数量：${selectedImageCount} 张；每张输入素材必须对应一张精修成品。`,
-      `本篇额外要求：${singleGoal || "只对用户指定的素材库图片进行精修，严格保留用户顺序并规划图上文字。"}`,
+      `真实素材精修要求：${singleGoal || "保留真实主体、空间结构和业务事实，只做自然光、构图、色彩、清晰度和必要背景整理的保守精修。"}`,
       "用户已经完成选图。不得筛选、替换、舍弃指定素材，也不得推荐、读取或补充未指定图片。"
     ],
     ai_auto_select: [
       "图片来源模式：AI 自动选图；后端文本 AI 已根据当前账号的素材标签和文字元数据完成选图与排序。",
       `AI 选中的图片链接：${openclawImagePaths || "未填写"}`,
       `本次精修数量：${selectedImageCount} 张；每张输入素材必须对应一张精修成品。`,
-      `本篇额外要求：${singleGoal || "对 AI 根据标签选中的素材进行逐图精修，并保持已经确定的图集顺序。"}`,
+      `真实素材精修要求：${singleGoal || "保留真实主体、空间结构和业务事实，只做自然光、构图、色彩、清晰度和必要背景整理的保守精修。"}`,
       "选图结果已经确定。精修阶段不得重新筛选、替换、舍弃或补充其他素材。"
+    ],
+    mixed: [
+      "图片来源模式：混合模式，图集固定由“手动指定素材库图片 → AI 自动选图 → AI 辅助图”组成。",
+      `已指定真实图片链接：${openclawImagePaths || "未填写"}`,
+      `AI 自动选图数量：${autoImageCount || "0"} 张；AI 辅助图数量：${aiImageCount || "0"} 张。`,
+      `真实素材精修要求：${realImageRefinementRequirement || singleGoal || "保留真实主体、空间结构和业务事实，只做自然光、构图、色彩、清晰度和必要背景整理的保守精修。"}`,
+      `AI 辅助图生成要求：${aiAssistantRequirement || "根据笔记目标、内容、方向生成所需要的画面或完整信息卡，用于补足素材库图片未覆盖的内容。"}`,
+      "真实图片不得增删或重排；AI 辅助图只能排在所有真实图片之后，且不得作为封面。"
     ]
   };
   const sourceLines = modeLines[sourceMode];
@@ -491,16 +517,17 @@ ${expertRules || "暂无已保存规则；按当前账号图片策略生成。"}
 
 ## 硬规则
 - 统一模式：${structure.name}
-- ${usesSelectedAssets ? `只处理已经确定的 ${selectedImageCount} 张素材，一张输入对应一张输出；周计划里的默认图片数量不用于增删素材。` : structure.countRule}
+- ${sourceMode === "mixed" ? `真实素材共 ${selectedImageCount} 张，一张输入对应一张精修成品；另生成 ${aiImageCount || "0"} 张 AI 辅助图；周计划里的默认图片数量不用于增删。` : usesSelectedAssets ? `只处理已经确定的 ${selectedImageCount} 张素材，一张输入对应一张输出；周计划里的默认图片数量不用于增删素材。` : structure.countRule}
 - ${usesSelectedAssets ? "真实素材是视觉锚点；只基于指定原图做保守的照片级精修，保持主体、空间结构、产品形态、人物和事实信息。" : copy.imageAnchorRule}
 - ${copy.factRule}
-- ${sourceMode === "ai_generate" ? "当前没有真实图片时，只能输出辅助画面、信息卡或结构说明方案；不得伪装成真实案例、真实现场、真实菜品、真实路线、真实客户反馈或真实服务过程。" : sourceMode === "ai_auto_select" ? "素材和顺序已经由后端文本 AI 根据标签确定，第一张固定作为封面；精修阶段只安排逐图处理方式，不再次选图，不增删或替换素材。" : "素材和顺序已经由用户确定，第一张固定作为封面；只安排逐图用途和精修方式，不调整顺序，不评价选图是否合适，不增删或替换素材。"}
-- ${usesSelectedAssets ? "默认只做照片级精修，不主动把真实图片改造成信息卡、流程图、结构说明图、路线/要点卡，不增加空白气泡、空白文字框、卡片容器或文字占位区域；只有笔记目标或用户额外要求明确需要文字时，才在成品图中直接排入准确短字。" : "允许在成品图中生成文字；凡是信息卡、结构图、流程图、路线/要点图或包含文字容器的画面，都必须填入准确文字，不得输出只有空白框、空白气泡或占位区域的成品。"}
+- ${sourceMode === "ai_generate" ? "当前没有真实图片时，优先生成不指向具体地点、路线、产品或真实亲历的创作性风景、生活方式、装备、抵达感或氛围画面；信息卡仅在笔记确实需要结构化提醒时使用，整组最多 1 张。" : sourceMode === "mixed" ? "手动素材在最前，自动选图居中，AI 辅助图在末尾；存在手动素材时其第一张固定为封面，否则自动选图第一张为封面。" : sourceMode === "ai_auto_select" ? "素材和顺序已经由后端文本 AI 根据标签确定，第一张固定作为封面；精修阶段只安排逐图处理方式，不再次选图，不增删或替换素材。" : "素材和顺序已经由用户确定，第一张固定作为封面；只安排逐图用途和精修方式，不调整顺序，不评价选图是否合适，不增删或替换素材。"}
+- ${sourceMode === "mixed" ? "真实素材默认只做照片级精修；AI 辅助图优先生成自然风景、步道、装备、抵达感、生活方式或氛围补图，信息卡仅在确有结构化提醒需求时使用且整组最多 1 张；凡包含文字容器都必须写入准确文字，不得留下空白框或占位区域。" : usesSelectedAssets ? "默认只做照片级精修，不主动把真实图片改造成信息卡、流程图、结构说明图、路线/要点卡，不增加空白气泡、空白文字框、卡片容器或文字占位区域；只有笔记目标或用户额外要求明确需要文字时，才在成品图中直接排入准确短字。" : "允许在成品图中生成文字；凡是信息卡、结构图、流程图、路线/要点图或包含文字容器的画面，都必须填入准确文字，不得输出只有空白框、空白气泡或占位区域的成品。"}
 - 严禁把来源说明、生成方式或内部真实性判断放到图片、标题、正文、图注或文件名里；这些只写在内部审核备注。
 ${styleExtras.length ? `- ${styleExtras.join("\n- ")}` : ""}
 
-${sourceMode === "ai_generate" ? `## AI 辅助图画面约束
-- 可以生成完整信息卡、结构图、流程图、路线/要点图、局部氛围补充图；不要把它当真实证据图。
+${sourceMode === "ai_generate" || sourceMode === "mixed" ? `## AI 辅助图画面约束
+- 优先生成自然风景、步道、装备、抵达感、生活方式或局部氛围补充图；不要把它当真实证据图。
+- 信息卡仅在笔记确实需要结构化提醒时使用，整组最多 1 张。
 - 信息卡、结构图、流程图和路线/要点图必须同时规划实际文字内容，先生成底图，再通过图片编辑把准确文字写入底图，最终只交付包含完整文字的成品图。
 - 若需要接近实拍，使用普通手机照片语言：自然光、轻微噪点、真实边缘细节、轻微构图偏差、不过度统一色调。
 - 禁止使用这些方向：电影级、超写实、梦幻、奢华广告、完美光影、3D 渲染、棚拍大片、过度景深、玻璃皮肤、塑料食物、虚假人群、虚假门店、虚假路线。
@@ -508,7 +535,7 @@ ${sourceMode === "ai_generate" ? `## AI 辅助图画面约束
 - 最终对外内容只呈现画面和文案，不出现任何来源标签。` : ""}
 
 ## 图集结构
-${usesSelectedAssets ? `严格按照${sourceMode === "ai_auto_select" ? "AI 自动选图结果" : "用户提交"}的顺序生成图集：第一张是封面，其余图片按现有顺序各承担一个信息任务。不得重新排序，也不得为了套用默认图集结构而增删图片。` : structure.items.map((item, index) => `${index + 1}. ${item}`).join("\n")}
+${sourceMode === "mixed" ? "严格按照手动指定素材库图片、AI 自动选图、AI 辅助图三段顺序生成图集；手动或自动的首图为封面；不得重新排序、增删真实素材或将 AI 辅助图放在真实图片之前。" : usesSelectedAssets ? `严格按照${sourceMode === "ai_auto_select" ? "AI 自动选图结果" : "用户提交"}的顺序生成图集：第一张是封面，其余图片按现有顺序各承担一个信息任务。不得重新排序，也不得为了套用默认图集结构而增删图片。` : structure.items.map((item, index) => `${index + 1}. ${item}`).join("\n")}
 
 ## 逐图文案联动
 - 每张图必须输出准确的文字块（不需要文字时留空）和一句“正文对应句”。

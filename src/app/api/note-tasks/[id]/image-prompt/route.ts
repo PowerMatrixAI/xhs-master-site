@@ -7,11 +7,13 @@ import {
   generateAiAuxiliaryImagePlanWithLlm,
   generateImageAutoSelectionWithLlm,
   generateImageRefinementPlanWithLlm,
+  generateMixedImagePlanWithLlm,
   imageRefinementAssetKey,
   type AiAuxiliaryImagePlan,
   type ImageAutoSelectionPlan,
   type ImageRefinementAsset,
-  type ImageRefinementPlan
+  type ImageRefinementPlan,
+  type MixedImagePlan
 } from "@/lib/imageRefinementLlm";
 
 function nonEmptyLines(value: string) {
@@ -37,6 +39,11 @@ function readNumber(value: unknown) {
 function normalizeImageCount(value: string) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 9)) : 5;
+}
+
+function normalizeOptionalImageCount(value: unknown) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(parsed, 9)) : 0;
 }
 
 function remotePath(value: string) {
@@ -144,13 +151,13 @@ ${plan.setStrategy}
 ${lines.join("\n")}`;
 }
 
-function formatImageRefinementPlan(plan: ImageRefinementPlan, assets: ImageRefinementAsset[]) {
+function formatImageRefinementPlan(plan: ImageRefinementPlan, assets: ImageRefinementAsset[], startOrder = 0) {
   const assetsByKey = new Map(assets.map((asset, index) => [imageRefinementAssetKey(asset, index), asset]));
   const imageSections = plan.images.map((item) => {
     const asset = assetsByKey.get(item.assetKey);
     if (!asset) return "";
     const dimensions = asset.width && asset.height ? `${asset.width}x${asset.height}` : "未记录";
-    return `### 图片 ${item.order}：${item.role}
+    return `### 图片 ${item.order + startOrder}：${item.role}
 
 - 素材 ID：${asset.id}
 - 原图 URL：${asset.fileUrl}
@@ -198,8 +205,8 @@ ${imageSections.join("\n\n")}
 ${markdownList(plan.globalReviewNotes, "核对真实画面、图上文字和业务事实后再进入发布流程。")}`;
 }
 
-function formatAiAuxiliaryImagePlan(plan: AiAuxiliaryImagePlan) {
-  const imageSections = plan.images.map((item) => `### 图片 ${item.order}：${item.role}
+function formatAiAuxiliaryImagePlan(plan: AiAuxiliaryImagePlan, startOrder = 0) {
+  const imageSections = plan.images.map((item) => `### 图片 ${item.order + startOrder}：${item.role}
 
 - 画面依据：${item.visualBasis}
 - 成品模式：${item.renderMode === "info_card" ? "完整信息卡（必须完成文字编辑）" : "普通辅助图"}
@@ -244,6 +251,44 @@ ${imageSections.join("\n\n")}
 ${markdownList(plan.globalReviewNotes, "确认画面不包含未经核验的事实信息；带文字的图片必须逐字核对后才能作为成品。")}`;
 }
 
+function formatMixedImagePlan(
+  plan: MixedImagePlan,
+  realAssets: ImageRefinementAsset[],
+  manualImageCount: number
+) {
+  const realSection = formatImageRefinementPlan(plan.realPlan, realAssets);
+  const aiSection = plan.aiPlan
+    ? formatAiAuxiliaryImagePlan(plan.aiPlan, realAssets.length)
+    : "无 AI 辅助图。";
+  return `# 混合图集逐图方案
+
+## 整组策略
+
+${plan.setStrategy}
+
+## 固定图集顺序
+
+1. 手动指定素材库图片：${manualImageCount} 张${manualImageCount ? "，第 1 张为封面。" : "。"}
+2. AI 自动选图：${realAssets.length - manualImageCount} 张${manualImageCount ? "。" : "，第 1 张为封面。"}
+3. AI 辅助图：${plan.aiPlan?.images.length || 0} 张，全部排在真实图片之后且不作为封面。
+
+## 真实素材精修要求
+
+${realSection}
+
+## AI 辅助图生成要求
+
+${aiSection}
+
+## 整组规则
+
+${markdownList(plan.globalRules, "保持三段来源顺序不变；真实素材保留事实信息，AI 辅助图只承担补充表达。")}
+
+## 整组人工核验
+
+${markdownList(plan.globalReviewNotes, "确认真实素材未被失真修改，AI 辅助图不冒充真实事实，带文字图片已逐字核对。")}`;
+}
+
 function buildOpenclawTask(input: {
   account: { name: string; accountParam: string };
   noteTask: { id: number; topicTitle: string };
@@ -265,6 +310,7 @@ function buildOpenclawTask(input: {
   const taskName = `xhs-image-task-${noteTask.id}`;
   const accountName = shellQuote(account.accountParam);
   const imageSources = nonEmptyLines(openclawImagePaths);
+  const isMixed = imageSourceMode === "mixed";
   const sourceList = selectedAssets.length
     ? selectedAssets.map((asset, index) => `${index + 1}. ${asset.fileUrl}${asset.tags ? `\n   - 标签：${asset.tags}` : ""}${asset.suitableTypes ? `\n   - 适用内容：${asset.suitableTypes}` : ""}`).join("\n")
     : imageSources.length
@@ -275,15 +321,16 @@ function buildOpenclawTask(input: {
     ? "AI 自动选图"
     : imageSourceMode === "remote_images"
     ? "多张素材库图片"
+    : isMixed
+    ? "混合模式"
     : "AI 辅助图";
-  const command = usesExistingImages
-    ? `uv run python scripts/cli.py edit-image \\
+  const realEditCommand = `uv run python scripts/cli.py edit-image \\
   --prompt "$IMAGE_PROMPT" \\
   --images "$INPUT_IMAGE" \\
   --output-dir "$ACCOUNT_ASSETS_DIR" \\
   --size "1536x2048" \\
-  --quality "medium"`
-    : `uv run python scripts/cli.py generate-image \\
+  --quality "medium"`;
+  const aiGenerateCommand = `uv run python scripts/cli.py generate-image \\
   --prompt "$IMAGE_PROMPT" \\
   --output-dir "$IMAGE_OUTPUT_DIR" \\
   --size "1536x2048"
@@ -295,7 +342,25 @@ uv run python scripts/cli.py edit-image \\
   --output-dir "$ACCOUNT_ASSETS_DIR" \\
   --size "1536x2048" \\
   --quality "medium"`;
-  const sourceSteps = usesExistingImages
+  const command = isMixed
+    ? `# 真实素材精修（手动指定素材和 AI 自动选图均使用此命令）
+${realEditCommand}
+
+# AI 辅助图生成
+${aiGenerateCommand}`
+    : usesExistingImages
+    ? realEditCommand
+    : aiGenerateCommand;
+  const sourceSteps = isMixed
+    ? `1. 进入已安装的 xiaohongshu_auto_op skill 根目录。
+2. 设置 \`ACCOUNT_NAME=${accountName}\`、\`TASK_DIR="$PWD/.tasks/${taskName}"\`、\`BASE_OUTPUT_DIR="$TASK_DIR/base-images"\`、\`ACCOUNT_ASSETS_DIR="$PWD/assets/$ACCOUNT_NAME"\`，然后创建 \`$TASK_DIR/assets\`、\`$BASE_OUTPUT_DIR\` 和 \`$ACCOUNT_ASSETS_DIR\`。
+3. 下载下方“指定真实图片”中的全部 URL 到 \`$TASK_DIR/assets\`，保留原始扩展名并取得本地绝对路径。真实图片必须严格按照“手动 → 自动”的顺序处理，不得增删、替换或重排。
+4. 主会话必须先完成建目录、下载和原图校验，再将仅包含图片编辑、AI 辅助图生成和验收的部分委派给后台子会话；禁止把整个任务未经初始化直接交给子会话。
+5. 先逐张处理“真实素材精修要求”中的图片：每张设置 \`INPUT_IMAGE\` 与 \`IMAGE_PROMPT\` 后执行 edit-image。只有真实素材需要执行去水印要求。
+6. 如“AI 辅助图生成要求”中存在图片，再逐张生成末尾补图。无文字图直接输出到 \`$ACCOUNT_ASSETS_DIR\`；有成品文字的图先输出底图到 \`$BASE_OUTPUT_DIR\`，再用 edit-image 和 \`TEXT_EDIT_PROMPT\` 完成文字排版，最终成品写入 \`$ACCOUNT_ASSETS_DIR\`。
+7. 最终按“手动指定素材库图片 → AI 自动选图 → AI 辅助图”的固定顺序，将全部通过验收的成品绝对路径逐行写入 \`$TASK_DIR/image-paths.txt\`。不得让 AI 辅助图排在真实素材之前。
+8. 任务完成后，无论图片核验是否通过，都必须在最终回复中将全量图片作为附件或可直接查看的文件提供给用户，不得以压缩包形式提供；如果当前会话无法附加文件，必须逐张明确返回其本地绝对路径和文件名。未通过核验的图片不得写入 \`image-paths.txt\`，但必须保留并说明图片序号、原图 URL 或路径、生成后的 \`local_path\` 与未通过原因。`
+    : usesExistingImages
     ? `1. 进入已安装的 xiaohongshu_auto_op skill 根目录。
 2. 设置 \`ACCOUNT_NAME=${accountName}\`、\`TASK_DIR="$PWD/.tasks/${taskName}"\`、\`ACCOUNT_ASSETS_DIR="$PWD/assets/$ACCOUNT_NAME"\`，然后创建 \`$TASK_DIR/assets\` 和 \`$ACCOUNT_ASSETS_DIR\`。
 3. 下载“指定图片”中的全部 URL 到 \`$TASK_DIR/assets\`，保留原始扩展名，并取得每张图片的本地绝对路径。只允许使用这些指定图片，不得扫描或替换为其他素材。
@@ -311,7 +376,9 @@ uv run python scripts/cli.py edit-image \\
 6. 对存在“成品文字”的图片，把完整“本图文字编辑 Prompt”设置为 \`TEXT_EDIT_PROMPT\`，以 \`BASE_IMAGE\` 为输入执行 edit-image。必须把“成品文字”中的所有文字逐字写入对应位置；edit-image 返回的 \`local_path\` 才是最终成品。
 7. 对文字成品逐字核对，不得存在空白气泡、空白文字框、占位词、错字、漏字或额外文字。如有错误，只重试本图的 edit-image 文字编辑步骤，最多两次，不要重新生成底图；仍失败则报告失败，不得把底图当成品。
 8. 任务完成后，无论图片核验是否通过，都必须在最终回复中将全量图片作为附件或可直接查看的文件提供给用户，不得以压缩包形式提供；如果当前会话无法附加文件，必须逐张明确返回其本地绝对路径和文件名，确保用户能够自行查看。如果某张图片核验未通过：不得删除、覆盖或隐瞒该图片；不得把它写入 \`image-paths.txt\`，但必须继续处理其余图片。最终回复还必须单独列出该图片的图片序号、原图路径或 URL、生成后的 \`local_path\`、未通过的具体核验项和原因。`;
-  const commandVariables = usesExistingImages
+  const commandVariables = isMixed
+    ? "真实素材使用 `INPUT_IMAGE` 与 `IMAGE_PROMPT` 执行 edit-image；AI 辅助图使用 `IMAGE_PROMPT` 执行 generate-image。存在成品文字时，`BASE_IMAGE` 使用 generate-image 返回的 `local_path`，`TEXT_EDIT_PROMPT` 必须写入所有准确文字。"
+    : usesExistingImages
     ? "`IMAGE_PROMPT` 必须替换为当前单张图片对应的完整精修提示词；`INPUT_IMAGE` 必须替换为 Agent 下载后的本地绝对路径。"
     : "`IMAGE_PROMPT` 必须替换为当前图片对应的完整“本图生成 Prompt”并追加负向约束；`IMAGE_OUTPUT_DIR` 根据是否存在成品文字选择最终素材目录或底图目录。存在成品文字时，`BASE_IMAGE` 使用 generate-image 返回的 `local_path`，`TEXT_EDIT_PROMPT` 使用完整“本图文字编辑 Prompt”。";
   const watermarkSection = usesExistingImages && removeWatermarks
@@ -339,7 +406,7 @@ uv run python scripts/cli.py edit-image \\
 
 注意：\`${account.accountParam}\` 是 xiaohongshu_auto_op 的账号键。\`edit-image\` / \`generate-image\` 不依赖小红书浏览器登录账号，因此不要把它作为 \`--account\` 传给 CLI；但所有成品图必须保存到该账号的 \`assets/${account.accountParam}/\` 素材目录。
 
-${watermarkSection}## 指定图片
+${watermarkSection}## ${isMixed ? "指定真实图片（手动指定素材库图片 → AI 自动选图）" : "指定图片"}
 ${sourceList}
 
 ## 执行步骤
@@ -443,13 +510,18 @@ function commandCopy(account: { accountType: string; name: string; personaBase: 
 async function buildImagePromptResult(body: any, requestId: string) {
   const startedAt = Date.now();
   const openclawImagePaths = String(body.openclawImagePaths || "");
-  const imageSourceMode = ["ai_generate", "remote_images", "ai_auto_select"].includes(String(body.imageSourceMode))
+  const imageSourceMode = ["ai_generate", "remote_images", "ai_auto_select", "mixed"].includes(String(body.imageSourceMode))
     ? String(body.imageSourceMode)
     : "remote_images";
   const noteContent = String(body.noteContent || "");
   const singleGoal = String(body.singleGoal || "");
   const imageCount = String(body.imageCount || "");
   const normalizedImageCount = normalizeImageCount(imageCount);
+  const isMixed = imageSourceMode === "mixed";
+  const autoImageCount = isMixed ? normalizeOptionalImageCount(body.autoImageCount) : 0;
+  const aiImageCount = isMixed ? normalizeOptionalImageCount(body.aiImageCount) : 0;
+  const realImageRefinementRequirement = String(body.realImageRefinementRequirement || "").trim();
+  const aiAssistantRequirement = String(body.aiAssistantRequirement || "").trim();
   const removeWatermarks =
     imageSourceMode !== "ai_generate"
     && (
@@ -463,26 +535,47 @@ async function buildImagePromptResult(body: any, requestId: string) {
     throw new Error("当前账号未配置智能体执行账号参数，无法确定账号素材目录。");
   }
   const remoteImageUrls = nonEmptyLines(openclawImagePaths);
+  const acceptsManualImages = imageSourceMode === "remote_images" || isMixed;
   if (imageSourceMode === "remote_images" && (!remoteImageUrls.length || remoteImageUrls.some((url) => !remotePath(url)))) {
     throw new Error("请选择至少一张具有完整 HTTP(S) URL 的后端素材图片。");
   }
-  let selectedAssets = imageSourceMode === "remote_images"
+  if (isMixed && remoteImageUrls.some((url) => !remotePath(url))) {
+    throw new Error("混合模式中的手动素材必须使用完整 HTTP(S) URL。" );
+  }
+  let selectedAssets = acceptsManualImages
     ? normalizeSelectedAssets(body.selectedAssets, remoteImageUrls)
     : [];
   if (imageSourceMode === "remote_images" && !selectedAssets.length) {
     throw new Error("未能读取所选素材的图片信息。");
   }
-  if (imageSourceMode === "remote_images" && Array.isArray(body.selectedAssets)) {
+  if (acceptsManualImages && Array.isArray(body.selectedAssets)) {
     const metadataUrls = selectedAssets.map((asset) => asset.fileUrl);
     if (metadataUrls.length !== remoteImageUrls.length || remoteImageUrls.some((url) => !metadataUrls.includes(url))) {
       throw new Error("所选图片 URL 与素材信息不一致，请重新选择图片后再生成。");
     }
   }
-  const candidateAssets = imageSourceMode === "ai_auto_select"
+  const manualImageCount = selectedAssets.length;
+  const candidateAssets = imageSourceMode === "ai_auto_select" || isMixed
     ? normalizeSelectedAssets(body.candidateAssets ?? account.assets, []).filter(isImageAsset)
     : [];
   if (imageSourceMode === "ai_auto_select" && candidateAssets.length < normalizedImageCount) {
     throw new Error(`当前账号只有 ${candidateAssets.length} 张具有有效 URL 的素材库图片，无法自动选择 ${normalizedImageCount} 张。请补充素材或减少图片数量。`);
+  }
+  const autoCandidates = isMixed
+    ? candidateAssets.filter((asset) => !selectedAssets.some((manualAsset) => manualAsset.fileUrl === asset.fileUrl))
+    : candidateAssets;
+  if (isMixed) {
+    const enabledSourceCount = [manualImageCount > 0, autoImageCount > 0, aiImageCount > 0].filter(Boolean).length;
+    const totalImageCount = manualImageCount + autoImageCount + aiImageCount;
+    if (enabledSourceCount < 2) {
+      throw new Error("混合模式至少需要启用手动素材、AI 自动选图、AI 辅助图中的两类来源。");
+    }
+    if (totalImageCount > 9) {
+      throw new Error(`混合模式共 ${totalImageCount} 张图片，超过单篇最多 9 张的限制。`);
+    }
+    if (autoImageCount > 0 && autoCandidates.length < autoImageCount) {
+      throw new Error(`排除手动素材后，素材库只有 ${autoCandidates.length} 张可供自动选择，无法选择 ${autoImageCount} 张。`);
+    }
   }
 
   const latestReference = account.referenceResearches?.[0];
@@ -519,13 +612,15 @@ async function buildImagePromptResult(body: any, requestId: string) {
   let autoSelectionPlan: ImageAutoSelectionPlan | null = null;
   let selectionModel = "";
 
-  if (imageSourceMode === "ai_auto_select") {
+  if (imageSourceMode === "ai_auto_select" || (isMixed && autoImageCount > 0)) {
+    const requestedAutoImageCount = isMixed ? autoImageCount : normalizedImageCount;
+    const selectionCandidates = isMixed ? autoCandidates : candidateAssets;
     console.info("[image-auto-selection] calling backend AI", {
       requestId,
       noteTaskId: noteTask.id,
       accountId: account.id,
-      candidateCount: candidateAssets.length,
-      imageCount: normalizedImageCount
+      candidateCount: selectionCandidates.length,
+      imageCount: requestedAutoImageCount
     });
     const selectionResult = await generateImageAutoSelectionWithLlm({
       account: accountContext,
@@ -534,36 +629,37 @@ async function buildImagePromptResult(body: any, requestId: string) {
       singleGoal,
       styleBrief: resolvedStyleBrief,
       expertRules,
-      imageCount: normalizedImageCount,
-      assets: candidateAssets
+      imageCount: requestedAutoImageCount,
+      assets: selectionCandidates
     });
     if (!selectionResult.usedLlm) {
       console.error("[image-auto-selection] backend AI failed", {
         requestId,
         noteTaskId: noteTask.id,
-        candidateCount: candidateAssets.length,
-        imageCount: normalizedImageCount,
+        candidateCount: selectionCandidates.length,
+        imageCount: requestedAutoImageCount,
         elapsedMs: Date.now() - startedAt,
         error: selectionResult.error
       });
       throw new Error(`AI 未能完成自动选图：${selectionResult.error}`);
     }
 
-    const assetsByKey = new Map(candidateAssets.map((asset, index) => [imageRefinementAssetKey(asset, index), asset]));
-    selectedAssets = selectionResult.data.images
+    const assetsByKey = new Map(selectionCandidates.map((asset, index) => [imageRefinementAssetKey(asset, index), asset]));
+    const autoSelectedAssets = selectionResult.data.images
       .map((item) => assetsByKey.get(item.assetKey))
       .filter((asset): asset is ImageRefinementAsset => Boolean(asset));
-    if (selectedAssets.length !== normalizedImageCount) {
+    if (autoSelectedAssets.length !== requestedAutoImageCount) {
       throw new Error("AI 自动选图结果包含无效素材，请重试。");
     }
+    selectedAssets = isMixed ? [...selectedAssets, ...autoSelectedAssets] : autoSelectedAssets;
     autoSelectionPlan = selectionResult.data;
     selectionModel = selectionResult.model;
     console.info("[image-auto-selection] backend AI completed", {
       requestId,
       noteTaskId: noteTask.id,
-      candidateCount: candidateAssets.length,
-      selectedCount: selectedAssets.length,
-      selectedAssetIds: selectedAssets.map((asset) => asset.id),
+      candidateCount: selectionCandidates.length,
+      selectedCount: autoSelectedAssets.length,
+      selectedAssetIds: autoSelectedAssets.map((asset) => asset.id),
       model: selectionModel,
       elapsedMs: Date.now() - startedAt
     });
@@ -580,13 +676,52 @@ async function buildImagePromptResult(body: any, requestId: string) {
     imageSourceMode,
     noteContent,
     singleGoal,
-    imageCount: String(normalizedImageCount),
+    imageCount: String(isMixed ? manualImageCount + autoImageCount + aiImageCount : normalizedImageCount),
+    autoImageCount: String(autoImageCount),
+    aiImageCount: String(aiImageCount),
+    realImageRefinementRequirement,
+    aiAssistantRequirement,
     expertRules
   });
   let taskRequirements = content;
   let aiModel = "";
 
-  if (imageSourceMode === "remote_images" || imageSourceMode === "ai_auto_select") {
+  if (isMixed) {
+    console.info("[mixed-image-planning] calling backend AI", {
+      requestId,
+      noteTaskId: noteTask.id,
+      accountId: account.id,
+      manualImageCount,
+      autoImageCount,
+      aiImageCount
+    });
+    const mixedResult = await generateMixedImagePlanWithLlm({
+      account: accountContext,
+      noteTask: noteTaskContext,
+      noteContent,
+      realImageRefinementRequirement,
+      aiAssistantRequirement,
+      styleBrief: resolvedStyleBrief,
+      expertRules,
+      realAssets: selectedAssets,
+      manualImageCount,
+      autoImageCount,
+      aiImageCount,
+      baseRequirements: content,
+      removeWatermarks
+    });
+    if (!mixedResult.usedLlm) {
+      throw new Error(`AI 未能生成混合图集方案：${mixedResult.error}`);
+    }
+    aiModel = mixedResult.model;
+    taskRequirements = `${autoSelectionPlan ? `${formatAutoSelectionPlan(autoSelectionPlan, autoCandidates)}\n\n` : ""}${formatMixedImagePlan(mixedResult.data, selectedAssets, manualImageCount)}`;
+    console.info("[mixed-image-planning] backend AI completed", {
+      requestId,
+      noteTaskId: noteTask.id,
+      model: aiModel,
+      elapsedMs: Date.now() - startedAt
+    });
+  } else if (imageSourceMode === "remote_images" || imageSourceMode === "ai_auto_select") {
     console.info("[image-refinement] calling backend AI", {
       requestId,
       noteTaskId: noteTask.id,
@@ -683,6 +818,8 @@ async function buildImagePromptResult(body: any, requestId: string) {
     ? "生成 AI 辅助图"
     : imageSourceMode === "ai_auto_select"
     ? "AI 自动选图并生成单篇配图"
+    : isMixed
+    ? "生成混合图集方案"
     : "用素材库图片生成单篇配图";
   const commands = [
     {
@@ -691,6 +828,8 @@ async function buildImagePromptResult(body: any, requestId: string) {
       description: "由 Agent 在 xiaohongshu_auto_op skill 目录中准备本地图片，并按单张 Prompt 逐次执行真实 CLI。",
       safetyNote: imageSourceMode === "ai_generate"
         ? "AI 辅助图不得伪装成真实案例、真实现场或真实客户反馈。"
+        : isMixed
+        ? "真实素材必须保留可核验事实；AI 辅助图不得伪装成真实现场、真实案例或真实客户反馈。"
         : copy.safety
     }
   ];
@@ -710,7 +849,7 @@ async function buildImagePromptResult(body: any, requestId: string) {
       used: true,
       model: aiModel,
       selectionModel: selectionModel || undefined,
-      calls: imageSourceMode === "ai_auto_select" ? 2 : 1,
+    calls: imageSourceMode === "ai_auto_select" || (isMixed && autoImageCount > 0) ? 2 : 1,
       requestId
     },
     commands
