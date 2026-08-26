@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
-import { completeWithBackendAi } from "@/lib/backendAiClient";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
+import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import { buildPostReviewPrompt } from "@/lib/expertLearning";
 
 const ALLOWED_MODULES = new Set(["title", "cover", "image_plan", "video_plan", "body", "interaction", "risk", "positioning"]);
@@ -153,7 +154,9 @@ export async function POST(request: Request) {
   if (Number(body.noteTaskId || 0) && !body.noteTask) return NextResponse.json({ error: "笔记不属于当前账号" }, { status: 400 });
   const evidenceFields = ["actualContent", "metrics", "comments", "expertFeedback", "editComparison", "subjective"];
   if (!evidenceFields.some((field) => readText(body[field]))) return NextResponse.json({ error: "请至少填写一项复盘证据。" }, { status: 400 });
-  const task = createAsyncRouteTask(() => buildReviewResult(body));
+  const credentials = getBackendAiCredentialsFromRequest(request);
+  if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
+  const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildReviewResult(body)));
   return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
 }
 

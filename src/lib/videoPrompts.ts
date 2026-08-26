@@ -1,4 +1,4 @@
-import { completeWithBackendAi } from "@/lib/backendAiClient";
+import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 
 export type VideoSourceAsset = {
   id: number;

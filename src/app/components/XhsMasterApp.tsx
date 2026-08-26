@@ -2219,7 +2219,7 @@ export function XhsMasterApp() {
       } catch {
         // 账号详情刷新失败时，继续使用当前客户端状态生成文案。
       }
-      const res = await fetch(`/api/note-tasks/${task.id}/draft-variants`, {
+      const res = await authenticatedFetch(`/api/note-tasks/${task.id}/draft-variants`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ account: accountForPrompt, noteTask: task, weeklyPlan: latestPlan })
@@ -2307,7 +2307,7 @@ export function XhsMasterApp() {
     try {
       const res = await authenticatedFetch(`/api/note-tasks/${task.id}/image-prompt`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...buildProxyHeaders() },
         body: JSON.stringify({
           ...(options || {}),
           account: selected,

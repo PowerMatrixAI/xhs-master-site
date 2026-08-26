@@ -1,6 +1,6 @@
 import type { Account, AccountStrategy, AccountTypeTemplate, Asset, NoteTask, WeeklyPlan } from "@/types/domain";
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
-import { completeWithBackendAi } from "@/lib/backendAiClient";
+import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import type { StrategyBundle } from "@/lib/strategy";
 import { fallbackReferenceSummary } from "@/lib/referenceResearch";
 import { fallbackInteractionSummary } from "@/lib/interactionPrompts";

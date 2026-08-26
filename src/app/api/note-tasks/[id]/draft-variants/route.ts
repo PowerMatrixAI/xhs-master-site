@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { generateDraftVariants } from "@/lib/draftVariants";
 
 export const runtime = "nodejs";
@@ -33,7 +34,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "当前笔记任务缺少已选爆款文风资料。请重新生成本周计划后再生成文案版本。" }, { status: 400 });
   }
 
-  const task = createAsyncRouteTask(() => buildDraftVariantsResult(body));
+  const credentials = getBackendAiCredentialsFromRequest(request);
+  if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
+
+  const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildDraftVariantsResult(body)));
   return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
 }
 

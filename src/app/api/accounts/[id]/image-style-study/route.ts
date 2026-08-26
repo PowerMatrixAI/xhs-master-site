@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { summarizeImageStyleStudyWithLlm } from "@/lib/llm";
 import {
   buildImageStyleCommands,
@@ -34,7 +35,9 @@ export async function POST(request: Request, context: { params: { id: string } }
   if (action === "save-results") {
     const rawResults = String(body.rawResults || "");
     if (!rawResults.trim()) return NextResponse.json({ error: "请先粘贴 xiaohongshu_auto_op 返回的图片风格研究结果。" }, { status: 400 });
-    const task = createAsyncRouteTask(async () => {
+    const credentials = getBackendAiCredentialsFromRequest(request);
+    if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, async () => {
       const study = {
         id: Number(body.studyId) || Date.now(),
         accountId: account.id,
@@ -65,7 +68,7 @@ export async function POST(request: Request, context: { params: { id: string } }
         summary,
         warning: summaryResult.usedLlm ? "" : summaryResult.error || "AI 未完成总结，已使用本地规则生成图片风格摘要。"
       };
-    });
+    }));
 
     return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
   }

@@ -326,8 +326,28 @@ export async function authenticatedFetch(
     throw new AuthenticationExpiredError();
   }
 
+  const isLocalApiRoute = (() => {
+    if (typeof input === "string") {
+      if (input.startsWith("/api/")) return true;
+      try {
+        return new URL(input).origin === window.location.origin && new URL(input).pathname.startsWith("/api/");
+      } catch {
+        return false;
+      }
+    }
+    if (input instanceof URL) return input.origin === window.location.origin && input.pathname.startsWith("/api/");
+    return input.url.startsWith(window.location.origin) && new URL(input.url).pathname.startsWith("/api/");
+  })();
+  const normalizedInit = isLocalApiRoute
+    ? (() => {
+        const headers = new Headers(init.headers);
+        for (const [name, value] of Object.entries(buildProxyHeaders())) headers.set(name, value);
+        return { ...init, headers };
+      })()
+    : init;
+
   const controller = new AbortController();
-  const externalSignal = init.signal;
+  const externalSignal = normalizedInit.signal;
   const abortFromExternalSignal = () => controller.abort(externalSignal?.reason);
   if (externalSignal?.aborted) {
     abortFromExternalSignal();
@@ -337,7 +357,7 @@ export async function authenticatedFetch(
 
   activeAuthenticatedRequests.add(controller);
   try {
-    const response = await fetch(input, { ...init, signal: controller.signal });
+    const response = await fetch(input, { ...normalizedInit, signal: controller.signal });
     if (response.status === 401) {
       requireManualLogin();
       throw new AuthenticationExpiredError();
@@ -347,6 +367,17 @@ export async function authenticatedFetch(
     externalSignal?.removeEventListener("abort", abortFromExternalSignal);
     activeAuthenticatedRequests.delete(controller);
   }
+}
+
+/**
+ * 调用本站 /api 路由的统一入口。
+ * 路由可据此为后端请求生成新的签名，避免浏览器端每个业务模块重复处理认证头。
+ */
+export async function authenticatedProxyFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  return authenticatedFetch(input, init);
 }
 
 export function buildProxyHeaders() {

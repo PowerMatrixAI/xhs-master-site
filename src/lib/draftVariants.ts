@@ -1,4 +1,4 @@
-import { completeWithBackendAi } from "@/lib/backendAiClient";
+import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import { formatExpertRulesForPrompt } from "@/lib/expertLearning";
 import { buildTaskPrompt } from "@/lib/prompt";
 import {

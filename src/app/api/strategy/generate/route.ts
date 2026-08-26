@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { accountTypeTemplates, getTemplateByKey } from "@/data/accountTypeTemplates";
 import { generateStrategyWithLlm } from "@/lib/llm";
 import { buildAccountStrategy } from "@/lib/strategy";
@@ -38,6 +39,8 @@ function getErrorMessage(error: unknown) {
 
 export async function POST(request: Request) {
   try {
+    const credentials = getBackendAiCredentialsFromRequest(request);
+    if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
     const { account } = requestSchema.parse(await request.json());
     const templateSeed = getTemplateByKey(account.accountType) ?? accountTypeTemplates[0];
     const template = {
@@ -64,7 +67,10 @@ export async function POST(request: Request) {
     };
 
     const fallback = buildAccountStrategy(accountRecord as never, template as never);
-    const strategyResult = await generateStrategyWithLlm(accountRecord as never, template as never, fallback);
+    const strategyResult = await runWithBackendAiCredentials(
+      credentials,
+      () => generateStrategyWithLlm(accountRecord as never, template as never, fallback)
+    );
 
     return NextResponse.json({
       usedLlm: strategyResult.usedLlm,

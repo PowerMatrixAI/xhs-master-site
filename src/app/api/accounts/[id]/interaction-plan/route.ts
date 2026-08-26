@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { summarizeInteractionCandidatesWithLlm } from "@/lib/llm";
 import {
   buildInteractionCommands,
@@ -54,7 +55,9 @@ export async function POST(request: Request, context: { params: { id: string } }
   if (action === "save-results") {
     const rawResults = String(body.rawResults || "");
     if (!rawResults.trim()) return NextResponse.json({ error: "请先粘贴 xiaohongshu_auto_op 返回结果。" }, { status: 400 });
-    const task = createAsyncRouteTask(async () => {
+    const credentials = getBackendAiCredentialsFromRequest(request);
+    if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, async () => {
       const plan = {
         id: Number(body.planId) || Date.now(),
         accountId: account.id,
@@ -96,7 +99,7 @@ export async function POST(request: Request, context: { params: { id: string } }
         summary: summaryResult.data,
         warning: summaryResult.usedLlm ? "" : summaryResult.error || "大模型总结未完成，已保存原始结果。"
       };
-    });
+    }));
 
     return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
   }

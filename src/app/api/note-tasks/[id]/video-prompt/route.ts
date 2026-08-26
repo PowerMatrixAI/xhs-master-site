@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { buildDirectVideoTask, buildImageToVideoTask, type VideoSourceAsset } from "@/lib/videoPrompts";
 import { formatExpertRulesForPrompt } from "@/lib/expertLearning";
 
@@ -38,11 +39,13 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   if (!body.account || !body.noteTask) return NextResponse.json({ error: "缺少任务上下文" }, { status: 400 });
   if ((body.noteTask as { type?: string }).type !== "video_text") return NextResponse.json({ error: "只有视频笔记可以生成视频方案。" }, { status: 400 });
+  const credentials = getBackendAiCredentialsFromRequest(request);
+  if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
   if (body.mode === "direct_video") {
-    try { return NextResponse.json(await buildResult(body)); }
+    try { return NextResponse.json(await runWithBackendAiCredentials(credentials, () => buildResult(body))); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "生成视频方案失败" }, { status: 400 }); }
   }
-  const task = createAsyncRouteTask(() => buildResult(body));
+  const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildResult(body)));
   return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
 }
 

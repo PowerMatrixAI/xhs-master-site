@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { clampWeeklyFrequency, normalizeWeeklyRatio } from "@/lib/weeklyPlan";
 import { generateWeeklyTasksWithLlm } from "@/lib/llm";
 import { collectRecentWeeklyTopicGroups } from "@/lib/weeklyTopicHistory";
 import { selectedWeeklyPlanningObjectives } from "@/lib/weeklyPlanningObjectives";
 
 export async function POST(request: Request) {
+  const credentials = getBackendAiCredentialsFromRequest(request);
+  if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
   const body = await request.json();
   const account = body.account;
   if (!account) return NextResponse.json({ error: "账号不存在" }, { status: 404 });
@@ -45,7 +48,7 @@ export async function POST(request: Request) {
     recentTopicGroups
   };
   try {
-    const llmResult = await generateWeeklyTasksWithLlm({
+    const llmResult = await runWithBackendAiCredentials(credentials, () => generateWeeklyTasksWithLlm({
       account,
       strategy: account.strategy,
       assets: account.assets || [],
@@ -53,7 +56,7 @@ export async function POST(request: Request) {
       weeklyInput,
       taskCount: frequency,
       knowledgeSnapshotId: String(body.knowledgeSnapshotId || "")
-    });
+    }));
     return NextResponse.json({
       ...plan,
       noteTasks: llmResult.data.map((task, index) => ({ ...task, id: Date.now() + index }))

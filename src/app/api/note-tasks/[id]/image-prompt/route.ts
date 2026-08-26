@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { accountVisualMode, buildCompactImageStyleBrief, buildImagePrompt, buildImageStyleStudy, isWeddingAccount } from "@/lib/imagePrompts";
 import { styleBriefFromStudy } from "@/lib/imageStyleStudy";
 import { formatExpertRulesForPrompt } from "@/lib/expertLearning";
@@ -878,7 +879,9 @@ export async function POST(request: Request, _context: { params: { id: string } 
     return NextResponse.json({ error: "视频笔记不能生成图片方案，请前往视频方案。" }, { status: 400 });
   }
 
-  const task = createAsyncRouteTask(() => buildImagePromptResult(body, requestId));
+  const credentials = getBackendAiCredentialsFromRequest(request);
+  if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
+  const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildImagePromptResult(body, requestId)));
   return NextResponse.json({ async: true, uuid: task.uuid, status: task.status, requestId });
 }
 

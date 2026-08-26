@@ -6,6 +6,12 @@ type BackendAiResult =
   | { ok: true; text: string; model: string }
   | { ok: false; error: string };
 
+export type BackendAiCredentials = {
+  token: string;
+  uid: string;
+  test?: string;
+};
+
 type BackendAiResponse = {
   status?: boolean;
   message?: string;
@@ -25,19 +31,24 @@ function buildBackendAiRequestHeaders(input: {
   url: string;
   method: string;
   body?: string;
+  credentials?: BackendAiCredentials;
 }): Record<string, string> {
-  const token = getToken();
-  const user = getUser();
+  const browserToken = getToken();
+  const browserUser = getUser();
+  const credentials = input.credentials || (browserToken && browserUser
+    ? { token: browserToken, uid: String(browserUser.uid) }
+    : null);
 
   // AI 调用既可能由浏览器直接发起，也可能经 Next.js Route 转发。
   // 浏览器侧具备当前登录态时，必须带上与业务接口一致的签名头。
-  if (token && user) {
+  if (credentials) {
     return buildBackendSignedHeaders({
       url: input.url,
       method: input.method,
       body: input.body,
-      token,
-      uid: String(user.uid),
+      token: credentials.token,
+      uid: credentials.uid,
+      test: credentials.test,
       includeJsonContentType: input.method !== "GET"
     }) as Record<string, string>;
   }
@@ -79,6 +90,7 @@ async function waitForBackendAiResult(input: {
   uuid: string;
   initialModel?: string;
   signal?: AbortSignal;
+  credentials?: BackendAiCredentials;
 }): Promise<BackendAiResult> {
   const baseUrl = getBackendApiBaseUrl();
   const resultUrl = `${baseUrl}/ai/v1/complete/result?uuid=${encodeURIComponent(input.uuid)}`;
@@ -89,7 +101,11 @@ async function waitForBackendAiResult(input: {
 
     const response = await authenticatedFetch(resultUrl, {
       method: "GET",
-      headers: buildBackendAiRequestHeaders({ url: resultUrl, method: "GET" }),
+      headers: buildBackendAiRequestHeaders({
+        url: resultUrl,
+        method: "GET",
+        credentials: input.credentials
+      }),
       signal: input.signal
     });
     const json = (await response.json().catch(() => ({}))) as BackendAiResponse;
@@ -132,6 +148,7 @@ export async function completeWithBackendAi(input: {
   signal?: AbortSignal;
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
+  credentials?: BackendAiCredentials;
 }): Promise<BackendAiResult> {
   try {
     const url = `${getBackendApiBaseUrl()}/ai/v1/complete`;
@@ -148,7 +165,12 @@ export async function completeWithBackendAi(input: {
     });
     const response = await authenticatedFetch(url, {
       method: "POST",
-      headers: buildBackendAiRequestHeaders({ url, method: "POST", body }),
+      headers: buildBackendAiRequestHeaders({
+        url,
+        method: "POST",
+        body,
+        credentials: input.credentials
+      }),
       body,
       signal: input.signal
     });
@@ -171,7 +193,8 @@ export async function completeWithBackendAi(input: {
       return await waitForBackendAiResult({
         uuid: json.data.uuid,
         initialModel: json.data.model || input.model,
-        signal: input.signal
+        signal: input.signal,
+        credentials: input.credentials
       });
     }
 

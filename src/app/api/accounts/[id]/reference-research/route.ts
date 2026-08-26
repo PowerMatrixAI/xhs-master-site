@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
+import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { buildAccountStrategy } from "@/lib/strategy";
 import { regenerateStrategyFromReferenceResearchWithLlm, summarizeReferenceResearchWithLlm } from "@/lib/llm";
 import { getTemplateByKey } from "@/data/accountTypeTemplates";
@@ -223,7 +224,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ research, commands: [], researchPrompt });
     }
 
-    const task = createAsyncRouteTask(() => buildReferenceResearchResult(body));
+    const credentials = getBackendAiCredentialsFromRequest(request);
+    if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildReferenceResearchResult(body)));
     return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
   } catch (error) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 400 });
