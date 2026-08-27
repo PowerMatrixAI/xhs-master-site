@@ -2715,37 +2715,61 @@ export function XhsMasterApp() {
 
   function copyWithTextarea(text: string) {
     const textarea = document.createElement("textarea");
+    const activeElement = document.activeElement as HTMLElement | null;
     textarea.value = text;
     textarea.setAttribute("readonly", "");
+    textarea.setAttribute("aria-hidden", "true");
     textarea.style.position = "fixed";
-    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    textarea.style.left = "0";
+    textarea.style.width = "1px";
+    textarea.style.height = "1px";
+    textarea.style.padding = "0";
+    textarea.style.border = "0";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
     document.body.appendChild(textarea);
-    textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-    const copied = document.execCommand("copy");
-    textarea.remove();
-    if (!copied) throw new Error("浏览器未允许复制操作。");
+    try {
+      // focus() is important for Safari/iOS and for browsers that reject a
+      // copy command unless the selection belongs to the active element.
+      textarea.focus({ preventScroll: true });
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      return document.execCommand("copy");
+    } finally {
+      textarea.remove();
+      if (activeElement && activeElement.isConnected) {
+        activeElement.focus({ preventScroll: true });
+      }
+    }
   }
 
   async function copy(text: string) {
-    if (!text) {
+    if (!text.trim()) {
       showToast("当前没有可复制的内容。", "error");
       return;
     }
 
+    // Try the synchronous fallback first so the browser's user-activation
+    // token is still available if the Clipboard API is blocked. This fixes
+    // browsers where an async clipboard rejection makes a later fallback
+    // `execCommand` call fail as well.
     try {
-      if (window.isSecureContext && navigator.clipboard?.writeText) {
+      if (copyWithTextarea(text)) return;
+    } catch {
+      // Continue with the modern API when the legacy command is unavailable.
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
-      } else {
-        copyWithTextarea(text);
+        return;
       }
     } catch {
-      try {
-        copyWithTextarea(text);
-      } catch {
-        showToast("复制失败，请检查浏览器剪贴板权限。", "error");
-      }
+      // Report one consistent error below after both methods have failed.
     }
+
+    showToast("复制失败，请检查浏览器剪贴板权限。", "error");
   }
 
   return (
