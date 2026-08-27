@@ -1460,6 +1460,8 @@ export function XhsMasterApp() {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [toast, setToast] = useState<FeedbackDialog | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const copyNoticeTimerRef = useRef<number | null>(null);
   const [currentUser, setCurrentUser] = useState<LoginResponse | null>(null);
   const [promptResults, setPromptResults] = useState<Record<number, PromptResult>>({});
   // 三版文案仅保存在当前页面会话中，不同步到浏览器工作区或后端。
@@ -1589,6 +1591,7 @@ export function XhsMasterApp() {
 
   useEffect(() => () => {
     if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
+    if (copyNoticeTimerRef.current !== null) window.clearTimeout(copyNoticeTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -2744,6 +2747,15 @@ export function XhsMasterApp() {
     }
   }
 
+  function showCopyNotice(message: string) {
+    if (copyNoticeTimerRef.current !== null) window.clearTimeout(copyNoticeTimerRef.current);
+    setCopyNotice(message);
+    copyNoticeTimerRef.current = window.setTimeout(() => {
+      setCopyNotice((current) => current === message ? null : current);
+      copyNoticeTimerRef.current = null;
+    }, 2200);
+  }
+
   async function copy(text: string) {
     if (!text.trim()) {
       showToast("当前没有可复制的内容。", "error");
@@ -2755,7 +2767,10 @@ export function XhsMasterApp() {
     // browsers where an async clipboard rejection makes a later fallback
     // `execCommand` call fail as well.
     try {
-      if (copyWithTextarea(text)) return;
+      if (copyWithTextarea(text)) {
+        showCopyNotice("已复制到剪贴板。");
+        return;
+      }
     } catch {
       // Continue with the modern API when the legacy command is unavailable.
     }
@@ -2763,6 +2778,7 @@ export function XhsMasterApp() {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
+        showCopyNotice("已复制到剪贴板。");
         return;
       }
     } catch {
@@ -2885,6 +2901,14 @@ export function XhsMasterApp() {
         </header>
 
         <section className="px-4 py-6 lg:px-8">
+          {copyNotice && (
+            <div className="pointer-events-none fixed inset-x-4 top-4 z-[60] flex justify-center sm:inset-x-auto sm:right-6 sm:justify-end" role="status" aria-live="polite">
+              <div className="inline-flex items-center gap-2 rounded border border-teal/20 bg-white px-4 py-3 text-sm font-medium text-teal shadow-panel">
+                <CircleCheck size={18} aria-hidden="true" />
+                <span>{copyNotice}</span>
+              </div>
+            </div>
+          )}
           {toast && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/20 px-4" role="presentation">
               <div className="w-full max-w-md rounded-md border border-ink/10 bg-white p-5 shadow-panel" role="alertdialog" aria-modal="true" aria-live="assertive">
