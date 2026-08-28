@@ -22,6 +22,7 @@ import {
   LogOut,
   MessageCircle,
   NotebookPen,
+  Pencil,
   Plus,
   Save,
   Search,
@@ -41,11 +42,13 @@ import {
   createBackendAccount,
   fetchBackendAccountDetail,
   deleteBackendAccount,
+  deleteBackendAsset,
   fetchBackendAccounts,
   logout,
   getToken,
   getUser,
   saveBackendAssets,
+  updateBackendAssetTags,
   saveBackendNoteTask,
   saveBackendPostReviewResult,
   saveBackendWeeklyPlan,
@@ -1829,6 +1832,53 @@ export function XhsMasterApp() {
     }
   }
 
+  async function deleteAsset(assetId: number) {
+    if (!selected) return;
+    const asset = selected.assets.find((item) => item.id === assetId);
+    if (!asset) return;
+    if (!window.confirm(`确定删除素材「${asset.filePath}」吗？删除后无法恢复。`)) return;
+
+    setLoading(true);
+    setLoadingAction(`deleteAsset-${assetId}`);
+    try {
+      await deleteBackendAsset(selected.id, assetId);
+      updateSelectedAccount((account) => ({
+        ...account,
+        assets: account.assets.filter((item) => item.id !== assetId)
+      }));
+      setManifest(null);
+      showToast("素材已删除。", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "删除素材失败。", "error");
+    } finally {
+      setLoading(false);
+      setLoadingAction(null);
+    }
+  }
+
+  async function updateAssetTags(assetId: number, tags: string) {
+    if (!selected) return;
+
+    setLoading(true);
+    setLoadingAction(`updateAssetTags-${assetId}`);
+    try {
+      const saved = await updateBackendAssetTags(selected.id, assetId, tags);
+      const mapped = mapBackendAssetToUiAsset(saved);
+      updateSelectedAccount((account) => ({
+        ...account,
+        assets: account.assets.map((item) => item.id === assetId ? { ...item, ...mapped } : item)
+      }));
+      setManifest(null);
+      showToast("素材标签已更新。", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "更新素材标签失败。", "error");
+      throw error;
+    } finally {
+      setLoading(false);
+      setLoadingAction(null);
+    }
+  }
+
   async function generateManifest() {
     if (!selected) return;
     const res = await authenticatedFetch("/api/assets/manifest", {
@@ -2322,6 +2372,7 @@ export function XhsMasterApp() {
       const data = await readApiJsonResponse(res, "创建图片方案任务失败");
       if (!res.ok) throw new Error(data.error || "生成图片方案失败。");
       const resolved = data.async && data.uuid
+
         ? await waitForAsyncRouteResult<ImagePromptResult>(`/api/note-tasks/${task.id}/image-prompt`, data.uuid)
         : data as ImagePromptResult;
       setImagePromptResults((current) => ({ ...current, [task.id]: resolved }));
@@ -2981,6 +3032,8 @@ export function XhsMasterApp() {
             <AssetsPanel
               selected={selected}
               uploadAsset={uploadAsset}
+              deleteAsset={deleteAsset}
+              updateAssetTags={updateAssetTags}
               generateManifest={generateManifest}
               manifest={manifest}
               copy={copy}
@@ -3744,19 +3797,59 @@ function AgentsPanel(props: {
   );
 }
 
+function splitAssetTags(value: string) {
+  return Array.from(new Set(
+    value
+      .split(/[\s,，、]+/)
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+  ));
+}
+
 function AssetsPanel(props: {
   selected?: Account;
   uploadAsset: (form: HTMLFormElement, files: File[], clearFiles?: () => void) => void;
+  deleteAsset: (assetId: number) => Promise<void>;
+  updateAssetTags: (assetId: number, tags: string) => Promise<void>;
   generateManifest: () => void;
   manifest: { content: string; validation: string; path: string } | null;
   copy: (text: string) => void;
   loading: boolean;
   loadingAction: string | null;
 }) {
-  const { selected, uploadAsset, generateManifest, manifest, copy, loading, loadingAction } = props;
+  const { selected, uploadAsset, deleteAsset, updateAssetTags, generateManifest, manifest, copy, loading, loadingAction } = props;
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [editingAssetId, setEditingAssetId] = useState<number | null>(null);
+  const [tagDrafts, setTagDrafts] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState("");
   if (!selected) return <EmptyState />;
   const copyText = assetUiCopy(selected.accountType);
+
+  function beginEditTags(asset: Asset) {
+    setEditingAssetId(asset.id);
+    setTagDrafts(splitAssetTags(asset.tags || ""));
+    setNewTag("");
+  }
+
+  async function saveTags(assetId: number) {
+    try {
+      const tags = Array.from(new Set(tagDrafts.flatMap((tag) => splitAssetTags(tag)))).join(" ");
+      await updateAssetTags(assetId, tags);
+      setEditingAssetId(null);
+      setTagDrafts([]);
+      setNewTag("");
+    } catch {
+      // The parent displays the request error and keeps the editor open.
+    }
+  }
+
+  function addDraftTags() {
+    const incoming = splitAssetTags(newTag);
+    if (!incoming.length) return;
+    setTagDrafts((current) => Array.from(new Set([...current, ...incoming])));
+    setNewTag("");
+  }
+
   return (
     <div className="space-y-5">
       <div className="panel">
@@ -3858,7 +3951,12 @@ function AssetsPanel(props: {
               </label>
               <Input name="location" label="拍摄地点" />
               <Input name="shotAt" label="拍摄时间" />
-              <Input name="tags" label="标签" placeholder={copyText.singleTags} />
+              <Input
+                name="tags"
+                label="标签"
+                placeholder={copyText.singleTags}
+                help="多个标签请用空格分隔，例如：复古 暖光 夜景"
+              />
               <Input name="suitableTypes" label="适合什么内容" placeholder={copyText.singleSuitable} />
               <Input name="riskNotes" label="核验/风险备注" placeholder={copyText.singleRisk} />
             </div>
@@ -3910,10 +4008,101 @@ function AssetsPanel(props: {
                     </a>
                   )}
                   <div className="text-ink/60">{asset.sourceType}</div>
-                  <div>{asset.tags || "未标注标签"}</div>
+                  {editingAssetId === asset.id ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {tagDrafts.map((tag, index) => (
+                          <span key={`${asset.id}-tag-${index}`} className="inline-flex max-w-full items-center gap-1 rounded bg-teal/10 px-2 py-1 text-xs text-teal">
+                            <input
+                              value={tag}
+                              onChange={(event) => setTagDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))}
+                              className="w-20 min-w-0 bg-transparent outline-none placeholder:text-teal/50"
+                              aria-label={`编辑标签 ${tag}`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setTagDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                              className="rounded p-0.5 hover:bg-teal/15"
+                              title={`删除标签 ${tag}`}
+                              aria-label={`删除标签 ${tag}`}
+                            >
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={newTag}
+                          onChange={(event) => setNewTag(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              addDraftTags();
+                            }
+                          }}
+                          placeholder="输入标签后回车添加"
+                          maxLength={500}
+                          className="min-w-0 flex-1 rounded border border-ink/10 bg-white px-2 py-1.5 text-xs outline-none focus:border-teal focus:ring-1 focus:ring-teal/30"
+                        />
+                        <button type="button" onClick={addDraftTags} className="secondary-button shrink-0 px-2 py-1.5 text-xs">
+                          <Plus size={13} /> 添加
+                        </button>
+                      </div>
+                      <div className="text-xs text-ink/45">每个标签独立保存，多个标签用空格分隔。</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() => void saveTags(asset.id)}
+                          className="primary-button px-3 py-1.5 text-xs"
+                        >
+                          {loadingAction === `updateAssetTags-${asset.id}` ? "保存中..." : "保存标签"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() => {
+                            setEditingAssetId(null);
+                            setTagDrafts([]);
+                            setNewTag("");
+                          }}
+                          className="secondary-button px-3 py-1.5 text-xs"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {splitAssetTags(asset.tags || "").length ? splitAssetTags(asset.tags || "").map((tag) => (
+                        <span key={`${asset.id}-${tag}`} className="rounded bg-ink/5 px-2 py-1 text-xs text-ink/70">{tag}</span>
+                      )) : (
+                        <span className="text-ink/55">未标注标签</span>
+                      )}
+                    </div>
+                  )}
                   <div className="flex gap-2 text-xs">
                     <span className={clsx("rounded px-2 py-1", asset.coverReady ? "bg-teal/10 text-teal" : "bg-ink/5")}>封面 {asset.coverReady ? "是" : "否"}</span>
                     <span className={clsx("rounded px-2 py-1", asset.used ? "bg-coral/10 text-coral" : "bg-ink/5")}>已用 {asset.used ? "是" : "否"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-t border-ink/5 pt-2">
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => beginEditTags(asset)}
+                      className="inline-flex items-center gap-1 text-xs text-teal hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Pencil size={13} /> 编辑标签
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void deleteAsset(asset.id)}
+                      className="inline-flex items-center gap-1 text-xs text-coral hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 size={13} /> 删除素材
+                    </button>
                   </div>
                 </div>
                     </>

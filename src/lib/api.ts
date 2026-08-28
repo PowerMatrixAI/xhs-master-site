@@ -618,6 +618,27 @@ export async function saveBackendAssets(accountId: number, assets: BackendAsset[
   return res.data.assets || [];
 }
 
+export async function deleteBackendAsset(accountId: number, assetId: number) {
+  const res = await authRequest("/account/v1/deleteAsset", {
+    method: "POST",
+    body: { accountId, assetId }
+  });
+  if (!res.status) {
+    throw new Error(res.message || "删除素材失败");
+  }
+}
+
+export async function updateBackendAssetTags(accountId: number, assetId: number, tags: string) {
+  const res = await authRequest<BackendAsset>("/account/v1/updateAssetTags", {
+    method: "POST",
+    body: { accountId, assetId, tags }
+  });
+  if (!res.status || !res.data) {
+    throw new Error(res.message || "更新素材标签失败");
+  }
+  return res.data;
+}
+
 export async function fetchBackendKnowledgeDocuments(accountId: number) {
   const query = new URLSearchParams({
     accountId: String(accountId),
