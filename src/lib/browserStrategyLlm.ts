@@ -4,6 +4,7 @@ import type { RecentWeeklyTopicGroup } from "@/lib/weeklyTopicHistory";
 import { normalizeWeeklyTaskMedia } from "@/lib/weeklyPlan";
 import { formatWeeklyPlanningObjectiveRules, type SelectedWeeklyPlanningObjective } from "@/lib/weeklyPlanningObjectives";
 import { extractWritingStyleReferences, findWritingStyleReference } from "@/lib/writingStyles";
+import { buildWeeklyTopicAngleRequirements, validateWeeklyTopicAnglePlan } from "@/lib/weeklyTopicAngles";
 
 type ClientAccountInput = {
   id?: number;
@@ -356,7 +357,7 @@ export async function generateWeeklyTasksWithBrowserLlm(input: {
   const objectiveRules = formatWeeklyPlanningObjectiveRules(input.weeklyInput.selectedObjectives || []);
   const dedupRequirements = recentTopicGroups.length
     ? `
-- “最近两周历史主题”只用于排除重复，不是选题示例；不要复用或改写这些标题。
+- “最近两次周计划主题”只用于排除重复，不是选题示例；不要复用或改写这些标题。
 - 新任务的 topicTitle 不得与历史主题完全相同，也不得只是同一具体主题的近义改写、语序调整或标题包装。
 - 内容栏目和内容类型可以重复，但具体对象、问题、场景或切入角度必须明显不同；同一大方向需要改用进阶、对比、细分场景或不同用户问题。`
     : "";
@@ -398,6 +399,7 @@ export async function generateWeeklyTasksWithBrowserLlm(input: {
 - 信息不足时优先使用合理的创作性场景、情绪和感官表达补足内容，不要把资料缺口或核验说明写成帖子主内容。
 - 推荐素材只能来自输入素材或明确写“素材缺口”，禁止伪造真实素材。
 - 如果服务端注入了“当前账号知识库检索结果”，每篇任务必须返回 knowledgeSourceKeys 字符串数组，只能选择其中标识为 K1-Kn 的来源 key；按本篇主题选择相关来源，无相关资料时返回空数组。
+${buildWeeklyTopicAngleRequirements(input.taskCount)}
 - 只返回 JSON，不要 Markdown 代码块。${dedupRequirements}
 
 ${objectiveRules}
@@ -410,7 +412,7 @@ ${JSON.stringify(
       availableWritingStyles: availableWritingStyles.map((style) => style.name),
       weeklyPlan: input.weeklyPlan,
       weeklyInput: weeklyInputContext,
-      recentTwoWeeksTopics: recentTopicGroups
+      recentTwoGeneratedPlanTopics: recentTopicGroups
     },
     null,
     2
@@ -418,6 +420,9 @@ ${JSON.stringify(
 
 JSON 字段：
 {
+  "weeklyAnglePlan": [
+    { "id": "angle_1", "referenceBasis": "爆款研究中观察到的选题机制，或明确标注为账号策划与本周重点推导", "adaptedDirection": "该机制在当前账号、本周重点和可写事实中的具体落点" }
+  ],
   "tasks": [
     {
       "publishAt": "YYYY-MM-DD HH:mm",
@@ -434,6 +439,7 @@ JSON 字段：
       "commentHook": "",
       "expectedGoal": "",
       "writingStyleName": "必须与 availableWritingStyles 中的一项完全一致",
+      "angleId": "必须唯一引用 weeklyAnglePlan 中的一项",
       "knowledgeSourceKeys": ["只能使用服务端知识上下文中的 K1-Kn；无相关资料时为空数组"],
       "status": "待生成Prompt"
     }
@@ -452,6 +458,7 @@ JSON 字段：
       : [];
 
     if (rawTasks.length !== input.taskCount) throw new Error(`大模型返回任务数量异常：期望 ${input.taskCount} 篇，实际 ${rawTasks.length} 篇。`);
+    validateWeeklyTopicAnglePlan(parsed, rawTasks, input.taskCount);
 
     const tasks = rawTasks.map((task, index) => {
       const required = (field: string) => {

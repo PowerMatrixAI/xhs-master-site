@@ -221,6 +221,8 @@ type Asset = {
 
 type WeeklyPlan = {
   id: number;
+  createdAt?: string;
+  updatedAt?: string;
   weekStart: string;
   theme: string;
   goal: string;
@@ -1216,6 +1218,8 @@ function mapBackendAccountToUiAccount(account: BackendAccountDetail): Account {
   const assets = (account.assets || []).map((asset) => mapBackendAssetToUiAsset(asset));
   const weeklyPlans = (account.weeklyPlans || []).map((plan) => ({
     id: plan.id || Date.now(),
+    createdAt: plan.createdAt || "",
+    updatedAt: plan.updatedAt || "",
     weekStart: plan.weekStart,
     theme: plan.theme,
     goal: plan.goal,
@@ -1930,6 +1934,7 @@ export function XhsMasterApp() {
       }
       const plan = {
         id: Date.now(),
+        createdAt: new Date().toISOString(),
         accountId: selected.id,
         weekStart: String(payload.weekStart || new Date().toISOString().slice(0, 10)),
         theme: String(payload.theme || "本周主题"),
@@ -1958,7 +1963,7 @@ export function XhsMasterApp() {
       };
       const recentTopicGroups = weeklyFocus
         ? []
-        : collectRecentWeeklyTopicGroups(selected.weeklyPlans || [], plan.weekStart);
+        : collectRecentWeeklyTopicGroups(selected.weeklyPlans || []);
       const weeklyInput = {
         ...weeklyPlanInput,
         videoCount,
@@ -4270,7 +4275,7 @@ function WeeklyPanel({
               name="weeklyFocus"
               label={focusCopy.label}
               placeholder={focusCopy.placeholder}
-              help={`${focusCopy.help} 填写后按本周指定内容生成；留空时会避开最近两周已生成计划的主题。`}
+              help={`${focusCopy.help} 填写后按本周指定内容生成；留空时会避开最近两次已生成计划的主题。`}
             />
             <input type="hidden" name="theme" value={combinedPreset.theme} readOnly />
             <input type="hidden" name="goal" value={combinedPreset.goal} readOnly />

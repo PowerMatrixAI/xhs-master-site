@@ -170,6 +170,19 @@ const objectiveRules: Record<WeeklyPlanningMode, WeeklyPlanningObjectiveSeed[]> 
       ]
     },
     {
+      id: "destination_scenery",
+      name: "目的地风景",
+      help: "适合单独分享民宿所在旅游区的自然风景、景点与可确认旅游资源，不介绍民宿本身。",
+      theme: "目的地风景和旅游资源周",
+      goal: "用当地风景和旅游资源建立目的地吸引力，提升用户对这一片区域的向往与收藏",
+      planningRules: [
+        "本目标只讲民宿所在旅游区的风景、景点、自然环境或可确认旅游资源；不得介绍民宿房型、外观、院子、公共区、早餐、服务或入住体验。",
+        "不得把民宿作为内容主体、镜头主体或叙事落点，也不得将住宿推荐、预订、房态、价格和套餐写入正文主线。",
+        "不得写成完整旅游攻略、景点清单、交通地图、行程安排或景区宣传稿；应围绕一个具体景色、时段、季节或在地体验展开。",
+        "不得虚构景点距离、开放状态、季节景观、游览体验、旅游资源或当地活动。"
+      ]
+    },
+    {
       id: "stay_activity_service",
       name: "住宿活动服务",
       help: "适合展示住宿之外的餐饮、团建、亲子、接驳或季节活动服务。",
@@ -399,6 +412,7 @@ const objectiveKnowledgeRetrievalQueries: Record<string, string> = {
   heritage_activity: "民俗活动、亲子研学、现场体验、活动内容、可确认参与信息",
   room_space: "房型、空间、窗景、设施、入住体验、可确认房间细节",
   surrounding_experience: "住宿周边、自然风景、餐饮、活动、停留体验、可确认出行信息",
+  destination_scenery: "民宿所在旅游区、自然风景、景点、山水林地、步道水岸、季节景观、可确认旅游资源",
   stay_activity_service: "住宿配套、餐饮、亲子活动、团建、接驳、服务边界",
   single_dish: "主推菜品、食材、风味、口感、分量、制作特点、用餐场景",
   food_activity_conversion: "套餐、活动规则、适用条件、预约方式、时间限制、不可承诺事项",

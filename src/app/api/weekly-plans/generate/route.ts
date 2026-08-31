@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   const weeklyPlanInput = { ...body, frequency, ratio };
   const recentTopicGroups = weeklyFocus
     ? []
-    : collectRecentWeeklyTopicGroups(account.weeklyPlans || [], plan.weekStart);
+    : collectRecentWeeklyTopicGroups(account.weeklyPlans || []);
   const weeklyInput = {
     ...weeklyPlanInput,
     weeklyFocus,
