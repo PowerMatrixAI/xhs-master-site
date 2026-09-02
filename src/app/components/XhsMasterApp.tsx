@@ -4875,9 +4875,9 @@ function ImagesPanel(props: {
                       className="mt-1 h-4 w-4 shrink-0 accent-teal"
                     />
                     <span>
-                      <span className="block font-medium text-ink">去除图片中的水印</span>
+                      <span className="block font-medium text-ink">去除平台水印和账号角标</span>
                       <span className="mt-0.5 block text-xs leading-5 text-ink/55">
-                        勾选后，精修任务会要求去除图片中的所有水印、账号角标和来源文字；不勾选则不做任何去水印处理。
+                        勾选后，仅去除后期叠加的平台水印、账号角标和来源标记；物体本身的文字、Logo、刻印、包装和餐具标识会保留。
                       </span>
                     </span>
                   </label>
