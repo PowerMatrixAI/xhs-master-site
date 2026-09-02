@@ -57,6 +57,44 @@ function buildReferenceStyleBrief(noteTask: PromptNoteTask) {
   return `本篇已由周计划 AI 选定唯一文风：${name}。以下是该文风的完整研究资料与真实案例；不得查阅、选择或混用其他文风：\n${reference}`;
 }
 
+const globalDraftWritingStyleRules = [
+  "必须避免理性分析、报告式、说明书式和平铺直叙的表达，写出有情绪、有态度、有画面、有生活细节的活人感分享。",
+  "优先使用第一人称青年女性口吻，突出感官细节、情绪和生活化场景。",
+  "不能出现“它不是那种 XXX”这类举例式说明论证的口吻。",
+  "不得出现运营、Prompt、素材、选题、生成过程、资料缺口或创作说明等幕后语言。"
+];
+
+/**
+ * 为后端 AI 的三版标题正文生成提供精简上下文。
+ * 与 buildTaskPrompt 分离，避免把 Agent 执行目录和草稿箱操作细节带入创作请求。
+ */
+export function buildDraftVariantContext(input: {
+  account: Account;
+  noteTask: PromptNoteTask;
+  expertRules?: string;
+}) {
+  const { noteTask, expertRules } = input;
+
+  return `## 本篇创作简报
+- 标题方向：${noteTask.topicTitle}
+- 内容目标：${noteTask.contentGoal}
+- 目标用户：${noteTask.targetUser}
+- 用户痛点：${noteTask.painPoint}
+- 核心观点：${noteTask.coreView}
+- 素材与事实范围：${noteTask.requiredMaterials || "未填写"}；${noteTask.recommendedAssets || "未填写"}
+- 封面方向：${noteTask.coverCopyDirection}
+- 评论钩子：${noteTask.commentHook}
+
+## 本篇唯一爆款文风参考
+${buildReferenceStyleBrief(noteTask)}
+
+## 全类目文风与写法基线
+${globalDraftWritingStyleRules.map((rule) => `- ${rule}`).join("\n")}
+
+## 已沉淀专家规则
+${stripCreativityRestrictions(expertRules) || "暂无影响创作性表达的已保存规则。"}`;
+}
+
 export function buildTaskPrompt(input: {
   account: PromptAccount;
   strategy: AccountStrategy | null;
@@ -157,9 +195,10 @@ const promptModeCopy: Record<AccountVisualMode, {
     title: "住宿/营地小红书笔记草稿 Prompt（发布精简版）",
     imagePanelName: "住宿图片创作",
     styleRules: [
-      "这是民宿/酒店/营地发布稿，不是平台详情页复制，也不是夸张种草文。",
-      "每篇只解决一个入住决策问题；房型、场景、周边、套餐、攻略和政策信息按本篇内容类型选择，不要求全部写入。",
-      "空间图用于营造房型、设施、景观和入住体验；允许补充合理的放松、约会、亲子或周末场景。"
+      "这是民宿/酒店/营地的小红书发布稿，不是平台详情页复制。文笔要活泼，具备种草倾向。",
+      "每篇必须先确定一个主轴：房型介绍、周边体验或周边风景种草；按本篇内容类型选择，不要求全部写入。",
+      "允许补充合理的放松、约会、亲子或周末场景。",
+      "如果围绕民宿或房间本身，要突出民宿的氛围气质和吸引力，不能平铺直叙，语气适当活泼轻快；如果围绕周边景色，要使用情绪化语气并适当夸张，突出景色的特色和亮点，吸引游客注意。"
     ],
     checkTitle: "入住前人工检查"
   },
@@ -167,7 +206,7 @@ const promptModeCopy: Record<AccountVisualMode, {
     title: "餐饮小红书笔记草稿 Prompt（发布精简版）",
     imagePanelName: "餐饮图片创作",
     styleRules: [
-      "这是餐饮小红书发布稿，不是运营交付包，也不是大众点评长评。",
+      "这是餐饮小红书发布稿，不是专业理性的餐厅评价分析，也不是大众点评长评。",
       "每篇必须先确定一个主轴：某个菜品、某个营销活动，或某个当地特色；不要一篇里散讲太多菜。",
       "菜品、套餐、当地特色、制作过程、环境交通和营销活动按本篇内容类型选择，不要求每篇同时覆盖。",
       "菜品图优先写具体菜品、口感、香气、火候、分量和搭配；环境图优先写空间氛围、座位和用餐场景；允许使用创作性第一人称和朋友聚餐、约会等体验设定。",
@@ -179,9 +218,9 @@ const promptModeCopy: Record<AccountVisualMode, {
     title: "户外路线小红书笔记草稿 Prompt（发布精简版）",
     imagePanelName: "路线图片创作",
     styleRules: [
-      "这是户外路线小红书发布稿，不是旅行社广告，也不是完整户外安全手册。",
-      "每篇只解决一个路线判断问题；路线体验、关键路况、风景、攻略、装备、交通补给和安全提醒按本篇内容类型选择，不要求全部写入。",
-      "现场图优先写风景、路况、季节和身体感受；允许补充合理的同行、出发、抵达和情绪场景。"
+      "这是户外路线小红书发布稿，不是旅行社广告，也不是完整户外安全手册。一定要避免平铺直叙。",
+      "不管写路线信息、攻略、装备、交通补给还是安全提醒，这些注意事项都不要占据全文 40% 以上；重点写徒步路线的特色和亮点，使用情绪化语气并适当夸张，达到种草效果。",
+      "现场图优先写风景、路况、季节和身体感受；以置身于该徒步路线的角度写自己的感受，突出活人感。"
     ],
     checkTitle: "出发前人工检查"
   },

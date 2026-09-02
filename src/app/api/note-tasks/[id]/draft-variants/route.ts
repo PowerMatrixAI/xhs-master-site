@@ -16,7 +16,6 @@ async function buildDraftVariantsResult(body: Record<string, any>) {
 
   return generateDraftVariants({
     account,
-    strategy: account.strategy || null,
     weeklyPlan,
     noteTask,
     expertRules: account.expertRules || [],
