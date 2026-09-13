@@ -1,33 +1,30 @@
 import { NextResponse } from "next/server";
+import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
 import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import { formatExpertRulesForPrompt } from "@/lib/expertLearning";
-import { generateVideoStoryDraft, type VideoSourceAsset, type VideoStorySourceType } from "@/lib/videoPrompts";
+import { generateVideoStoryDraft, type VideoStorySourceType } from "@/lib/videoPrompts";
 import { extractWritingStyleReferences, findWritingStyleReference } from "@/lib/writingStyles";
 
 async function buildStoryResult(body: Record<string, unknown>) {
   const account = body.account as Record<string, unknown> & { name: string; accountParam: string; referenceAccounts?: string };
   const weeklyPlan = body.weeklyPlan as { id?: number; knowledgeSnapshotId?: string };
-  const sourceType = ["trend", "idea", "template"].includes(String(body.storySourceType))
-    ? String(body.storySourceType) as VideoStorySourceType
-    : null;
+  const sourceType = body.storySourceType === "template" ? "template" as VideoStorySourceType : null;
   const sourceContent = String(body.storySourceContent || "").trim();
-  const manualAssets = (Array.isArray(body.manualAssets) ? body.manualAssets : []) as VideoSourceAsset[];
+  const character = resolveStoryCharacter(String(body.templateId || ""), String(body.characterId || ""));
   const knowledgeSnapshotId = String(body.knowledgeSnapshotId || weeklyPlan?.knowledgeSnapshotId || "").trim();
 
   if (!account?.accountParam || !weeklyPlan?.id) throw new Error("缺少账号或当前周计划上下文。");
   if (!sourceType || !sourceContent) throw new Error("请选择故事来源并填写故事内容。");
-  if ((manualAssets.length > 0 && manualAssets.length < 3) || manualAssets.length > 6 || manualAssets.some((asset) => !String(asset.fileUrl || "").startsWith("http"))) {
-    throw new Error("手动指定图片时，图片数量不得低于 3 张或超过 6 张；也可清空后由 AI 决定首帧。");
-  }
 
   const styles = extractWritingStyleReferences(account.referenceAccounts || "");
   if (!styles.length) throw new Error("当前账号还没有可用爆款文风，请先完成爆款研究并增强策划。");
   const story = await generateVideoStoryDraft({
+    character,
     account,
     noteTask: {
       id: 0,
-      topicTitle: "新建故事视频",
+      topicTitle: "创意故事视频",
       contentType: "故事型视频",
       contentGoal: "基于账号定位创作一条独立故事视频",
       targetUser: String(account.targetUsers || ""),
@@ -37,7 +34,6 @@ async function buildStoryResult(body: Record<string, unknown>) {
     sourceType,
     sourceContent,
     extraRequirements: String(body.storyExtraRequirements || "").trim(),
-    manualAssets,
     availableWritingStyles: styles.map((style) => style.name),
     expertRules: formatExpertRulesForPrompt(
       (account as { expertRules?: Array<{ module: string; rule: string; source?: string; enabled?: boolean; updatedAt?: string }> }).expertRules || [],

@@ -79,6 +79,8 @@ import { isExpertRuleEnabled } from "@/lib/expertLearning";
 import { KnowledgeBasePanel } from "@/app/components/KnowledgeBasePanel";
 import type React from "react";
 import clsx from "clsx";
+import { getStoryCharacters, type StoryCharacter } from "@/lib/storyCharacters";
+import { StoryCharacterPicker } from "@/app/components/StoryCharacterPicker";
 
 type Template = {
   id: number;
@@ -289,9 +291,10 @@ type VideoPromptResult = {
 };
 
 type VideoSourceMode = "direct_video" | "image_to_video" | "story_video";
-type VideoStorySourceType = "trend" | "idea" | "template";
+type VideoStorySourceType = "template";
 
 type VideoStoryDraft = {
+  character?: StoryCharacter | null;
   title: string;
   summary: string;
   emotionalArc: string;
@@ -339,22 +342,40 @@ type StoryVideoMotionPlan = Array<{
   order: number;
   mainVideoPrompt: string;
   endingTransitionPrompt: string;
+  narrationText: string;
 }>;
 
-const VIDEO_STORY_TRENDS = [
-  "雨天躲进山里",
-  "周末逃离城市",
-  "晚到的人遇见一盏灯",
-  "带孩子的山野周末",
-  "秋天的第一场雾"
-];
-
 const VIDEO_STORY_TEMPLATES = [
-  "抵达与放松：主角从赶路、疲惫或焦虑，逐渐进入松弛状态",
-  "一间房的秘密：从一个细节开始，逐步发现空间里的惊喜",
-  "主理人的在地一天：跟随主理人的行动感受目的地生活",
-  "反差与治愈瞬间：从普通或不顺利的开场，转向温暖的停留",
-  "动物带路：由动物主角带领观众探索空间与周边环境"
+  {
+    id: "cat_moon_post",
+    name: "小猫｜月光邮局",
+    outline: "一只小猫在夜里收到一封没有地址的月光信。它循着信封掉落的星点寻找收件人，以为要把信送出去，最后发现信写给的是“还没敢回家的自己”。",
+    requiredScenes: []
+  },
+  {
+    id: "dog_reverse_map",
+    name: "小狗｜反方向的地图",
+    outline: "一只小狗捡到一张箭头总是指向反方向的地图。它越走越像在迷路，直到最后才发现地图没有带它去终点，而是带它找回出发时丢下的勇气。",
+    requiredScenes: []
+  },
+  {
+    id: "niu_lai_dream",
+    name: "牛来｜云雀入梦",
+    outline: "初生牛犊牛来遇见一只从荒漠飞来的云雀，带它走进一场会不断变形的梦。牛来以为自己是在替云雀找回天空，最后才发现云雀一直在带它看见那个不敢长大的自己。",
+    requiredScenes: ["第 2 个场景必须出现对话：牛来喊“妈妈”，妈妈回应“牛来”。"]
+  },
+  {
+    id: "fox_borrowed_moon",
+    name: "小狐狸｜借月亮的人",
+    outline: "一只小狐狸把天上的月亮误认为别人遗失的灯，决定借走一晚照亮回家的路。月亮越来越小，它才发现自己一路照亮的，其实是许多和它一样不敢独自前行的人。",
+    requiredScenes: []
+  },
+  {
+    id: "rabbit_last_train",
+    name: "小兔子｜末班车没有终点",
+    outline: "一只小兔子赶上了一趟没有终点站的末班车。每到一站，车门外都会出现它最想逃开的场景；当它终于决定下车，才发现车一直停在它最想抵达的地方。",
+    requiredScenes: []
+  }
 ];
 
 type BatchImagePostsResult = {
@@ -2513,10 +2534,11 @@ export function XhsMasterApp() {
   }
 
   async function generateStandaloneVideoStory(input: {
+    templateId: string;
+    characterId: string;
     sourceType: VideoStorySourceType;
     sourceContent: string;
     extraRequirements: string;
-    manualAssets: Asset[];
   }): Promise<VideoStoryResult | null> {
     if (!selected || !latestPlan) return null;
     setLoading(true);
@@ -2537,10 +2559,11 @@ export function XhsMasterApp() {
         body: JSON.stringify({
           account: selected,
           weeklyPlan: latestPlan,
+          templateId: input.templateId,
+          characterId: input.characterId,
           storySourceType: input.sourceType,
           storySourceContent: input.sourceContent,
           storyExtraRequirements: input.extraRequirements,
-          manualAssets: input.manualAssets,
           knowledgeSnapshotId
         })
       });
@@ -2617,7 +2640,7 @@ export function XhsMasterApp() {
       } as unknown as BackendAccountDetail).weeklyPlans[0];
       const savedTask = mappedSavedPlan.noteTasks.find((task) => task.topicTitle === draftTask.topicTitle && task.publishAt === draftTask.publishAt)
         || mappedSavedPlan.noteTasks.at(-1);
-      if (!savedTask?.id || savedTask.id < 0) throw new Error("服务端未返回新建故事视频任务的真实 ID。 ");
+      if (!savedTask?.id || savedTask.id < 0) throw new Error("服务端未返回创意故事视频任务的真实 ID。 ");
       updateSelectedAccount((account) => ({
         ...account,
         weeklyPlans: [mappedSavedPlan, ...account.weeklyPlans.filter((plan) => plan.id !== mappedSavedPlan.id)]
@@ -2634,7 +2657,7 @@ export function XhsMasterApp() {
     }
   }
 
-  async function generateVideoPrompt(task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, manualAssets: Asset[] = []) {
+  async function generateVideoPrompt(task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft) {
     if (!selected || !latestPlan || task.type !== "video_text") return;
     setLoading(true);
     setLoadingAction("generateVideoPrompt");
@@ -2645,7 +2668,7 @@ export function XhsMasterApp() {
         noteTask: task,
         mode,
         assets,
-        ...(mode === "story_video" ? { story, manualAssets } : {}),
+        ...(mode === "story_video" ? { story } : {}),
         knowledgeSnapshotId: latestPlan.knowledgeSnapshotId || "",
         knowledgeSourceKeys: task.knowledgeSourceKeys || []
       };
@@ -2704,7 +2727,7 @@ export function XhsMasterApp() {
         })
       }));
       showToast(
-        mode === "direct_video" ? "直接视频任务已生成。" : mode === "story_video" ? "故事驱动视频任务已生成。" : "图片转视频方案已生成。",
+        mode === "direct_video" ? "直接视频任务已生成。" : mode === "story_video" ? "创意故事视频任务已生成。" : "图片转视频方案已生成。",
         "success"
       );
     } catch (error) {
@@ -3328,6 +3351,7 @@ export function XhsMasterApp() {
           )}
           {activeTab === "videos" && (
             <VideosPanel
+              key={`${selected?.id}:${latestPlan?.id}`}
               selected={selected}
               plan={latestPlan}
               selectedNoteId={selectedNote?.id ?? null}
@@ -3337,7 +3361,6 @@ export function XhsMasterApp() {
               generateStandaloneVideoStory={generateStandaloneVideoStory}
               createStoryVideoNoteTask={createStoryVideoNoteTask}
               uploadVideoAsset={uploadVideoAsset}
-              notify={showToast}
               copy={copy}
               loading={loading}
               loadingAction={loadingAction}
@@ -5511,24 +5534,21 @@ function VideosPanel(props: {
   selectedNoteId: number | null;
   setSelectedNoteId: (id: number) => void;
   results: Record<number, VideoPromptResult>;
-  generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, manualAssets?: Asset[]) => void;
-  generateStandaloneVideoStory: (input: { sourceType: VideoStorySourceType; sourceContent: string; extraRequirements: string; manualAssets: Asset[] }) => Promise<VideoStoryResult | null>;
+  generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft) => void;
+  generateStandaloneVideoStory: (input: { templateId: string; characterId: string; sourceType: VideoStorySourceType; sourceContent: string; extraRequirements: string }) => Promise<VideoStoryResult | null>;
   createStoryVideoNoteTask: (story: VideoStoryDraft, knowledgeSnapshotId: string) => Promise<NoteTask | null>;
   uploadVideoAsset: (file: File) => Promise<Asset | null>;
-  notify: (message: string, type: "success" | "error") => void;
   copy: (text: string) => void;
   loading: boolean;
   loadingAction: string | null;
 }) {
-  const { selected, plan, selectedNoteId, setSelectedNoteId, results, generateVideoPrompt, generateStandaloneVideoStory, createStoryVideoNoteTask, uploadVideoAsset, notify, copy, loading, loadingAction } = props;
+  const { selected, plan, selectedNoteId, setSelectedNoteId, results, generateVideoPrompt, generateStandaloneVideoStory, createStoryVideoNoteTask, uploadVideoAsset, copy, loading, loadingAction } = props;
   const tasks = plan?.noteTasks.filter((task) => task.type === "video_text") || [];
   const note = tasks.find((task) => task.id === selectedNoteId) || tasks[0];
   const [mode, setMode] = useState<VideoSourceMode>("direct_video");
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
-  const [storySourceType, setStorySourceType] = useState<VideoStorySourceType>("trend");
-  const [storyTrend, setStoryTrend] = useState(VIDEO_STORY_TRENDS[0]);
-  const [storyTemplate, setStoryTemplate] = useState(VIDEO_STORY_TEMPLATES[0]);
-  const [storyIdea, setStoryIdea] = useState("");
+  const [storyTemplateId, setStoryTemplateId] = useState(VIDEO_STORY_TEMPLATES[0].id);
+  const [characterId, setCharacterId] = useState("");
   const [storyExtraRequirements, setStoryExtraRequirements] = useState("");
   const [storyDraft, setStoryDraft] = useState<VideoStoryDraft | null>(null);
   const [storyKnowledgeSnapshotId, setStoryKnowledgeSnapshotId] = useState("");
@@ -5549,18 +5569,11 @@ function VideosPanel(props: {
     setStoryDraft(null);
     setStoryKnowledgeSnapshotId("");
     setStoryTask(null);
+    setCharacterId("");
   }
 
   function toggle(url: string) {
-    if (mode === "story_video" && !selectedUrls.includes(url) && selectedUrls.length >= 6) {
-      notify("手动指定图片数量不得超过 6 张。", "error");
-      return;
-    }
     setSelectedUrls((current) => current.includes(url) ? current.filter((item) => item !== url) : mode === "direct_video" ? [url] : current.length < 6 ? [...current, url] : current);
-    if (mode === "story_video") {
-      setStoryDraft(null);
-      setStoryKnowledgeSnapshotId("");
-    }
   }
 
   function move(index: number, offset: -1 | 1) {
@@ -5573,7 +5586,7 @@ function VideosPanel(props: {
     });
   }
 
-  if (!plan) return <div className="panel"><EmptyState text="请先生成当前周计划，再新建故事视频。" /></div>;
+  if (!plan) return <div className="panel"><EmptyState text="请先生成当前周计划，再创建创意故事视频。" /></div>;
   const candidates = mode === "direct_video" ? videoAssets : imageAssets;
   const selectedAssets = selectedUrls.map((url) => candidates.find((asset) => asset.fileUrl === url)).filter((asset): asset is Asset => Boolean(asset));
   const canGenerate = mode === "direct_video"
@@ -5581,27 +5594,26 @@ function VideosPanel(props: {
     : mode === "image_to_video"
       ? Boolean(note) && selectedAssets.length >= 2 && selectedAssets.length <= 6
       : Boolean(storyDraft && storyTask);
-  const storySourceContent = storySourceType === "trend" ? storyTrend : storySourceType === "template" ? storyTemplate : storyIdea.trim();
+  const storyTemplate = VIDEO_STORY_TEMPLATES.find((template) => template.id === storyTemplateId) || VIDEO_STORY_TEMPLATES[0];
+  const canGenerateStory = !getStoryCharacters(storyTemplateId).length || getStoryCharacters(storyTemplateId).some((character) => character.id === characterId);
+  const storySourceContent = `${storyTemplate.name}：${storyTemplate.outline}${storyTemplate.requiredScenes.length ? `\n强制场景：${storyTemplate.requiredScenes.join("；")}` : ""}`;
   const isGeneratingVideoTask = ["generateVideoPrompt", "generateStoryVideoFrames", "generateStoryVideoMotion", "buildStoryVideoTask"].includes(loadingAction || "");
   const videoTaskLoadingText = loadingAction === "generateStoryVideoFrames"
     ? "1/ 正在规划首帧与素材......"
     : loadingAction === "generateStoryVideoMotion"
-      ? "2/ 正在规划视频动态与转场......"
+      ? "2/ 正在规划视频动态、转场与旁白......"
       : loadingAction === "buildStoryVideoTask"
         ? "正在组装视频任务..."
         : "正在生成视频方案...";
 
   async function createStory() {
-    if (!storySourceContent) return;
-    if (selectedAssets.length > 0 && selectedAssets.length < 3) {
-      notify("手动指定图片时，图片数量不得低于 3 张；也可清空后由 AI 决定首帧。", "error");
-      return;
-    }
+    if (!storySourceContent || !canGenerateStory) return;
     const generated = await generateStandaloneVideoStory({
-      sourceType: storySourceType,
+      templateId: storyTemplateId,
+      characterId,
+      sourceType: "template",
       sourceContent: storySourceContent,
-      extraRequirements: storyExtraRequirements.trim(),
-      manualAssets: selectedAssets
+      extraRequirements: storyExtraRequirements.trim()
     });
     if (generated) {
       setStoryDraft(generated.story);
@@ -5637,11 +5649,11 @@ function VideosPanel(props: {
             <div className="font-semibold">图片生成视频</div><div className="mt-1 text-xs text-ink/60">AI 生成逐图精修和动态 Prompt，智能体生成片段后拼接。</div>
           </button>
           <button type="button" onClick={() => switchMode("story_video")} className={clsx("rounded border p-4 text-left", mode === "story_video" ? "border-teal bg-teal/10" : "border-ink/10 bg-white")}>
-            <div className="font-semibold">新建故事视频</div><div className="mt-1 text-xs text-ink/60">不占用已有选题，故事确认后新增到当前周计划。</div>
+            <div className="font-semibold">创意故事视频</div><div className="mt-1 text-xs text-ink/60">选择漫剧式故事模板，确认后新增到当前周计划。</div>
           </button>
         </div>
 
-        {mode !== "story_video" && !note && <div className="mt-4"><EmptyState text="当前周计划没有视频笔记。可切换到“新建故事视频”直接创建。" /></div>}
+        {mode !== "story_video" && !note && <div className="mt-4"><EmptyState text="当前周计划没有视频笔记。可切换到“创意故事视频”直接创建。" /></div>}
 
         {mode === "direct_video" && note && (
           <div className="mt-4">
@@ -5675,35 +5687,20 @@ function VideosPanel(props: {
 
         {mode === "story_video" && <div className="mt-5 space-y-4 border-t border-ink/10 pt-5">
           <div>
-            <h3 className="text-base font-semibold">第一步：生成独立故事</h3>
-            <p className="mt-1 text-sm text-ink/60">故事只结合账号定位、素材库、知识库和专家规则；确认后会新增一篇视频笔记到当前周计划。</p>
+            <h3 className="text-base font-semibold">第一步：选择故事模板</h3>
+            <p className="mt-1 text-sm text-ink/60">模板自带主角、冲突与反转；生成时会用账号素材承接故事场景，确认后新增一篇视频笔记到当前周计划。</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {(["trend", "idea", "template"] as VideoStorySourceType[]).map((source) => (
-              <button key={source} type="button" disabled={Boolean(storyTask)} onClick={() => { setStorySourceType(source); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }} className={clsx("rounded border px-3 py-2 text-sm font-medium", storySourceType === source ? "border-teal bg-teal/10 text-teal" : "border-ink/10 bg-white")}>
-                {source === "trend" ? "热点灵感" : source === "idea" ? "自由创意" : "故事模板"}
-              </button>
-            ))}
+          <label className="field"><span>选择故事模板</span><select disabled={loading || Boolean(storyTask)} value={storyTemplateId} onChange={(event) => { setStoryTemplateId(event.target.value); setCharacterId(""); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}>{VIDEO_STORY_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
+          <StoryCharacterPicker key={storyTemplateId} templateId={storyTemplateId} value={characterId} disabled={loading || Boolean(storyTask)} onChange={(id) => { setCharacterId(id); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }} />
+          <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/75">
+            <span className="font-medium text-ink">模板剧情：</span>{storyTemplate.outline}
+            {storyTemplate.requiredScenes.length ? <div className="mt-2"><span className="font-medium text-ink">强制场景：</span>{storyTemplate.requiredScenes.join("；")}</div> : null}
           </div>
-          {storySourceType === "trend" && <label className="field"><span>选择热点灵感</span><select disabled={Boolean(storyTask)} value={storyTrend} onChange={(event) => { setStoryTrend(event.target.value); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}>{VIDEO_STORY_TRENDS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
-          {storySourceType === "template" && <label className="field"><span>选择故事模板</span><select disabled={Boolean(storyTask)} value={storyTemplate} onChange={(event) => { setStoryTemplate(event.target.value); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}>{VIDEO_STORY_TEMPLATES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
-          {storySourceType === "idea" && <label className="field"><span>写下自由创意</span><textarea disabled={Boolean(storyTask)} value={storyIdea} onChange={(event) => { setStoryIdea(event.target.value); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }} placeholder="例如：一只小狗外出旅行，住进民宿并去周边景点游玩。" /></label>}
-          <div className="rounded border border-ink/10 bg-ink/5 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div><div className="text-sm font-medium">手动指定故事图片（可选）</div><div className="mt-1 text-xs text-ink/55">未选择时由 AI 决定；手动选择时必须为 3-6 张。所选图片会全部进入故事，其余镜头由 AI 自动选图或生成首帧。</div></div>
-              <span className="text-xs font-medium text-teal">已选 {selectedAssets.length} 张</span>
-            </div>
-            {imageAssets.length ? <div className="mt-3 max-h-[480px] overflow-y-auto pr-1"><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{imageAssets.map((asset) => {
-              const url = asset.fileUrl || "";
-              const index = selectedUrls.indexOf(url);
-              return <button key={asset.id} type="button" disabled={Boolean(storyTask)} onClick={() => toggle(url)} className={clsx("flex min-w-0 items-center gap-3 rounded border bg-white p-2 text-left", index >= 0 ? "border-teal" : "border-ink/10")}>
-                <img src={url} alt={asset.tags || asset.filePath} className="h-16 w-16 shrink-0 rounded object-cover" />
-                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{asset.tags || asset.filePath}</span><span className="block truncate text-xs text-ink/50">{index >= 0 ? `已指定第 ${index + 1} 张` : "点击指定"}</span></span>
-              </button>;
-            })}</div></div> : <div className="mt-3"><EmptyState text="素材库暂无可用图片；故事镜头将全部使用 AI 生成首帧。" /></div>}
+          <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">
+            首帧由 AI 自动规划：优先依据当前素材库图片的标签、文件名和适用类型选择真实图片；没有合适素材时生成 AI 首帧。
           </div>
           <label className="field"><span>补充要求（可选）</span><textarea disabled={Boolean(storyTask)} value={storyExtraRequirements} onChange={(event) => { setStoryExtraRequirements(event.target.value); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }} placeholder="例如：重点突出窗景和早餐；避免出现人物正脸。" /></label>
-          <button type="button" disabled={loading || !storySourceContent || Boolean(storyTask)} onClick={() => void createStory()} className="secondary-button">
+          <button type="button" disabled={loading || !storySourceContent || !canGenerateStory || Boolean(storyTask)} onClick={() => void createStory()} className="secondary-button">
             <ActionButtonContent loading={loadingAction === "generateVideoStory"} icon={<Wand2 size={17} />} idleText={storyDraft ? "重新生成故事" : "生成故事"} loadingText="正在生成故事..." />
           </button>
 
@@ -5713,6 +5710,7 @@ function VideosPanel(props: {
               {storyTask && <span className="flex items-center gap-1 text-sm font-medium text-teal"><CircleCheck size={16} /> 已加入本周内容</span>}
             </div>
             <p className="mt-3 text-sm leading-6 text-ink/75">{storyDraft.summary}</p>
+            {storyDraft.character && <p className="mt-2 text-sm">主角形象：{storyDraft.character.name}</p>}
             <p className="mt-2 text-sm"><span className="font-medium">情绪主线：</span>{storyDraft.emotionalArc}</p>
             <p className="mt-2 text-sm"><span className="font-medium">视频规格：</span>{storyDraft.shots.length} 个镜头 / 约 {storyDraft.shots.length * 5} 秒</p>
             <div className="mt-4 divide-y divide-ink/10 border-y border-ink/10">
@@ -5727,14 +5725,15 @@ function VideosPanel(props: {
 
           <div className="border-t border-ink/10 pt-4">
             <h3 className="text-base font-semibold">第二步：生成完整视频任务</h3>
-            <p className="mt-1 text-sm text-ink/60">加入周计划后，AI 将规划 3-6 个五秒镜头，每段包含约 4 秒主体内容和约 1 秒片尾转场。</p>
+            <p className="mt-1 text-sm text-ink/60">加入周计划后，AI 将规划 3-6 个五秒镜头，每段包含约 4 秒主体内容、单一旁白和约 1 秒片尾转场；智能体将使用火山引擎生成配音并合成到视频。</p>
+            <p className="mt-1 text-xs text-ink/50">执行前需在智能体的 xiaohongshu_auto_op 环境中配置 VOLCENGINE_TTS_API_KEY 和 VOLCENGINE_TTS_SPEAKER。</p>
           </div>
         </div>}
 
         <button type="button" disabled={loading || !canGenerate} onClick={() => {
           const task = mode === "story_video" ? storyTask : note;
           if (!task) return;
-          generateVideoPrompt(task, mode, mode === "story_video" ? imageAssets : selectedAssets, storyDraft || undefined, mode === "story_video" ? selectedAssets : []);
+          generateVideoPrompt(task, mode, mode === "story_video" ? imageAssets : selectedAssets, storyDraft || undefined);
         }} className="primary-button mt-4">
           <ActionButtonContent
             loading={isGeneratingVideoTask}

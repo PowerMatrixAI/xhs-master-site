@@ -1,4 +1,6 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
+import { createHash } from "node:crypto";
+import { characterDownloadUrl, type StoryCharacter } from "@/lib/storyCharacters";
 
 export type VideoSourceAsset = {
   id: number;
@@ -9,9 +11,10 @@ export type VideoSourceAsset = {
   suitableTypes?: string;
 };
 
-export type VideoStorySourceType = "trend" | "idea" | "template";
+export type VideoStorySourceType = "template";
 
 export type VideoStoryDraft = {
+  character?: StoryCharacter | null;
   title: string;
   summary: string;
   emotionalArc: string;
@@ -56,6 +59,7 @@ type StoryVideoShot = {
   framePrompt: string;
   mainVideoPrompt: string;
   endingTransitionPrompt: string;
+  narrationText: string;
   videoPrompt: string;
 };
 
@@ -72,6 +76,7 @@ export type StoryVideoMotionPlan = Array<{
   order: number;
   mainVideoPrompt: string;
   endingTransitionPrompt: string;
+  narrationText: string;
 }>;
 
 function shellQuote(value: string) {
@@ -148,14 +153,14 @@ function parseShots(value: unknown, assets: VideoSourceAsset[]): VideoShot[] | n
   return shots as VideoShot[];
 }
 
-function parseStoryDraft(value: unknown, minimumShotCount: number): VideoStoryDraft | null {
+function parseStoryDraft(value: unknown): VideoStoryDraft | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
   const title = String(item.title || "").trim();
   const summary = String(item.summary || "").trim();
   const emotionalArc = String(item.emotionalArc || "").trim();
   const noteTaskRaw = item.noteTask;
-  if (!title || !summary || !emotionalArc || !noteTaskRaw || typeof noteTaskRaw !== "object" || Array.isArray(noteTaskRaw) || !Array.isArray(item.shots) || item.shots.length < minimumShotCount || item.shots.length > 6) return null;
+  if (!title || !summary || !emotionalArc || !noteTaskRaw || typeof noteTaskRaw !== "object" || Array.isArray(noteTaskRaw) || !Array.isArray(item.shots) || item.shots.length < 3 || item.shots.length > 6) return null;
   const noteTaskItem = noteTaskRaw as Record<string, unknown>;
   const requiredTaskField = (field: string) => String(noteTaskItem[field] || "").trim();
   const noteTask = {
@@ -189,10 +194,9 @@ function parseStoryDraft(value: unknown, minimumShotCount: number): VideoStoryDr
   return { title, summary, emotionalArc, noteTask, shots: shots as VideoStoryDraft["shots"] };
 }
 
-function parseStoryVideoFramePlan(value: unknown, assets: VideoSourceAsset[], manualAssets: VideoSourceAsset[], expectedShotCount: number): StoryVideoFramePlan | null {
+function parseStoryVideoFramePlan(value: unknown, assets: VideoSourceAsset[], expectedShotCount: number): StoryVideoFramePlan | null {
   if (!Array.isArray(value) || value.length !== expectedShotCount || value.length < 3 || value.length > 6) return null;
   const validUrls = new Set(assets.map((asset) => asset.fileUrl));
-  const requiredUrls = new Set(manualAssets.map((asset) => asset.fileUrl));
   const usedAssetUrls = new Set<string>();
   const shots = value.map((raw, index) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -212,7 +216,6 @@ function parseStoryVideoFramePlan(value: unknown, assets: VideoSourceAsset[], ma
     return { order: index + 1, role, description, frameSource, assetUrl, framePrompt };
   });
   if (shots.some((shot) => !shot)) return null;
-  if ([...requiredUrls].some((url) => !usedAssetUrls.has(url))) return null;
   return shots as StoryVideoFramePlan;
 }
 
@@ -224,8 +227,9 @@ function parseStoryVideoMotionPlan(value: unknown, framePlan: StoryVideoFramePla
     const order = Number(item.order);
     const mainVideoPrompt = String(item.mainVideoPrompt || "").trim();
     const endingTransitionPrompt = String(item.endingTransitionPrompt || "").trim();
-    if (order !== index + 1 || !mainVideoPrompt || !endingTransitionPrompt) return null;
-    return { order, mainVideoPrompt, endingTransitionPrompt };
+    const narrationText = String(item.narrationText || "").trim();
+    if (order !== index + 1 || !mainVideoPrompt || !endingTransitionPrompt || !narrationText || Array.from(narrationText).length > 30) return null;
+    return { order, mainVideoPrompt, endingTransitionPrompt, narrationText };
   });
   if (motions.some((motion) => !motion)) return null;
   return motions as StoryVideoMotionPlan;
@@ -240,28 +244,29 @@ function combineStoryVideoPlans(framePlan: StoryVideoFramePlan, motionPlan: Stor
 }
 
 export async function generateVideoStoryDraft(input: {
+  character?: StoryCharacter | null;
   account: Record<string, unknown> & { name: string; accountParam: string };
   noteTask: Record<string, unknown> & { id: number; topicTitle: string };
   sourceType: VideoStorySourceType;
   sourceContent: string;
   extraRequirements?: string;
-  manualAssets?: VideoSourceAsset[];
   availableWritingStyles: string[];
   expertRules?: string;
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
-  const manualAssetCount = input.manualAssets?.length || 0;
   const response = await completeWithBackendAi({
-    instructions: "你是小红书竖屏短视频故事策划师。把用户选择的灵感、自由创意或故事模板发展成可由多个5秒镜头完成的生活化短故事。只返回JSON，不要输出Markdown。",
+    instructions: "你是小红书竖屏短视频故事策划师。把用户选择的创意故事模板发展成可由多个5秒镜头完成、具有漫剧感与反转的短故事。只返回JSON，不要输出Markdown。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
     knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `为当前账号新建一版待用户确认的故事型视频。
 
 硬性要求：
-- 故事必须服务于账号定位、业务场景和可用素材，具有清楚的开头、发展、情绪变化和结尾。
-- 输出 ${Math.max(3, manualAssetCount)}-6 个镜头节点；每个节点后续固定生成 5 秒视频。
-- 用户手动指定图片时，镜头数必须大于等于手选图片数；每张图都必须安排合理剧情节点，不得遗漏，也不得编造图片元数据之外的具体事实。剩余镜头由后续 AI 自动选图或生成 AI 首帧补全。
+- 必须保留故事模板指定的主角、核心冲突和反转，不得把模板改写为平铺直叙的账号介绍。
+- 模板中标记为“强制场景”的场景顺序、人物关系和指定对话必须原样保留；例如要求第 2 个场景出现的对话，不得挪到其他镜头、删减或替换。
+- 故事要像短篇漫剧：开头有悬念或目标，中段出现意外、误会或选择，结尾完成反转、和解或新的发现。
+- 账号定位、业务场景和可用素材只用于承接故事发生地、道具或环境，不得覆盖模板本身的创意剧情。
+- 输出 3-6 个镜头节点；每个节点后续固定生成 5 秒视频。
 - 镜头描述必须能转化为具体画面，不要写运营分析、制作说明或空泛口号。
 - suggestedMaterial 只描述需要什么画面，不得声称看过素材库图片。
 - 不生成标题正文，不执行视频制作。
@@ -270,16 +275,10 @@ export async function generateVideoStoryDraft(input: {
 账号与任务：
 ${JSON.stringify(compactStoryContext(input.account, input.noteTask), null, 2)}
 
-故事来源类型：${input.sourceType}
-故事来源内容：${input.sourceContent}
+故事模板：${input.sourceContent}
 
-用户希望故事使用的素材库图片：
-${input.manualAssets?.length ? JSON.stringify(input.manualAssets.map((asset) => ({
-    filePath: asset.filePath,
-    fileUrl: asset.fileUrl,
-    tags: asset.tags || "",
-    suitableTypes: asset.suitableTypes || ""
-  })), null, 2) : "用户未手动指定图片；按账号定位和故事来源设计故事。"}
+选定主角形象（保持名称、毛色、服装和配饰一致；图片由执行智能体读取）：
+${JSON.stringify(input.character || "本模板暂未配置参考照片，按模板描述设计主角。")}
 
 用户补充要求：
 ${input.extraRequirements || "暂无；围绕本篇任务自然发挥。"}
@@ -295,9 +294,16 @@ ${input.availableWritingStyles.join("、")}
   });
   if (!response.ok) throw new Error(`后端 AI 未能生成视频故事：${response.error}`);
   const parsed = extractJson(response.text);
-  const story = parseStoryDraft(parsed, Math.max(3, manualAssetCount));
+  const story = parseStoryDraft(parsed);
   if (!story) throw new Error("后端 AI 返回的视频故事 JSON 不完整，请重试。");
-  return story;
+  if (/牛来喊[“"]妈妈[”"]，妈妈回应[“"]牛来[”"]/u.test(input.sourceContent)) {
+    const secondScene = story.shots[1];
+    const secondSceneText = `${secondScene?.beat || ""}${secondScene?.role || ""}${secondScene?.description || ""}`;
+    if (!/牛来/u.test(secondSceneText) || !/妈妈/u.test(secondSceneText)) {
+      throw new Error("牛来模板的第 2 个场景缺少“牛来”与“妈妈”的指定对话，请重试。");
+    }
+  }
+  return { ...story, character: input.character || null };
 }
 
 export function buildDirectVideoTask(input: {
@@ -545,12 +551,10 @@ export async function planStoryVideoFrames(input: {
   noteTask: Record<string, unknown> & { id: number; topicTitle: string };
   story: VideoStoryDraft;
   assets: VideoSourceAsset[];
-  manualAssets?: VideoSourceAsset[];
   expertRules?: string;
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
-  const manualAssets = input.manualAssets || [];
   const response = await completeWithBackendAi({
     instructions: "你是小红书故事型竖屏短视频首帧与素材规划师。根据已确认故事、用户指定图片和素材库文字元数据，规划3-6个镜头的首帧来源和首帧处理提示词。只返回JSON。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
@@ -559,12 +563,13 @@ export async function planStoryVideoFrames(input: {
 
 硬性要求：
 - 必须严格输出 ${input.story.shots.length} 个镜头，且顺序与已确认故事节点一一对应；只规划首帧，不要输出视频动态或转场。
-- “用户手动指定图片”中的每张图片都必须使用且只能使用一次，AI可以根据故事需要决定它在镜头序列中的位置。
-- 手选图不足以完成故事时，再从“其余候选素材”中匹配真实图片；仍有缺口时使用 frameSource=generate 生成AI首帧。
+- 优先从候选素材库图片中选择与镜头职责匹配的真实图片；只能根据文件名、标签、适用类型等文字元数据判断。
+- 候选素材无法匹配当前镜头时，使用 frameSource=generate 生成 AI 首帧；不得勉强套用不相关真实图片。
 - 只能根据文件名、标签、适用类型等文字元数据判断素材，不得声称看过图片。
 - 同一素材 URL 只能使用一次。没有明确匹配素材时使用 frameSource=generate，不得勉强套用不相关图片。
-- 使用真实素材时，framePrompt 是 edit-image 精修提示词，要保留真实主体和空间，仅调整9:16构图、光线、色彩和必要背景。
-- 使用AI首帧时，framePrompt 是 generate-image 提示词，要明确主体、环境、构图、光线、色调和9:16竖屏画面。
+- 使用真实素材时，framePrompt 是 edit-image 精修提示词，要保留真实主体和空间，仅调整 3:4 构图、光线、色彩和必要背景。
+- 使用AI首帧时，framePrompt 是 generate-image 提示词，要明确主体、环境、构图、光线、色调和 3:4 竖版画面。
+${input.story.character ? `- 本次已锁定主角参考图：${input.story.character.description}。允许将主角融入真实背景，保留场地主要结构。framePrompt 必须描述主角的位置、姿态、比例和融合光影。AI 背景先单独生成，再与主角参考图通过 edit-image 合成；不要复制角色展示图的背景。` : ""}
 
 账号与任务：
 ${JSON.stringify(compactStoryContext(input.account, input.noteTask), null, 2)}
@@ -575,17 +580,8 @@ ${JSON.stringify(input.story, null, 2)}
 已沉淀专家规则：
 ${input.expertRules || "暂无相关规则。"}
 
-用户手动指定图片（必须全部使用）：
-${manualAssets.length ? JSON.stringify(manualAssets.map((asset) => ({
-    id: asset.id,
-    filePath: asset.filePath,
-    fileUrl: asset.fileUrl,
-    tags: asset.tags || "",
-    suitableTypes: asset.suitableTypes || ""
-  })), null, 2) : "用户未手动指定图片。"}
-
-其余候选素材库图片：
-${input.assets.length ? JSON.stringify(input.assets.filter((asset) => !manualAssets.some((manual) => manual.fileUrl === asset.fileUrl)).map((asset) => ({
+候选素材库图片：
+${input.assets.length ? JSON.stringify(input.assets.map((asset) => ({
     id: asset.id,
     filePath: asset.filePath,
     fileUrl: asset.fileUrl,
@@ -599,7 +595,7 @@ ${input.assets.length ? JSON.stringify(input.assets.filter((asset) => !manualAss
   });
   if (!response.ok) throw new Error(`后端 AI 未能规划故事视频首帧与素材：${response.error}`);
   const parsed = extractJson(response.text);
-  const framePlan = parseStoryVideoFramePlan(parsed?.shots, input.assets, manualAssets, input.story.shots.length);
+  const framePlan = parseStoryVideoFramePlan(parsed?.shots, input.assets, input.story.shots.length);
   if (!framePlan) throw new Error("后端 AI 返回的故事视频首帧规划 JSON 不完整或素材对应关系无效，请重试。");
   return { overallDirection: String(parsed?.overallDirection || "按已确认故事形成连贯的竖屏短视频。"), framePlan };
 }
@@ -612,7 +608,7 @@ export async function planStoryVideoMotion(input: {
   knowledgeSourceKeys?: string[];
 }) {
   const response = await completeWithBackendAi({
-    instructions: "你是小红书故事型竖屏短视频动态导演。根据已确认故事和已锁定首帧计划，为每个镜头生成5秒内的主体动态与片尾转场。只返回JSON。",
+    instructions: "你是小红书故事型竖屏短视频动态导演和旁白编剧。根据已确认故事和已锁定首帧计划，为每个镜头生成5秒内的主体动态、片尾转场和单一旁白。只返回JSON。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
     knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `为以下已锁定的首帧镜头规划视频动态与片尾转场。
@@ -621,7 +617,10 @@ export async function planStoryVideoMotion(input: {
 - 严格按 framePlan 中的 order 输出，数量必须完全一致；不得更换素材、首帧来源、镜头顺序、角色或画面职责。
 - mainVideoPrompt 只描述前约4秒的主体运动、镜头运动、环境微动和情绪变化。
 - endingTransitionPrompt 描述最后约1秒的自然转场动作、遮挡、光影、推拉或运动趋势，为下一镜头建立衔接；最后一个镜头必须写自然收束，不得跳转到未出现的画面。
-- 不生成独立转场镜头，不要求字幕、配音、背景音乐或新增首帧画面。
+- narrationText 是单一旁白音色朗读的成品台词，每个镜头必须有且只有一条，建议 6-16 个汉字，最多 30 个字符，正常语速下必须能在前 4 秒内说完。
+- 旁白要承接当前镜头的事件或情绪，全部镜头使用同一个叙述者口吻；角色对白也由该旁白音色朗读，不规划多角色音色。
+- narrationText 只包含要朗读的中文正文，不得包含“旁白：”、角色标签、舞台说明、Markdown、SSML、字幕指令或引号外说明。
+- 不生成独立转场镜头，不要求字幕、背景音乐或新增首帧画面。
 
 已确认故事：
 ${JSON.stringify(input.story, null, 2)}
@@ -633,7 +632,7 @@ ${JSON.stringify(input.framePlan, null, 2)}
 ${input.expertRules || "暂无相关规则。"}
 
 返回格式：
-{"shots":[{"order":1,"mainVideoPrompt":"前约4秒主体动态","endingTransitionPrompt":"最后约1秒片尾转场或自然收束"}]}`
+{"shots":[{"order":1,"mainVideoPrompt":"前约4秒主体动态","endingTransitionPrompt":"最后约1秒片尾转场或自然收束","narrationText":"前4秒内可朗读完成的单一旁白"}]}`
   });
   if (!response.ok) throw new Error(`后端 AI 未能规划故事视频动态与转场：${response.error}`);
   const parsed = extractJson(response.text);
@@ -655,15 +654,96 @@ export function buildStoryVideoTask(input: {
     || input.framePlan.length > 6
     || input.motionPlan.length !== input.framePlan.length
     || input.framePlan.some((shot, index) => shot.order !== index + 1 || !shot.role || !shot.description || !shot.framePrompt)
-    || input.motionPlan.some((shot, index) => shot.order !== index + 1 || !shot.mainVideoPrompt || !shot.endingTransitionPrompt)
+    || input.motionPlan.some((shot, index) => shot.order !== index + 1 || !shot.mainVideoPrompt || !shot.endingTransitionPrompt || !shot.narrationText)
   ) {
     throw new Error("首帧或动态规划结果无效，无法组装故事视频任务。");
   }
   const shots = combineStoryVideoPlans(input.framePlan, input.motionPlan);
+  const character = input.story.character;
+  const characterUrl = character ? characterDownloadUrl(character, process.env.STORY_CHARACTER_PUBLIC_BASE_URL || "") : "";
+  const taskDir = `.tasks/xhs-video-task-${input.noteTask.id}`;
+  const plan = {
+    version: 1,
+    account: { name: input.account.name, accountParam: input.account.accountParam },
+    noteTask: { id: input.noteTask.id, topicTitle: input.noteTask.topicTitle },
+    character: character ? {
+      id: character.id,
+      name: character.name,
+      description: character.description,
+      imageUrl: characterUrl,
+      expectedFilename: `${character.id}.png`
+    } : null,
+    shots: shots.map((shot) => ({
+      order: shot.order,
+      role: shot.role,
+      description: shot.description,
+      frameSource: shot.frameSource,
+      assetUrl: shot.assetUrl,
+      framePrompt: character
+        ? `第一张输入图是场景背景，第二张是唯一主角参考图。自然融入主角并保持外观一致，不复制参考图背景。${character.description}。${shot.framePrompt}`
+        : shot.framePrompt,
+      videoPrompt: shot.videoPrompt,
+      narrationText: shot.narrationText,
+      duration: 5,
+      narrationTargetDuration: 4
+    }))
+  };
+  const planJson = JSON.stringify(plan);
+  return `# Agent 创意故事视频任务
 
-  const taskDir = `$PWD/.tasks/xhs-video-task-${input.noteTask.id}`;
+在 **xiaohongshu_auto_op** Skill 根目录执行。只生成视频，不发布或填写小红书表单。
+
+- 账号：${input.account.name} / ${input.account.accountParam}
+- 任务：${input.noteTask.topicTitle}（${input.noteTask.id}）
+- 镜头：${shots.length} 段，每段 5 秒；火山引擎单一旁白
+- 任务目录：\`$PWD/${taskDir}\`
+
+## 1. 保存计划
+
+\`\`\`bash
+TASK_ROOT="$PWD/${taskDir}"
+mkdir -p "$TASK_ROOT"
+cat > "$TASK_ROOT/plan.json" <<'JSON'
+${planJson}
+JSON
+uv sync --extra imagegen
+\`\`\`
+
+${character && !characterUrl ? `将本任务附带的 \`${character.id}.png\` 保存为 \`$TASK_ROOT/character-reference.png\`。` : "角色图已提供公网 HTTPS 地址，由 CLI 下载。"}
+
+## 2. 准备并验收首帧
+
+创建 Hermes Kanban 卡（assignee \`default\`、workspace 为当前 Skill 根目录、max-runtime 45 分钟），只执行：
+
+\`uv run python scripts/cli.py story-video prepare --plan-file "$TASK_ROOT/plan.json" --work-dir "$TASK_ROOT"\`
+
+卡完成后，主会话必须查看返回的全部 \`frame-NN.png\`，核对 3:4 构图、角色外观一致、主体和场地事实正确；不通过则停止。
+
+## 3. 渲染、配音和拼接
+
+首帧验收通过后创建依赖卡（同一 assignee/workspace、max-runtime 90 分钟），只执行：
+
+\`uv run python scripts/cli.py story-video render --plan-file "$TASK_ROOT/plan.json" --work-dir "$TASK_ROOT" --output "$PWD/assets/${input.account.accountParam}/video-note-${input.noteTask.id}.mp4" --size 1080x1440\`
+
+Kling 超时先查任务状态；仅明确失败后执行 \`story-video reset --plan-file "$TASK_ROOT/plan.json" --work-dir "$TASK_ROOT" --shots NN\`，再重跑 render，禁止重复付费提交。worker 必须调用 \`kanban_complete\` 并返回结构化结果。
+
+## 最终回复
+
+回复中提供全部首帧图和最终 \`video-note-${input.noteTask.id}.mp4\`。`;
+
+  /* 旧版内嵌执行脚本保留在源码中作为迁移期参考，但不会进入生成任务。 */
+  const fingerprint = createHash("sha256").update(JSON.stringify({ character, frames: input.framePlan, motion: input.motionPlan })).digest("hex").slice(0, 16);
+
   const assetsDir = `$PWD/assets/${input.account.accountParam}`;
-  const taskDirLiteral = `.tasks/xhs-video-task-${input.noteTask.id}`;
+  const taskDirLiteral = taskDir;
+  const characterInit = character ? `${characterUrl ? `curl --fail --location --retry 3 --output "$TASK_DIR/character-reference.png" ${shellQuote(characterUrl)}` : `test -s "$TASK_DIR/character-reference.png" || { echo "请先将用户附带的 ${character!.id}.png 放到 $TASK_DIR/character-reference.png"; exit 1; }`}
+uv run python - "$TASK_DIR/character-reference.png" <<'PY'
+import sys
+from PIL import Image
+with Image.open(sys.argv[1]) as im:
+    im.load()
+    im.convert("RGB").save(sys.argv[1], "PNG")
+PY` : "";
   const realShots = shots.filter((shot) => shot.frameSource === "asset");
   const generatedShots = shots.filter((shot) => shot.frameSource === "generate");
   const sourceDownloads = realShots.map((shot) => {
@@ -685,29 +765,27 @@ test -s "$TASK_DIR/source-${number}.png"`;
   }).join("\n");
   const prepareShotCalls = shots.map((shot) => {
     const number = String(shot.order).padStart(2, "0");
-    return `prepare_frame "${number}" "${shot.frameSource}" ${shellQuote(shot.framePrompt)}`;
+    const prompt = character ? `第一张输入图是场景背景，保留主要空间结构；第二张输入图是唯一主角外观参考。将该主角自然融入背景，保持毛色、服装、配饰和体型一致，不复制参考图的展示背景。${character!.description}。镜头要求：${shot.framePrompt}` : shot.framePrompt;
+    return `prepare_frame "${number}" "${shot.frameSource}" ${shellQuote(prompt)}`;
   }).join("\n");
   const renderShotCalls = shots.map((shot) => {
     const number = String(shot.order).padStart(2, "0");
-    return `render_video "${number}" ${shellQuote(shot.videoPrompt)}`;
+    return `render_video "${number}" ${shellQuote(shot.videoPrompt)} ${shellQuote(shot.narrationText)}`;
   }).join("\n");
   const clipArguments = shots.map((shot) => `"$TASK_DIR/clip-${String(shot.order).padStart(2, "0")}.mp4"`).join(" ");
   const frameArguments = shots.map((shot) => `"$TASK_DIR/frame-${String(shot.order).padStart(2, "0")}.png"`).join(" ");
+  const narrationArguments = shots.map((shot) => `"$TASK_DIR/narration-${String(shot.order).padStart(2, "0")}.m4a"`).join(" ");
+  const voicedClipArguments = shots.map((shot) => `"$TASK_DIR/voiced-clip-${String(shot.order).padStart(2, "0")}.mp4"`).join(" ");
   const shotSections = shots.map((shot) => `### 镜头 ${shot.order}｜${shot.role}
 - 画面内容：${shot.description}
 - 首帧来源：${shot.frameSource === "asset" ? `素材库图片 ${shot.assetUrl}` : "AI 生成"}
-- 首帧文件：\`$TASK_DIR/frame-${String(shot.order).padStart(2, "0")}.png\`
-- 视频片段：\`$TASK_DIR/clip-${String(shot.order).padStart(2, "0")}.mp4\`
-- 首帧${shot.frameSource === "asset" ? "精修" : "生成"} Prompt：${shot.framePrompt}
-- 前约 4 秒主体动态：${shot.mainVideoPrompt}
-- 最后约 1 秒片尾转场：${shot.endingTransitionPrompt}
-- 传给 generate-video 的完整 5 秒 Prompt：${shot.videoPrompt}`).join("\n\n");
+- 单一旁白：${shot.narrationText}`).join("\n\n");
   const imageCredentialChecks = [
-    realShots.length ? `if not (os.getenv("AISHARING_API_KEY") or os.getenv("OPENAI_OFFICIAL_API_KEY")):\n    missing.append("AISHARING_API_KEY 或 OPENAI_OFFICIAL_API_KEY（真实首帧精修）")` : "",
+    (realShots.length || character) ? `if not (os.getenv("AISHARING_API_KEY") or os.getenv("OPENAI_OFFICIAL_API_KEY")):\n    missing.append("AISHARING_API_KEY 或 OPENAI_OFFICIAL_API_KEY（首帧精修与角色合成）")` : "",
     generatedShots.length ? `if not (os.getenv("GACCODE_API_KEY") or os.getenv("OPENAI_OFFICIAL_API_KEY")):\n    missing.append("GACCODE_API_KEY 或 OPENAI_OFFICIAL_API_KEY（AI首帧生成）")` : ""
   ].filter(Boolean).join("\n");
 
-  return `# Agent 故事驱动视频执行任务
+  return `# Agent 创意故事视频执行任务
 
 请使用 **xiaohongshu_auto_op** 的 **xhs-creative** skill 完成本任务。不要发布或填写小红书表单。
 
@@ -719,25 +797,17 @@ test -s "$TASK_DIR/source-${number}.png"`;
 - 故事摘要：${input.story.summary}
 - 情绪主线：${input.story.emotionalArc}
 - 镜头数量：${shots.length} 段，每段固定 5 秒
-- 最终任务目录：\`${taskDir}\`
-- 账号素材目录：\`${assetsDir}\`
+- 配音方式：火山引擎 Seed Audio 单一旁白；每段旁白目标时长 4 秒，不生成字幕或背景音乐
+${character ? `- 主角形象：${character!.name}（${character!.id}）\n- 外观：${character!.description}\n- 主角图：${characterUrl || `由用户随任务附带 ${character!.id}.png，主会话先将收到的图片放至任务目录 character-reference.png；不得使用 localhost 下载链接。`}\n- 所有镜头必须以同一张主角图为外观依据。` : ""}
+- 根任务目录：\`${taskDir}\`；账号素材目录：\`${assetsDir}\`
+- 本次缓存：\`${taskDir}/runs/${fingerprint}\`；所有 Kanban 卡使用同一 Skill workspace 和绝对 TASK_DIR。
 
-## 执行方式
-本任务必须使用 Hermes Kanban 分阶段编排。Kanban 只负责阶段调度与状态，不替代本任务脚本；每个 worker 都只执行指定阶段的 \`bash\` 命令，禁止把完整任务再次嵌套进另一套编排。
-
-固定 Kanban 参数：
-- assignee：\`default\`（不得写为 \`@default\`）。
-- workspace：主会话当前 xiaohongshu_auto_op Skill 根目录，即 \`dir:<该根目录的绝对路径>\`；所有卡必须使用同一 workspace，不能创建临时 workspace 或切换目录。
-- 首帧准备卡 max-runtime：45 分钟。
-- 视频渲染卡 max-runtime：90 分钟。
-- 每个离线 worker 成功或失败时必须显式调用 \`kanban_complete\`；成功说明产物路径，失败说明镜头编号、日志路径和错误。
-- 主会话负责创建卡、等待依赖完成、执行视觉验收和最终交付；不要创建额外的“总任务卡”。
-
-只有 \`video-path.txt\`、\`result.json\` 和最终成片均通过验收才算完成。
+## 执行规则
+使用 Hermes Kanban 分两卡执行。两卡固定 assignee \`default\`、workspace \`dir:<xiaohongshu_auto_op Skill 根目录绝对路径>\`；worker 必须调用 \`kanban_complete\`，失败时返回镜头号、日志和错误。主会话负责初始化、等待、视觉验收和最终交付。只有 \`video-path.txt\`、\`result.json\` 与成片均通过验收才完成。
 
 ## 主会话初始化（必须亲自完成）
 
-在 skill 根目录依次执行。不得委派本段，不得用 \`find -printf\` 或目录扫描替代指定文件检查。
+在 Skill 根目录由主会话执行，不得委派：
 
 \`\`\`bash
 set -euo pipefail
@@ -755,6 +825,10 @@ load_dotenv(Path(sys.argv[1]), override=False)
 missing = []
 if not os.getenv("KLING_API_KEY"):
     missing.append("KLING_API_KEY")
+if not os.getenv("VOLCENGINE_TTS_API_KEY"):
+    missing.append("VOLCENGINE_TTS_API_KEY")
+if not os.getenv("VOLCENGINE_TTS_SPEAKER"):
+    missing.append("VOLCENGINE_TTS_SPEAKER")
 ${imageCredentialChecks}
 if missing:
     raise SystemExit("缺少故事视频任务依赖配置：" + "、".join(missing))
@@ -763,39 +837,33 @@ PY
 TASK_DIR="$PWD/${taskDirLiteral}"
 ACCOUNT_ASSETS_DIR="$PWD/assets/${input.account.accountParam}"
 mkdir -p "$TASK_DIR" "$ACCOUNT_ASSETS_DIR"
+${characterInit}
+mkdir -p "$TASK_DIR/runs/${fingerprint}"
+${character ? `cp "$TASK_DIR/character-reference.png" "$TASK_DIR/runs/${fingerprint}/character-reference.png"` : ""}
+TASK_DIR="$TASK_DIR/runs/${fingerprint}"
 ${sourceDownloads || "echo \"本任务没有需要下载的真实首帧。\""}
 echo "主会话初始化完成：已准备 ${realShots.length} 张真实素材下载项。"
 \`\`\`
 
 ## Kanban 阶段执行脚本
 
-主会话初始化成功后，将以下脚本原样保存为 \`$TASK_DIR/run-story-video.sh\`，然后严格按以下 Kanban 生命周期执行：
+将以下脚本原样保存为 \`$TASK_DIR/run-story-video.sh\`：先建“首帧准备”卡执行 \`prepare\`（45 分钟），完成后主会话逐张验收；通过后再建依赖卡执行 \`render\`（90 分钟），完成视频、TTS、混音、拼接和校验。脚本从 CLI JSON 提取 \`local_path\`，不得猜文件名。
 
-1. 创建“首帧准备”卡：assignee \`default\`，workspace 为上述 Skill 根目录，max-runtime 45 分钟。卡片只允许执行：\`bash "$TASK_DIR/run-story-video.sh" prepare\`。完成条件：所有 \`frame-NN.png\` 存在且非空；worker 调用 \`kanban_complete\` 并返回首帧路径。
-2. 主会话等待“首帧准备”卡完成后，亲自执行下方首帧视觉验收。验收未通过则停止任务并报告，绝不创建渲染卡。
-3. 视觉验收通过后，创建依赖于“首帧准备”完成的“视频渲染与拼接”卡：assignee \`default\`，同一 workspace，max-runtime 90 分钟。卡片只允许执行：\`bash "$TASK_DIR/run-story-video.sh" render\`。完成条件：通过脚本中的最终成片校验，worker 调用 \`kanban_complete\` 并返回 \`video-path.txt\`、\`result.json\` 和成片路径。
-4. 主会话等待渲染卡完成，核对最终产物并按“最终回复要求”交付。
+## 首帧验收
 
-脚本必须从 CLI 混合日志中提取 JSON 的 \`local_path\`，不得按目录猜测文件名。
+render 前逐张查看 \`frame-NN.png\`：核对 3:4 构图、主体/场地事实和角色连续性，禁止虚构招牌、人脸、价格或联系方式；失败则停止并报告。${character ? "同时对照 character-reference.png 核对主角外观。" : ""}
 
-## 首帧视觉验收（render 前必须完成）
-
-主会话必须逐张查看 \`frame-NN.png\`，确认：主体、场地和关键真实物件未被错误替换；同一角色或主体在连续镜头中保持一致；未凭空加入招牌、清晰人脸、价格、联系方式或未经确认的业务事实；画面适合 9:16 竖屏。任一首帧不符合时，停止，不得调用 Kling，报告镜头编号、文件路径和原因。
-
-## Kling 计费与超时
-
-- 每个镜头的 Kling 等待时间不得低于 15 分钟；脚本已固定 \`--timeout 900\`。
-- 任一镜头超时后，必须先从该镜头的 \`video-NN.json\` 日志中保留并提取 \`task_id\`，使用当前安装版本提供的 Kling 任务状态查询能力确认最终状态。
-- 只有状态明确为失败时，才允许创建新的渲染卡重新提交；状态仍在排队/处理中时继续等待，不得重复提交；当前环境无法查询 task_id 时停止并报告 task_id，不得猜测失败或直接重跑。
-- 确认失败后，先执行 \`bash "$TASK_DIR/run-story-video.sh" reset-video NN\` 删除该镜头上一轮失败日志和对应残缺片段，再重新执行 \`render\`；只补缺失或明确失败的镜头。
+Kling 每镜头等待 900 秒；超时先用 \`video-NN.json\` 的 \`task_id\` 查状态，明确失败后才 \`reset-video NN\`，禁止重复提交。
 
 \`\`\`bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-TASK_DIR="$PWD/${taskDirLiteral}"
+ROOT_TASK_DIR="$PWD/${taskDirLiteral}"
+TASK_DIR="$ROOT_TASK_DIR/runs/${fingerprint}"
 ACCOUNT_ASSETS_DIR="$PWD/assets/${input.account.accountParam}"
-FINAL_VIDEO="$ACCOUNT_ASSETS_DIR/video-note-${input.noteTask.id}.mp4"
+FINAL_VIDEO="$TASK_DIR/final.mp4"
+CHARACTER_IMAGE="$TASK_DIR/character-reference.png"
 
 json_local_path() {
   uv run python - "$1" <<'PY'
@@ -834,19 +902,28 @@ prepare_frame() {
       test -s "$source"
       uv run python scripts/cli.py edit-image \\
         --prompt "$frame_prompt" \\
-        --images "$source" \\
+        --images "$source" ${character ? '"$CHARACTER_IMAGE"' : ""} \\
         --output-dir "$TASK_DIR" \\
         --size "1536x2048" \\
         --quality "medium" > "$frame_result" 2>&1
     else
       uv run python scripts/cli.py generate-image \\
-        --prompt "$frame_prompt" \\
+        --prompt "${character ? "仅生成无主角的场景背景，不添加角色。场景依据：" : ""}$frame_prompt" \\
         --output-dir "$TASK_DIR" \\
         --size "1536x2048" > "$frame_result" 2>&1
     fi
     local generated_frame_path
     generated_frame_path="$(json_local_path "$frame_result")"
     test -s "$generated_frame_path"
+${character ? `    if [ "$frame_source" != "asset" ]; then
+      cp "$generated_frame_path" "$TASK_DIR/background-$number.png"
+      uv run python scripts/cli.py edit-image \\
+        --images "$TASK_DIR/background-$number.png" "$CHARACTER_IMAGE" \\
+        --prompt "$frame_prompt" \\
+        --output-dir "$TASK_DIR" --size "1536x2048" --quality medium > "$TASK_DIR/composite-$number.json" 2>&1
+      generated_frame_path="$(json_local_path "$TASK_DIR/composite-$number.json")"
+      test -s "$generated_frame_path"
+    fi` : ""}
     cp -f "$generated_frame_path" "$frame"
   fi
   test -s "$frame"
@@ -855,9 +932,15 @@ prepare_frame() {
 render_video() {
   local number="$1"
   local video_prompt="$2"
+  local narration_text="$3"
   local frame="$TASK_DIR/frame-$number.png"
   local clip="$TASK_DIR/clip-$number.mp4"
+  local narration_file="$TASK_DIR/narration-$number.txt"
+  local narration_audio="$TASK_DIR/narration-$number.m4a"
+  local voiced_clip="$TASK_DIR/voiced-clip-$number.mp4"
   local video_result="$TASK_DIR/video-$number.json"
+  local speech_result="$TASK_DIR/speech-$number.json"
+  local mux_result="$TASK_DIR/mux-$number.json"
 
   test -s "$frame"
   if [ ! -s "$clip" ]; then
@@ -877,6 +960,25 @@ render_video() {
     cp -f "$generated_video_path" "$clip"
   fi
   test -s "$clip"
+
+  if [ ! -s "$narration_file" ]; then
+    printf '%s\n' "$narration_text" > "$narration_file"
+  fi
+  if [ ! -s "$narration_audio" ]; then
+    uv run python scripts/cli.py generate-speech \
+      --text-file "$narration_file" \
+      --output "$narration_audio" \
+      --target-duration 4 > "$speech_result" 2>&1
+  fi
+  test -s "$narration_audio"
+
+  if [ ! -s "$voiced_clip" ]; then
+    uv run python scripts/cli.py mux-audio \
+      --video "$clip" \
+      --audio "$narration_audio" \
+      --output "$voiced_clip" > "$mux_result" 2>&1
+  fi
+  test -s "$voiced_clip"
 }
 
 prepare_all() {
@@ -889,28 +991,29 @@ ${renderShotCalls}
 
   if [ ! -s "$FINAL_VIDEO" ]; then
   uv run python scripts/cli.py concat-videos \\
-    --videos ${clipArguments} \\
+    --videos ${voicedClipArguments} \\
     --output "$FINAL_VIDEO" \\
     --size 720x1280 \\
     --fps 24 \\
     --fit crop \\
-    --audio drop \\
+    --audio auto \\
     --overwrite > "$TASK_DIR/concat.json"
   fi
   test -s "$FINAL_VIDEO"
 
-  uv run python - "$FINAL_VIDEO" ${frameArguments} ${clipArguments} <<'PY'
+  uv run python - "$FINAL_VIDEO" "${shots.length}" ${frameArguments} ${clipArguments} ${narrationArguments} ${voicedClipArguments} <<'PY'
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-final_video, *artifacts = sys.argv[1:]
+final_video, shot_count_text, *artifacts = sys.argv[1:]
+shot_count = int(shot_count_text)
 for path in artifacts + [final_video]:
     if not Path(path).is_file() or Path(path).stat().st_size == 0:
         raise SystemExit(f"缺少或为空的产物：{path}")
 probe = subprocess.run(
-    ["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height,r_frame_rate", "-of", "json", final_video],
+    ["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels", "-of", "json", final_video],
     check=True,
     capture_output=True,
     text=True,
@@ -919,7 +1022,7 @@ payload = json.loads(probe.stdout)
 duration = float(payload.get("format", {}).get("duration", 0))
 video = next((item for item in payload.get("streams", []) if item.get("codec_type") == "video"), {})
 audio = [item for item in payload.get("streams", []) if item.get("codec_type") == "audio"]
-expected = len(artifacts) // 2 * 5
+expected = shot_count * 5
 if abs(duration - expected) > 2:
     raise SystemExit(f"成片时长异常：{duration:.2f}s，期望约 {expected}s")
 if (video.get("width"), video.get("height")) != (720, 1280):
@@ -930,37 +1033,37 @@ numerator = float(fps_parts[0])
 denominator = float(fps_parts[1]) if len(fps_parts) > 1 else 1.0
 if denominator == 0 or abs(numerator / denominator - 24) > 0.5:
     raise SystemExit(f"成片帧率异常：{fps_text}，期望约24fps")
-if audio:
-    raise SystemExit("成片不应包含音轨")
+if len(audio) != 1:
+    raise SystemExit(f"成片必须且只能包含一条音轨，实际为 {len(audio)} 条")
+if audio[0].get("codec_name") != "aac":
+    raise SystemExit(f"成片音频编码异常：{audio[0].get('codec_name')}，期望 aac")
 PY
 
+  cp "$FINAL_VIDEO" "$ACCOUNT_ASSETS_DIR/video-note-${input.noteTask.id}.mp4"
+  FINAL_VIDEO="$ACCOUNT_ASSETS_DIR/video-note-${input.noteTask.id}.mp4"
   printf '%s\\n' "$FINAL_VIDEO" > "$TASK_DIR/video-path.txt"
 
-  uv run python - "$TASK_DIR/result.json" "$FINAL_VIDEO" ${frameArguments} ${clipArguments} <<'PY'
+  uv run python - "$TASK_DIR/result.json" "$FINAL_VIDEO" "${shots.length}" ${shellQuote(JSON.stringify(shots.map((shot) => shot.narrationText)))} ${frameArguments} ${clipArguments} ${narrationArguments} ${voicedClipArguments} <<'PY'
 import json
 import sys
-result_path, final_video, *paths = sys.argv[1:]
-half = len(paths) // 2
+result_path, final_video, shot_count_text, narration_json, *paths = sys.argv[1:]
+shot_count = int(shot_count_text)
+if len(paths) != shot_count * 4:
+    raise SystemExit("故事视频产物数量与镜头数不一致")
+frames, clips, narration_audio, voiced_clips = [
+    paths[index * shot_count:(index + 1) * shot_count] for index in range(4)
+]
 with open(result_path, "w", encoding="utf-8") as handle:
-    json.dump({"success": True, "finalVideo": final_video, "frames": paths[:half], "clips": paths[half:]}, handle, ensure_ascii=False, indent=2)
-PY
-
-  uv run python - "$TASK_DIR/result.json" "$TASK_DIR/video-path.txt" "$FINAL_VIDEO" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-result_path, video_path_file, expected_video = sys.argv[1:]
-payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
-if payload.get("success") is not True:
-    raise SystemExit("result.json 未声明 success:true")
-paths = [line.strip() for line in Path(video_path_file).read_text(encoding="utf-8").splitlines() if line.strip()]
-if paths != [expected_video]:
-    raise SystemExit("video-path.txt 必须只包含最终视频绝对路径")
+    json.dump({"success": True, "finalVideo": final_video, "frames": frames, "clips": clips,
+               "narrationTexts": json.loads(narration_json), "narrationAudio": narration_audio,
+               "voicedClips": voiced_clips, "audio": {"codec": "aac", "provider": "volcengine"}},
+              handle, ensure_ascii=False, indent=2)
 PY
 
   test -s "$TASK_DIR/video-path.txt"
   test -s "$TASK_DIR/result.json"
+  cp "$TASK_DIR/video-path.txt" "$ROOT_TASK_DIR/video-path.txt"
+  cp "$TASK_DIR/result.json" "$ROOT_TASK_DIR/result.json"
   echo "故事视频任务完成：$FINAL_VIDEO"
 }
 
@@ -975,8 +1078,11 @@ reset_video() {
       [0-9][0-9]) ;;
       *) echo "非法镜头编号：$number" >&2; exit 64 ;;
     esac
-    rm -f "$TASK_DIR/video-$number.json" "$TASK_DIR/clip-$number.mp4"
-    echo "已清理镜头 $number 的失败视频日志与残缺片段。"
+    rm -f "$TASK_DIR/video-$number.json" "$TASK_DIR/clip-$number.mp4" \\
+      "$TASK_DIR/voiced-clip-$number.mp4" "$TASK_DIR/mux-$number.json" \\
+      "$FINAL_VIDEO" "$TASK_DIR/result.json" "$TASK_DIR/video-path.txt" \\
+      "$ROOT_TASK_DIR/result.json" "$ROOT_TASK_DIR/video-path.txt"
+    echo "已清理镜头 $number 的失败视频、混音片段和旧成片；已生成的有效旁白音频将复用。"
   done
 }
 
@@ -988,16 +1094,13 @@ case "\${1:-}" in
 esac
 \`\`\`
 
-## 失败与重试边界
+## 失败与完成
 
-- 任一命令失败时立即停止，并返回镜头编号、对应 JSON 文件和错误信息。
-- 重试时重新执行同一脚本；已有的 \`frame-NN.png\`、\`clip-NN.mp4\` 和最终视频会被跳过，只补齐缺失步骤。
-- 完成判定只看磁盘：\`video-path.txt\` 存在且只含最终视频路径、\`result.json\` 中 \`success:true\`、成片 ffprobe 验收为约15-30秒/720×1280/24fps/无音轨三者齐备才算完成；Kanban 完成通知不作为验收依据。
-- 不要发布或保存小红书草稿。
+失败立即返回镜头号、JSON 日志和错误；重跑脚本会复用已有首帧、视频、旁白和混音。仅当 \`video-path.txt\`、\`result.json(success=true)\` 与约15-30秒/720×1280/24fps/单 AAC 音轨成片全部存在并通过校验才完成。不得发布或保存草稿。
 
 ## 最终回复要求
 
-无论成功或失败，都必须在最终回复中提供全部 \`frame-NN.png\`、\`clip-NN.mp4\` 和最终 \`video-note-${input.noteTask.id}.mp4\` 的可查看文件或附件，不得只提供压缩包。失败时额外说明失败镜头、对应输入图/首帧/片段路径和具体错误；成功时说明最终视频路径、\`video-path.txt\` 路径、\`result.json\` 路径及实际使用的镜头数。
+回复中提供全部首帧图和最终 \`video-note-${input.noteTask.id}.mp4\`，不得只给压缩包；失败时说明镜头与错误，成功时给出成片、\`video-path.txt\`、\`result.json\` 和镜头数。
 
 ## 逐镜头方案
 

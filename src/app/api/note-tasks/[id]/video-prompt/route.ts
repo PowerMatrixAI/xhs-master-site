@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
 import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import {
@@ -63,16 +64,10 @@ function storyPlanContext(body: Record<string, unknown>) {
   const context = requestContext(body);
   const story = body.story as VideoStoryDraft;
   const assets = (Array.isArray(body.assets) ? body.assets : []) as VideoSourceAsset[];
-  const manualAssets = (Array.isArray(body.manualAssets) ? body.manualAssets : []) as VideoSourceAsset[];
   if (!story?.title || !Array.isArray(story.shots) || story.shots.length < 3 || story.shots.length > 6) throw new Error("请先生成并确认完整故事。");
+  if (story.character) story.character = resolveStoryCharacter(story.character.templateId, story.character.id);
   if (assets.some((asset) => !String(asset.fileUrl || "").startsWith("http"))) throw new Error("故事视频候选素材中存在不可访问的图片。");
-  if ((manualAssets.length > 0 && manualAssets.length < 3) || manualAssets.length > 6 || manualAssets.some((asset) => !String(asset.fileUrl || "").startsWith("http"))) {
-    throw new Error("手动指定图片时，图片数量不得低于 3 张或超过 6 张；也可清空后由 AI 决定首帧。");
-  }
-  const candidateUrls = new Set(assets.map((asset) => asset.fileUrl));
-  if (manualAssets.some((asset) => !candidateUrls.has(asset.fileUrl))) throw new Error("手动指定图片必须来自当前账号素材库候选列表。");
-  if (new Set(manualAssets.map((asset) => asset.fileUrl)).size !== manualAssets.length) throw new Error("手动指定图片不能重复。");
-  return { ...context, story, assets, manualAssets };
+  return { ...context, story, assets };
 }
 
 async function buildStoryFrameResult(body: Record<string, unknown>) {
