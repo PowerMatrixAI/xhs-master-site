@@ -608,7 +608,7 @@ export async function planStoryVideoMotion(input: {
   knowledgeSourceKeys?: string[];
 }) {
   const response = await completeWithBackendAi({
-    instructions: "你是小红书故事型竖屏短视频动态导演和旁白编剧。根据已确认故事和已锁定首帧计划，为每个镜头生成5秒内的主体动态、片尾转场和单一旁白。只返回JSON。",
+    instructions: "你是小红书故事型竖屏短视频动态导演和旁白编剧。先为整条视频构思一段有开端、推进、变化和收束的连续旁白，再按镜头语义切分；同时生成每个镜头的主体动态与片尾转场。只返回JSON。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
     knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `为以下已锁定的首帧镜头规划视频动态与片尾转场。
@@ -618,7 +618,10 @@ export async function planStoryVideoMotion(input: {
 - mainVideoPrompt 只描述前约4秒的主体运动、镜头运动、环境微动和情绪变化。
 - endingTransitionPrompt 描述最后约1秒的自然转场动作、遮挡、光影、推拉或运动趋势，为下一镜头建立衔接；最后一个镜头必须写自然收束，不得跳转到未出现的画面。
 - narrationText 是单一旁白音色朗读的成品台词，每个镜头必须有且只有一条，建议 6-16 个汉字，最多 30 个字符，正常语速下必须能在前 4 秒内说完。
-- 旁白要承接当前镜头的事件或情绪，全部镜头使用同一个叙述者口吻；角色对白也由该旁白音色朗读，不规划多角色音色。
+- 必须先在内部把所有 narrationText 连成一篇完整短故事，再按镜头边界切分。按顺序直接拼接全部 narrationText 时，应具备“引出人物/目标 → 事件推进 → 意外或选择 → 反转/发现/收束”的连续叙事，不得像互不相关的独立文案。
+- 第一条旁白负责建立人物、目标或悬念；中间每条必须带来新动作、新发现或新变化，并自然承接前文；最后一条必须回应开头并完成故事结局，不能只写空泛感悟。
+- 相邻旁白要保持同一叙述视角、时态、称谓和语气，合理使用指代、因果或时间关系；不要在每个镜头重复介绍主角、重复故事背景、重复总结，也不要机械地每句都使用“然后”“接着”。
+- narrationText 要与对应镜头正在发生的动作一致，但不能只描述画面。模板规定的关键对白必须出现在对应 narrationText 中，不能只存在于画面描述里；全部角色对白仍由同一个旁白音色朗读。
 - narrationText 只包含要朗读的中文正文，不得包含“旁白：”、角色标签、舞台说明、Markdown、SSML、字幕指令或引号外说明。
 - 不生成独立转场镜头，不要求字幕、背景音乐或新增首帧画面。
 

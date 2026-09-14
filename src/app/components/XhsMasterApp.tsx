@@ -5725,7 +5725,7 @@ function VideosPanel(props: {
 
           <div className="border-t border-ink/10 pt-4">
             <h3 className="text-base font-semibold">第二步：生成完整视频任务</h3>
-            <p className="mt-1 text-sm text-ink/60">加入周计划后，AI 将规划 3-6 个五秒镜头，每段包含约 4 秒主体内容、单一旁白和约 1 秒片尾转场；智能体将使用火山引擎生成配音并合成到视频。</p>
+            <p className="mt-1 text-sm text-ink/60">加入周计划后，AI 将先构思一段连续故事旁白，再按 3-6 个五秒镜头切分；每段包含约 4 秒主体内容、承接前后的单一旁白和约 1 秒片尾转场，智能体将使用火山引擎生成配音并合成到视频。</p>
             <p className="mt-1 text-xs text-ink/50">执行前需在智能体的 xiaohongshu_auto_op 环境中配置 VOLCENGINE_TTS_API_KEY 和 VOLCENGINE_TTS_SPEAKER。</p>
           </div>
         </div>}

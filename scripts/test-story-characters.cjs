@@ -61,6 +61,8 @@ async function run() {
   const plannedMotions = await video.planStoryVideoMotion({ story: generated, framePlan: frames });
   assert.equal(JSON.stringify(plannedMotions), JSON.stringify(motions));
   assert.ok(requests.at(-1).input.includes('narrationText'));
+  assert.ok(requests.at(-1).input.includes('按顺序直接拼接全部 narrationText'));
+  assert.ok(requests.at(-1).input.includes('模板规定的关键对白必须出现在对应 narrationText'));
   const input = { account: { name: '测试', accountParam: 'test' }, noteTask: { id: 42, topicTitle: '故事' }, story: generated, framePlan: frames, motionPlan: plannedMotions };
   delete process.env.STORY_CHARACTER_PUBLIC_BASE_URL;
   const attachmentTask = video.buildStoryVideoTask(input);
