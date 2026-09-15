@@ -116,6 +116,24 @@ function compactStoryContext(account: Record<string, unknown>, noteTask: Record<
   };
 }
 
+function compactStoryFrameContext(account: Record<string, unknown>, noteTask: Record<string, unknown>) {
+  return {
+    account: {
+      accountType: account.accountType,
+      personaBase: account.personaBase,
+      materialCondition: account.materialCondition
+    },
+    noteTask: {
+      topicTitle: noteTask.topicTitle,
+      contentGoal: noteTask.contentGoal,
+      coreView: noteTask.coreView,
+      requiredMaterials: noteTask.requiredMaterials,
+      recommendedAssets: noteTask.recommendedAssets,
+      coverCopyDirection: noteTask.coverCopyDirection
+    }
+  };
+}
+
 function extractJson(text: string) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const source = fenced || text;
@@ -194,26 +212,48 @@ function parseStoryDraft(value: unknown): VideoStoryDraft | null {
   return { title, summary, emotionalArc, noteTask, shots: shots as VideoStoryDraft["shots"] };
 }
 
-function parseStoryVideoFramePlan(value: unknown, assets: VideoSourceAsset[], expectedShotCount: number): StoryVideoFramePlan | null {
+type StoryFrameAssetReference = {
+  assetKey: string;
+  fileUrl: string;
+  fileName: string;
+  fileType: string;
+  tags: string;
+  suitableTypes: string;
+};
+
+function buildStoryFrameAssetReferences(assets: VideoSourceAsset[]): StoryFrameAssetReference[] {
+  return assets.map((asset, index) => ({
+    assetKey: `A${String(index + 1).padStart(2, "0")}`,
+    fileUrl: asset.fileUrl,
+    fileName: asset.filePath.split(/[\\/]/u).pop() || `asset-${asset.id}`,
+    fileType: asset.fileType,
+    tags: asset.tags || "",
+    suitableTypes: asset.suitableTypes || ""
+  }));
+}
+
+function parseStoryVideoFramePlan(value: unknown, assetReferences: StoryFrameAssetReference[], expectedShotCount: number): StoryVideoFramePlan | null {
   if (!Array.isArray(value) || value.length !== expectedShotCount || value.length < 3 || value.length > 6) return null;
-  const validUrls = new Set(assets.map((asset) => asset.fileUrl));
+  const assetsByKey = new Map(assetReferences.map((asset) => [asset.assetKey, asset]));
   const usedAssetUrls = new Set<string>();
   const shots = value.map((raw, index) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const item = raw as Record<string, unknown>;
     const frameSource = item.frameSource === "asset" ? "asset" : "generate";
-    const assetUrl = String(item.assetUrl || "").trim();
+    const assetKey = String(item.assetKey || "").trim();
     const role = String(item.role || "").trim();
     const description = String(item.description || "").trim();
     const framePrompt = String(item.framePrompt || "").trim();
     if (!role || !description || !framePrompt) return null;
     if (frameSource === "asset") {
-      if (!validUrls.has(assetUrl) || usedAssetUrls.has(assetUrl)) return null;
+      const assetUrl = assetsByKey.get(assetKey)?.fileUrl || "";
+      if (!assetUrl || usedAssetUrls.has(assetUrl)) return null;
       usedAssetUrls.add(assetUrl);
-    } else if (assetUrl) {
+      return { order: index + 1, role, description, frameSource, assetUrl, framePrompt };
+    } else if (assetKey) {
       return null;
     }
-    return { order: index + 1, role, description, frameSource, assetUrl, framePrompt };
+    return { order: index + 1, role, description, frameSource, assetUrl: "", framePrompt };
   });
   if (shots.some((shot) => !shot)) return null;
   return shots as StoryVideoFramePlan;
@@ -555,6 +595,18 @@ export async function planStoryVideoFrames(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
+  const assetReferences = buildStoryFrameAssetReferences(input.assets);
+  const responseSkeleton = {
+    overallDirection: "整片方向",
+    shots: input.story.shots.map((shot, index) => ({
+      order: index + 1,
+      role: shot.role,
+      description: shot.description,
+      frameSource: "generate",
+      assetKey: "",
+      framePrompt: ""
+    }))
+  };
   const response = await completeWithBackendAi({
     instructions: "你是小红书故事型竖屏短视频首帧与素材规划师。根据已确认故事、用户指定图片和素材库文字元数据，规划3-6个镜头的首帧来源和首帧处理提示词。只返回JSON。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
@@ -566,13 +618,14 @@ export async function planStoryVideoFrames(input: {
 - 优先从候选素材库图片中选择与镜头职责匹配的真实图片；只能根据文件名、标签、适用类型等文字元数据判断。
 - 候选素材无法匹配当前镜头时，使用 frameSource=generate 生成 AI 首帧；不得勉强套用不相关真实图片。
 - 只能根据文件名、标签、适用类型等文字元数据判断素材，不得声称看过图片。
-- 同一素材 URL 只能使用一次。没有明确匹配素材时使用 frameSource=generate，不得勉强套用不相关图片。
+- 同一 assetKey 只能使用一次。使用真实素材时必须从候选列表原样返回 assetKey；不得返回素材 URL、文件路径或素材 ID。
+- frameSource=generate 时 assetKey 必须为空字符串。没有明确匹配素材时使用 generate，不得勉强套用不相关图片。
 - 使用真实素材时，framePrompt 是 edit-image 精修提示词，要保留真实主体和空间，仅调整 3:4 构图、光线、色彩和必要背景。
 - 使用AI首帧时，framePrompt 是 generate-image 提示词，要明确主体、环境、构图、光线、色调和 3:4 竖版画面。
 ${input.story.character ? `- 本次已锁定主角参考图：${input.story.character.description}。允许将主角融入真实背景，保留场地主要结构。framePrompt 必须描述主角的位置、姿态、比例和融合光影。AI 背景先单独生成，再与主角参考图通过 edit-image 合成；不要复制角色展示图的背景。` : ""}
 
 账号与任务：
-${JSON.stringify(compactStoryContext(input.account, input.noteTask), null, 2)}
+${JSON.stringify(compactStoryFrameContext(input.account, input.noteTask), null, 2)}
 
 已确认故事：
 ${JSON.stringify(input.story, null, 2)}
@@ -581,21 +634,16 @@ ${JSON.stringify(input.story, null, 2)}
 ${input.expertRules || "暂无相关规则。"}
 
 候选素材库图片：
-${input.assets.length ? JSON.stringify(input.assets.map((asset) => ({
-    id: asset.id,
-    filePath: asset.filePath,
-    fileUrl: asset.fileUrl,
-    fileType: asset.fileType,
-    tags: asset.tags || "",
-    suitableTypes: asset.suitableTypes || ""
-  })), null, 2) : "当前没有可用真实图片，全部首帧使用AI生成。"}
+${assetReferences.length ? JSON.stringify(assetReferences.map(({ fileUrl: _fileUrl, ...reference }) => reference), null, 2) : "当前没有可用真实图片，全部首帧使用AI生成。"}
 
 返回格式：
-{"overallDirection":"整片方向","shots":[{"order":1,"role":"镜头职责","description":"本镜头画面内容","frameSource":"asset或generate","assetUrl":"asset时原样返回URL，generate时为空字符串","framePrompt":"首帧精修或生成Prompt"}]}`
+- 严格保留下方 ${input.story.shots.length} 个镜头的 order、role 和 description，为每个镜头填写 frameSource、assetKey 和 framePrompt。
+- frameSource 只能是 asset 或 generate。骨架中的 generate 仅是安全初始值；如有明确匹配素材，应改为 asset 并填写对应 assetKey。
+${JSON.stringify(responseSkeleton, null, 2)}`
   });
   if (!response.ok) throw new Error(`后端 AI 未能规划故事视频首帧与素材：${response.error}`);
   const parsed = extractJson(response.text);
-  const framePlan = parseStoryVideoFramePlan(parsed?.shots, input.assets, input.story.shots.length);
+  const framePlan = parseStoryVideoFramePlan(parsed?.shots, assetReferences, input.story.shots.length);
   if (!framePlan) throw new Error("后端 AI 返回的故事视频首帧规划 JSON 不完整或素材对应关系无效，请重试。");
   return { overallDirection: String(parsed?.overallDirection || "按已确认故事形成连贯的竖屏短视频。"), framePlan };
 }

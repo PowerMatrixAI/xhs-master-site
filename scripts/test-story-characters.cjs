@@ -55,7 +55,35 @@ async function run() {
   assert.equal(generated.character.id, cat.id);
   assert.ok(requests.at(-1).input.includes(cat.description));
 
-  const frames = [1,2,3].map((order) => ({ order, role: '故事', description: '庭院', frameSource: order === 1 ? 'asset' : 'generate', assetUrl: order === 1 ? 'https://example.com/background.png' : '', framePrompt: '角色在庭院' }));
+  const backgroundUrl = 'https://example.com/very-long-background-name.png?signature=must-not-be-echoed';
+  response = {
+    overallDirection: '月光连贯画面',
+    shots: [1,2,3].map((order) => ({
+      order,
+      role: '故事',
+      description: '庭院',
+      frameSource: order === 1 ? 'asset' : 'generate',
+      assetKey: order === 1 ? 'A01' : '',
+      framePrompt: '角色在庭院'
+    }))
+  };
+  const plannedFrames = await video.planStoryVideoFrames({
+    account: { accountType: '文旅', strategy: { markdown: 'FULL_STRATEGY_MUST_NOT_REACH_FRAME_PROMPT' } },
+    noteTask: { topicTitle: '月光邮局', contentGoal: '讲故事' },
+    story: generated,
+    assets: [{ id: 9, filePath: 'scenes/garden.png', fileUrl: backgroundUrl, fileType: 'image/png', tags: '庭院', suitableTypes: '故事背景' }]
+  });
+  assert.equal(plannedFrames.framePlan[0].assetUrl, backgroundUrl);
+  assert.equal(plannedFrames.framePlan[1].assetUrl, '');
+  const frameRequest = requests.at(-1).input;
+  assert.ok(frameRequest.includes('"assetKey": "A01"'));
+  assert.ok(frameRequest.includes('"fileName": "garden.png"'));
+  assert.ok(frameRequest.includes('严格保留下方 3 个镜头'));
+  assert.equal((frameRequest.match(/"framePrompt": ""/g) || []).length, 3);
+  assert.ok(!frameRequest.includes(backgroundUrl));
+  assert.ok(!frameRequest.includes('FULL_STRATEGY_MUST_NOT_REACH_FRAME_PROMPT'));
+
+  const frames = plannedFrames.framePlan;
   const motions = [1,2,3].map((order) => ({ order, mainVideoPrompt: '缓慢向前', endingTransitionPrompt: '轻轻停下', narrationText: `第${order}段月光旁白` }));
   response = { shots: motions };
   const plannedMotions = await video.planStoryVideoMotion({ story: generated, framePlan: frames });
