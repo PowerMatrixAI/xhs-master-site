@@ -265,6 +265,7 @@ type NoteTask = {
 
 type PromptResult = {
   openclawTask?: { content: string; title: string };
+  selectedDraft?: DraftVariant;
   prompt: { content: string; title: string };
   imagePrompt?: { content: string; title: string; path: string };
   commands: Array<{ category: string; command: string; description: string; safetyNote: string }>;
@@ -2391,7 +2392,25 @@ export function XhsMasterApp() {
       const res = await authenticatedFetch(`/api/note-tasks/${task.id}/draft-variants`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ account: accountForPrompt, noteTask: task, weeklyPlan: latestPlan })
+        body: JSON.stringify({
+          account: accountForPrompt,
+          noteTask: task,
+          weeklyPlan: latestPlan,
+          weeklyTitleContext: {
+            otherTopicTitles: latestPlan.noteTasks
+              .filter((item) => item.id !== task.id)
+              .map((item) => item.topicTitle)
+              .filter(Boolean),
+            generatedTitles: latestPlan.noteTasks
+              .filter((item) => item.id !== task.id)
+              .flatMap((item) => (draftVariants[item.id] || []).map((variant) => variant.title))
+              .filter(Boolean),
+            selectedTitles: latestPlan.noteTasks
+              .filter((item) => item.id !== task.id)
+              .map((item) => promptResults[item.id]?.selectedDraft?.title || "")
+              .filter(Boolean)
+          }
+        })
       });
       const data = await readApiJsonResponse(res, "生成三个版本失败");
       if (!res.ok) throw new Error(data.error || "后端 AI 未能生成三个版本。");

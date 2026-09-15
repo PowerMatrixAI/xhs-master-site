@@ -167,6 +167,7 @@ export async function POST(request: Request, _context: { params: { id: string } 
       title: openclawTask.title,
       content: openclawTask.content
     },
+    selectedDraft: resolvedDraft,
     prompt,
     commands
   });

@@ -20,7 +20,10 @@ async function buildDraftVariantsResult(body: Record<string, any>) {
     noteTask,
     expertRules: account.expertRules || [],
     knowledgeSnapshotId: String(weeklyPlan.knowledgeSnapshotId || ""),
-    knowledgeSourceKeys: Array.isArray(noteTask.knowledgeSourceKeys) ? noteTask.knowledgeSourceKeys : []
+    knowledgeSourceKeys: Array.isArray(noteTask.knowledgeSourceKeys) ? noteTask.knowledgeSourceKeys : [],
+    weeklyTitleContext: body.weeklyTitleContext && typeof body.weeklyTitleContext === "object"
+      ? body.weeklyTitleContext
+      : undefined
   });
 }
 

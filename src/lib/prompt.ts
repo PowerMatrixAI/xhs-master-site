@@ -17,6 +17,12 @@ type PromptNoteTask = NoteTask & {
   writingStyleReference?: string;
 };
 
+export type WeeklyTitleContext = {
+  otherTopicTitles?: string[];
+  generatedTitles?: string[];
+  selectedTitles?: string[];
+};
+
 function compactPromptText(value: unknown, maxLength = 800) {
   const text = String(value || "").trim();
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
@@ -61,6 +67,9 @@ const globalDraftWritingStyleRules = [
   "必须避免理性分析、报告式、说明书式和平铺直叙的表达，写出有情绪、有态度、有画面、有生活细节的活人感分享。",
   "优先使用第一人称青年女性口吻，突出感官细节、情绪和生活化场景。",
   "不能出现“它不是那种 XXX”这类举例式说明论证的口吻。",
+  "不要机械复制标题方向中已有的地名。标题优先突出内容本身最有吸引力的对象、细节、体验、情绪、问题或收益，不把账号所在地当作固定前缀或固定卖点。",
+  "生成多个标题版本时应使用不同切入角度，避免全部使用相同的“地名 + 主题”结构。地名确实有助于理解、搜索或避免误导时仍可自然使用，不做绝对禁止。",
+  "正文可以根据事实需要自然说明地址、区域、交通和服务范围，但不要无意义地反复强调账号所在地。",
   "不得出现运营、Prompt、素材、选题、生成过程、资料缺口或创作说明等幕后语言。"
 ];
 
@@ -72,11 +81,17 @@ export function buildDraftVariantContext(input: {
   account: Account;
   noteTask: PromptNoteTask;
   expertRules?: string;
+  weeklyTitleContext?: WeeklyTitleContext;
 }) {
-  const { noteTask, expertRules } = input;
+  const { noteTask, expertRules, weeklyTitleContext } = input;
+  const titleReferences = [
+    ...(Array.isArray(weeklyTitleContext?.selectedTitles) ? weeklyTitleContext.selectedTitles : []).map((title) => `- 已选定标题：${compactPromptText(title, 80)}`),
+    ...(Array.isArray(weeklyTitleContext?.generatedTitles) ? weeklyTitleContext.generatedTitles : []).map((title) => `- 已生成候选：${compactPromptText(title, 80)}`),
+    ...(Array.isArray(weeklyTitleContext?.otherTopicTitles) ? weeklyTitleContext.otherTopicTitles : []).map((title) => `- 其他内容主题：${compactPromptText(title, 80)}`)
+  ].filter(Boolean).slice(0, 24);
 
   return `## 本篇创作简报
-- 标题方向：${noteTask.topicTitle}
+- 内容主题参考（不是待改写的半成品标题）：${noteTask.topicTitle}
 - 内容目标：${noteTask.contentGoal}
 - 目标用户：${noteTask.targetUser}
 - 用户痛点：${noteTask.painPoint}
@@ -84,6 +99,12 @@ export function buildDraftVariantContext(input: {
 - 素材与事实范围：${noteTask.requiredMaterials || "未填写"}；${noteTask.recommendedAssets || "未填写"}
 - 封面方向：${noteTask.coverCopyDirection}
 - 评论钩子：${noteTask.commentHook}
+
+## 本周标题避重参考
+${titleReferences.length ? titleReferences.join("\n") : "暂无其他已生成标题；仍需让本篇三个标题的切入方式彼此不同。"}
+- 上述内容只用于避免重复，不是仿写案例。不得复用其开头、句式、核心钩子，也不得只做近义词替换。
+- 本篇三个标题应根据内容，从具体细节、情绪瞬间、自然悬念、反差发现、用户收益、场景代入、观点判断、对话口吻或故事开端中选择不同切口；不固定每个版本的切口。
+- 标题长短服从自然表达，短标题也可以，不要为了写满额度补充空泛修饰词；最多不得超过 18 个小红书标题单位。
 
 ## 本篇唯一爆款文风参考
 ${buildReferenceStyleBrief(noteTask)}

@@ -1,6 +1,6 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import { formatExpertRulesForPrompt } from "@/lib/expertLearning";
-import { buildDraftVariantContext } from "@/lib/prompt";
+import { buildDraftVariantContext, type WeeklyTitleContext } from "@/lib/prompt";
 import {
   formatWeeklyPlanningObjectiveRules,
   selectedWeeklyPlanningObjectivesFromTheme
@@ -50,7 +50,7 @@ function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function xhsTitleUnits(title: string) {
+export function xhsTitleUnits(title: string) {
   const normalized = title.replace(/\s+/g, "");
   const graphemes = typeof Intl.Segmenter === "function"
     ? Array.from(new Intl.Segmenter("zh-CN", { granularity: "grapheme" }).segment(normalized), ({ segment }) => segment)
@@ -70,18 +70,51 @@ export async function generateDraftVariants(input: {
   expertRules?: unknown[];
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
+  weeklyTitleContext?: WeeklyTitleContext;
 }) {
   const context = buildDraftVariantContext({
     account: input.account,
     noteTask: input.noteTask,
-    expertRules: formatExpertRulesForPrompt((input.expertRules || []) as never, ["title", "body", "interaction", "risk"])
+    expertRules: formatExpertRulesForPrompt((input.expertRules || []) as never, ["title", "body", "interaction", "risk"]),
+    weeklyTitleContext: input.weeklyTitleContext
   });
   const selectedObjectives = selectedWeeklyPlanningObjectivesFromTheme(input.account.accountType, input.weeklyPlan.theme);
   const objectiveRules = selectedObjectives.length
     ? formatWeeklyPlanningObjectiveRules(selectedObjectives)
     : "";
 
-  const promptInput = `基于以下单篇笔记上下文，直接生成 3 个可发布到小红书草稿箱的标题和正文版本。\n\n${context}${objectiveRules ? `\n\n${objectiveRules}\n- 上述专项限制用于约束本篇任务的主题、事实与表达边界；不得自行补写被限制内容。` : ""}\n\n## 规则优先级（从高到低）\n1. 已启用专家规则。\n2. 全类目文风与写法基线。\n3. 本篇唯一爆款文风案例。\n4. 运营目标专项限制。\n5. 本篇任务字段。\n\n## 三档表达强度\n${variantDefinitions.map((variant) => `- ${variant.id}（${variant.label}）：${variant.requirement}`).join("\n")}\n\n## 强制要求\n1. 固定输出上述 3 个版本，各出现一次，顺序必须为 playful、lively、balanced。\n2. 三个版本围绕同一主题和同一组图片，不得偏离本篇选题；语气梯度必须明显，不能只替换少量形容词。\n3. 优先模仿“本篇唯一爆款文风参考”中的语气、Emoji、标点、口语、情绪密度、生活细节和句式节奏；不得复制参考标题、原句、独特比喻或具体数据。\n4. 每个 body 必须是完整成品正文，使用简体中文、自然分段，最后一行写 5-6 个话题标签。不要出现版本名称、创作说明、运营术语、AI、Prompt、素材或生成过程。\n5. title 必须是单行成品标题，建议充分使用标题额度，长度优先为 14-18 个小红书标题字符，最多不得超过 18，为平台 20 字符上限预留缓冲。计数规则：中文汉字、中文标点和全角符号各计 1；每个 Emoji 表情计 2；英文、数字和英文标点等半角字符约每 2 个计 1。不要附带话题标签。\n\nJSON 格式：\n{\n  "variants": [\n    { "id": "playful", "label": "版本1", "title": "", "body": "" },\n    { "id": "lively", "label": "版本2", "title": "", "body": "" },\n    { "id": "balanced", "label": "版本3", "title": "", "body": "" }\n  ]\n}`;
+  const promptInput = `基于以下单篇笔记上下文，直接生成 3 个可发布到小红书草稿箱的标题和正文版本。
+
+${context}${objectiveRules ? `
+
+${objectiveRules}
+- 上述专项限制用于约束本篇任务的主题、事实与表达边界；不得自行补写被限制内容。` : ""}
+
+## 规则优先级（从高到低）
+1. 已启用专家规则。
+2. 全类目文风与写法基线。
+3. 本篇唯一爆款文风案例。
+4. 运营目标专项限制。
+5. 本篇任务字段。
+
+## 三档表达强度
+${variantDefinitions.map((variant) => `- ${variant.id}（${variant.label}）：${variant.requirement}`).join("\n")}
+
+## 强制要求
+1. 固定输出上述 3 个版本，各出现一次，顺序必须为 playful、lively、balanced。
+2. 三个版本围绕同一主题和同一组图片，不得偏离本篇选题；语气梯度和标题切入角度都必须明显，不能只替换少量形容词。
+3. 优先模仿“本篇唯一爆款文风参考”中的语气、Emoji、标点、口语、情绪密度、生活细节和句式节奏；不得复制参考标题、原句、独特比喻或具体数据。
+4. 每个 body 必须是完整成品正文，使用简体中文、自然分段，最后一行写 5-6 个话题标签。不要出现版本名称、创作说明、运营术语、AI、Prompt、素材或生成过程。
+5. title 必须是单行成品标题，长短服从自然表达，短标题也可以，不要为写满额度添加空泛修饰词；最多不得超过 18 个小红书标题单位。计数规则：中文汉字、中文标点和全角符号各计 1；每个 Emoji 表情计 2；英文、数字和英文标点等半角字符约每 2 个计 1。不要附带话题标签。
+
+JSON 格式：
+{
+  "variants": [
+    { "id": "playful", "label": "版本1", "title": "", "body": "" },
+    { "id": "lively", "label": "版本2", "title": "", "body": "" },
+    { "id": "balanced", "label": "版本3", "title": "", "body": "" }
+  ]
+}`;
   const hasKnowledgeSources = Boolean(input.knowledgeSnapshotId && input.knowledgeSourceKeys?.length);
   let response = await completeWithBackendAi({
     instructions: "你是擅长模仿小红书爆款表达的中文文案作者。严格输出合法 JSON，不输出解释、Markdown 代码块或版本生成过程。",
@@ -112,8 +145,8 @@ export async function generateDraftVariants(input: {
     if (id !== definition.id || !title || !body) {
       throw new Error(`后端 AI 返回的第 ${index + 1} 个文案版本不完整，请重新生成。`);
     }
-    if (xhsTitleUnits(title) > 20) {
-      throw new Error(`后端 AI 返回的第 ${index + 1} 个标题超过小红书 20 字符上限，请重新生成。`);
+    if (xhsTitleUnits(title) > 18) {
+      throw new Error(`后端 AI 返回的第 ${index + 1} 个标题超过 18 个小红书标题单位，请重新生成。`);
     }
     return { id: definition.id, label: definition.label, title, body } satisfies DraftVariant;
   });
