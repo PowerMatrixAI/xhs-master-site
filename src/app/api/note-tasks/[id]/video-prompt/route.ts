@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
 import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
+import type { BackendAiCredentials } from "@/lib/backendAiClient";
 import {
   buildDirectVideoTask,
   buildImageToVideoTask,
@@ -60,24 +61,24 @@ async function buildResult(body: Record<string, unknown>) {
   };
 }
 
-function storyPlanContext(body: Record<string, unknown>) {
+async function storyPlanContext(body: Record<string, unknown>, credentials: BackendAiCredentials) {
   const context = requestContext(body);
   const story = body.story as VideoStoryDraft;
   const assets = (Array.isArray(body.assets) ? body.assets : []) as VideoSourceAsset[];
   if (!story?.title || !Array.isArray(story.shots) || story.shots.length < 3 || story.shots.length > 6) throw new Error("请先生成并确认完整故事。");
-  if (story.character) story.character = resolveStoryCharacter(story.character.templateId, story.character.id);
+  if (story.character) story.character = await resolveStoryCharacter(story.character.templateId, story.character.id, credentials);
   if (assets.some((asset) => !String(asset.fileUrl || "").startsWith("http"))) throw new Error("故事视频候选素材中存在不可访问的图片。");
   return { ...context, story, assets };
 }
 
-async function buildStoryFrameResult(body: Record<string, unknown>) {
-  const input = storyPlanContext(body);
+async function buildStoryFrameResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const input = await storyPlanContext(body, credentials);
   const result = await planStoryVideoFrames(input);
   return { ...result, ai: { used: true, calls: 1, stage: "frames" } };
 }
 
-async function buildStoryMotionResult(body: Record<string, unknown>) {
-  const input = storyPlanContext(body);
+async function buildStoryMotionResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const input = await storyPlanContext(body, credentials);
   const framePlan = body.framePlan as StoryVideoFramePlan;
   if (!Array.isArray(framePlan) || framePlan.length < 3 || framePlan.length > 6) throw new Error("缺少有效的首帧规划结果。");
   const motionPlan = await planStoryVideoMotion({
@@ -90,8 +91,8 @@ async function buildStoryMotionResult(body: Record<string, unknown>) {
   return { motionPlan, ai: { used: true, calls: 1, stage: "motion" } };
 }
 
-function buildStoryTaskResult(body: Record<string, unknown>) {
-  const input = storyPlanContext(body);
+async function buildStoryTaskResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const input = await storyPlanContext(body, credentials);
   const framePlan = body.framePlan as StoryVideoFramePlan;
   const motionPlan = body.motionPlan as StoryVideoMotionPlan;
   if (!Array.isArray(framePlan) || !Array.isArray(motionPlan)) throw new Error("缺少首帧或动态规划结果。");
@@ -117,15 +118,15 @@ export async function POST(request: Request) {
   const credentials = getBackendAiCredentialsFromRequest(request);
   if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
   if (body.action === "plan_story_frames") {
-    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildStoryFrameResult(body)));
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildStoryFrameResult(body, credentials)));
     return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
   }
   if (body.action === "plan_story_motion") {
-    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildStoryMotionResult(body)));
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildStoryMotionResult(body, credentials)));
     return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
   }
   if (body.action === "build_story_task") {
-    try { return NextResponse.json(await runWithBackendAiCredentials(credentials, () => buildStoryTaskResult(body))); }
+    try { return NextResponse.json(await runWithBackendAiCredentials(credentials, () => buildStoryTaskResult(body, credentials))); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "组装故事视频任务失败" }, { status: 400 }); }
   }
   if (body.mode === "direct_video") {

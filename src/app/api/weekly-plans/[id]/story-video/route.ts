@@ -2,16 +2,17 @@ import { NextResponse } from "next/server";
 import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
 import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
+import type { BackendAiCredentials } from "@/lib/backendAiClient";
 import { formatExpertRulesForPrompt } from "@/lib/expertLearning";
 import { generateVideoStoryDraft, type VideoStorySourceType } from "@/lib/videoPrompts";
 import { extractWritingStyleReferences, findWritingStyleReference } from "@/lib/writingStyles";
 
-async function buildStoryResult(body: Record<string, unknown>) {
+async function buildStoryResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
   const account = body.account as Record<string, unknown> & { name: string; accountParam: string; referenceAccounts?: string };
   const weeklyPlan = body.weeklyPlan as { id?: number; knowledgeSnapshotId?: string };
   const sourceType = body.storySourceType === "template" ? "template" as VideoStorySourceType : null;
   const sourceContent = String(body.storySourceContent || "").trim();
-  const character = resolveStoryCharacter(String(body.templateId || ""), String(body.characterId || ""));
+  const character = await resolveStoryCharacter(String(body.templateId || ""), String(body.characterId || ""), credentials);
   const knowledgeSnapshotId = String(body.knowledgeSnapshotId || weeklyPlan?.knowledgeSnapshotId || "").trim();
 
   if (!account?.accountParam || !weeklyPlan?.id) throw new Error("缺少账号或当前周计划上下文。");
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
   if (!body.account || !body.weeklyPlan) return NextResponse.json({ error: "缺少账号或周计划上下文。" }, { status: 400 });
   const credentials = getBackendAiCredentialsFromRequest(request);
   if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
-  const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildStoryResult(body)));
+  const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildStoryResult(body, credentials)));
   return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
 }
 

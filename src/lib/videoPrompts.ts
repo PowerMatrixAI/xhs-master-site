@@ -711,7 +711,7 @@ export function buildStoryVideoTask(input: {
   }
   const shots = combineStoryVideoPlans(input.framePlan, input.motionPlan);
   const character = input.story.character;
-  const characterUrl = character ? characterDownloadUrl(character, process.env.STORY_CHARACTER_PUBLIC_BASE_URL || "") : "";
+  const characterUrl = character ? characterDownloadUrl(character) : "";
   const taskDir = `.tasks/xhs-video-task-${input.noteTask.id}`;
   const plan = {
     version: 1,

@@ -46,6 +46,8 @@ import {
   logout,
   getToken,
   getUser,
+  fetchBackendStoryCharacters,
+  isPlatformAdmin,
   saveBackendAssets,
   updateBackendAssetTags,
   saveBackendNoteTask,
@@ -78,8 +80,9 @@ import { isExpertRuleEnabled } from "@/lib/expertLearning";
 import { KnowledgeBasePanel } from "@/app/components/KnowledgeBasePanel";
 import type React from "react";
 import clsx from "clsx";
-import { getStoryCharacters, type StoryCharacter } from "@/lib/storyCharacters";
+import type { StoryCharacter } from "@/lib/storyCharacters";
 import { StoryCharacterPicker } from "@/app/components/StoryCharacterPicker";
+import { StoryCharacterLibraryPanel } from "@/app/components/StoryCharacterLibraryPanel";
 
 type Template = {
   id: number;
@@ -433,7 +436,8 @@ const mainTabs = [
   ["knowledgeBase", "知识库", Database],
   ["interactions", "发布后互动", MessageCircle],
   ["reports", "专家复盘", Activity],
-  ["learning", "行业学习", BookOpen]
+  ["learning", "行业学习", BookOpen],
+  ["storyCharacters", "平台素材库", ImageIcon]
 ] as const;
 
 const advancedTabs = [
@@ -1568,6 +1572,9 @@ export function XhsMasterApp() {
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const copyNoticeTimerRef = useRef<number | null>(null);
   const [currentUser, setCurrentUser] = useState<LoginResponse | null>(null);
+  const visibleMainTabs = currentUser && isPlatformAdmin(currentUser)
+    ? mainTabs
+    : mainTabs.filter(([id]) => id !== "storyCharacters");
   const [promptResults, setPromptResults] = useState<Record<number, PromptResult>>({});
   // 三版文案仅保存在当前页面会话中，不同步到浏览器工作区或后端。
   const [draftVariants, setDraftVariants] = useState<Record<number, DraftVariant[]>>({});
@@ -1606,6 +1613,12 @@ export function XhsMasterApp() {
   const selected = useMemo(() => accounts.find((account) => account.id === selectedId) ?? accounts[0], [accounts, selectedId]);
   const latestPlan = selected?.weeklyPlans?.[0];
   const selectedNote = latestPlan?.noteTasks?.find((task) => task.id === selectedNoteId) ?? latestPlan?.noteTasks?.[0];
+
+  useEffect(() => {
+    if (currentUser && !isPlatformAdmin(currentUser) && activeTab === "storyCharacters") {
+      setActiveTab("dashboard");
+    }
+  }, [activeTab, currentUser]);
 
   useEffect(() => {
     const hasToken = Boolean(getToken());
@@ -3115,7 +3128,7 @@ export function XhsMasterApp() {
         </div>
         <div className="sidebar-scroll scrollbar-thin min-h-0 flex-1 overflow-y-auto pr-1">
         <nav className="space-y-1">
-          {mainTabs.map(([id, label, Icon]) => (
+          {visibleMainTabs.map(([id, label, Icon]) => (
             <button
               key={id}
               type="button"
@@ -3210,8 +3223,8 @@ export function XhsMasterApp() {
             </div>
           </div>
           <div className="mt-3 flex gap-2 overflow-x-auto lg:hidden">
-            {mainTabs.map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setActiveTab(id)} className={clsx("shrink-0 rounded-lg px-3 py-2 text-sm", activeTab === id ? "bg-teal text-white" : "bg-white/80 text-ink/70")}>
+            {visibleMainTabs.map(([id, label]) => (
+              <button key={id} type="button" onClick={() => setActiveTab(id)} className={clsx("shrink-0 rounded px-3 py-2 text-sm", activeTab === id ? "bg-ink text-white" : "bg-white")}>
                 {label}
               </button>
             ))}
@@ -3298,6 +3311,9 @@ export function XhsMasterApp() {
               loading={loading}
               loadingAction={loadingAction}
             />
+          )}
+          {activeTab === "storyCharacters" && isPlatformAdmin(currentUser) && (
+            <StoryCharacterLibraryPanel currentUser={currentUser} notify={showToast} />
           )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
@@ -5484,6 +5500,10 @@ function VideosPanel(props: {
   const [storyDraft, setStoryDraft] = useState<VideoStoryDraft | null>(null);
   const [storyKnowledgeSnapshotId, setStoryKnowledgeSnapshotId] = useState("");
   const [storyTask, setStoryTask] = useState<NoteTask | null>(null);
+  const [storyCharacters, setStoryCharacters] = useState<StoryCharacter[]>([]);
+  const [storyCharactersLoading, setStoryCharactersLoading] = useState(false);
+  const [storyCharactersError, setStoryCharactersError] = useState("");
+  const [storyCharactersReloadKey, setStoryCharactersReloadKey] = useState(0);
   const videoAssets = (selected?.assets || []).filter(isRemoteVideoAsset);
   const imageAssets = (selected?.assets || []).filter(isRemoteImageAsset);
   const activeTask = mode === "story_video" ? storyTask : note;
@@ -5493,6 +5513,27 @@ function VideosPanel(props: {
   useEffect(() => {
     if (note && note.id !== selectedNoteId) setSelectedNoteId(note.id);
   }, [note, selectedNoteId, setSelectedNoteId]);
+
+  useEffect(() => {
+    if (mode !== "story_video") return;
+    let cancelled = false;
+    setStoryCharactersLoading(true);
+    setStoryCharactersError("");
+    setStoryCharacters([]);
+    fetchBackendStoryCharacters(storyTemplateId)
+      .then((characters) => {
+        if (!cancelled) setStoryCharacters(characters);
+      })
+      .catch((error) => {
+        if (!cancelled) setStoryCharactersError(error instanceof Error ? error.message : "获取平台角色库失败。");
+      })
+      .finally(() => {
+        if (!cancelled) setStoryCharactersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, storyCharactersReloadKey, storyTemplateId]);
   function switchMode(nextMode: VideoSourceMode) {
     if (nextMode === mode) return;
     setMode(nextMode);
@@ -5526,7 +5567,7 @@ function VideosPanel(props: {
       ? Boolean(note) && selectedAssets.length >= 2 && selectedAssets.length <= 6
       : Boolean(storyDraft && storyTask);
   const storyTemplate = VIDEO_STORY_TEMPLATES.find((template) => template.id === storyTemplateId) || VIDEO_STORY_TEMPLATES[0];
-  const canGenerateStory = !getStoryCharacters(storyTemplateId).length || getStoryCharacters(storyTemplateId).some((character) => character.id === characterId);
+  const canGenerateStory = !storyCharactersLoading && !storyCharactersError && storyCharacters.some((character) => character.id === characterId);
   const storySourceContent = `${storyTemplate.name}：${storyTemplate.outline}${storyTemplate.requiredScenes.length ? `\n强制场景：${storyTemplate.requiredScenes.join("；")}` : ""}`;
   const isGeneratingVideoTask = ["generateVideoPrompt", "generateStoryVideoFrames", "generateStoryVideoMotion", "buildStoryVideoTask"].includes(loadingAction || "");
   const videoTaskLoadingText = loadingAction === "generateStoryVideoFrames"
@@ -5622,7 +5663,16 @@ function VideosPanel(props: {
             <p className="mt-1 text-sm text-ink/60">模板自带主角、冲突与反转；生成时会用账号素材承接故事场景，确认后新增一篇视频笔记到当前周计划。</p>
           </div>
           <label className="field"><span>选择故事模板</span><select disabled={loading || Boolean(storyTask)} value={storyTemplateId} onChange={(event) => { setStoryTemplateId(event.target.value); setCharacterId(""); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}>{VIDEO_STORY_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
-          <StoryCharacterPicker key={storyTemplateId} templateId={storyTemplateId} value={characterId} disabled={loading || Boolean(storyTask)} onChange={(id) => { setCharacterId(id); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }} />
+          <StoryCharacterPicker
+            templateId={storyTemplateId}
+            value={characterId}
+            disabled={loading || Boolean(storyTask)}
+            characters={storyCharacters}
+            loading={storyCharactersLoading}
+            error={storyCharactersError}
+            onRetry={() => setStoryCharactersReloadKey((current) => current + 1)}
+            onChange={(id) => { setCharacterId(id); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}
+          />
           <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/75">
             <span className="font-medium text-ink">模板剧情：</span>{storyTemplate.outline}
             {storyTemplate.requiredScenes.length ? <div className="mt-2"><span className="font-medium text-ink">强制场景：</span>{storyTemplate.requiredScenes.join("；")}</div> : null}

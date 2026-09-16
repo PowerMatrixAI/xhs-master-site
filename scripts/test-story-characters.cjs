@@ -12,12 +12,20 @@ function loadTs(file, overrides = {}) {
   }).outputText;
   const module = { exports: {} };
   vm.runInNewContext(output, {
-    exports: module.exports, module, process, URL,
+    exports: module.exports,
+    module,
+    process,
+    URL,
     require: (id) => id in overrides ? overrides[id] : require(id)
   }, { filename: file });
   return module.exports;
 }
-const library = loadTs('src/lib/storyCharacters.ts');
+
+const library = loadTs('src/lib/storyCharacters.ts', {
+  '@/lib/backendApi': { getBackendApiBaseUrl: () => 'https://backend.example.com/client' },
+  '@/lib/xhs-signature': { buildBackendSignedHeaders: () => ({}) },
+  '@/lib/backendAiClient': {}
+});
 const video = loadTs('src/lib/videoPrompts.ts', {
   '@/lib/storyCharacters': library,
   '@/lib/backendAiServerClient': { completeWithBackendAi: async (input) => {
@@ -27,29 +35,24 @@ const video = loadTs('src/lib/videoPrompts.ts', {
 });
 
 async function run() {
-  assert.equal(library.getStoryCharacters('cat_moon_post').length, 2);
-  assert.equal(library.getStoryCharacters('niu_lai_dream').length, 2);
-  for (const template of ['dog_reverse_map', 'fox_borrowed_moon', 'rabbit_last_train']) {
-    assert.equal(library.getStoryCharacters(template).length, 2);
-    assert.throws(() => library.resolveStoryCharacter(template));
-  }
-  assert.throws(() => library.resolveStoryCharacter('cat_moon_post'));
-  assert.throws(() => library.resolveStoryCharacter('cat_moon_post', 'niu-brown'));
-  const cat = library.resolveStoryCharacter('cat_moon_post', 'cat-orange');
-  assert.equal(library.characterDownloadUrl(cat, ''), '');
-  assert.throws(() => library.characterDownloadUrl(cat, 'http://localhost:3000'));
-  assert.throws(() => library.characterDownloadUrl(cat, 'https://192.168.1.2'));
-  assert.equal(library.characterDownloadUrl(cat, 'https://site.example.com'), 'https://site.example.com/story-characters/cat-orange.png');
-  for (const template of ['cat_moon_post', 'dog_reverse_map', 'niu_lai_dream', 'fox_borrowed_moon', 'rabbit_last_train']) {
-    for (const item of library.getStoryCharacters(template)) {
-      const data = fs.readFileSync(path.join('public', item.imagePath));
-      assert.equal(data.subarray(1, 4).toString(), 'PNG');
-      assert.ok(data.length > 10000);
-    }
-  }
+  assert.equal(library.STORY_CHARACTER_TEMPLATES.length, 5);
+  assert.equal(library.isStoryCharacterTemplate('cat_moon_post'), true);
+  assert.equal(library.isStoryCharacterTemplate('unknown'), false);
+
+  const cat = library.normalizeStoryCharacter({
+    id: 101,
+    templateId: 'cat_moon_post',
+    name: '橘白猫邮差',
+    description: '橘白短毛，绿色邮差挎包。',
+    imageUrl: 'https://cdn.example.com/story-characters/cat.png'
+  });
+  assert.ok(cat);
+  assert.equal(cat.id, '101');
+  assert.equal(library.characterDownloadUrl(cat), cat.imageUrl);
+  assert.throws(() => library.characterDownloadUrl({ ...cat, imageUrl: 'http://localhost:3000/cat.png' }));
 
   const noteTask = Object.fromEntries(['topicTitle', 'contentType', 'contentGoal', 'targetUser', 'painPoint', 'coreView', 'requiredMaterials', 'recommendedAssets', 'coverCopyDirection', 'commentHook', 'expectedGoal', 'writingStyleName'].map((key) => [key, '测试']));
-  const story = { title: '月光邮局', summary: '找信', emotionalArc: '发现', noteTask, shots: [1,2,3].map((order) => ({ order, beat: '发现', role: '故事', description: '画面', suggestedMaterial: '庭院' })) };
+  const story = { title: '月光邮局', summary: '找信', emotionalArc: '发现', noteTask, character: cat, shots: [1, 2, 3].map((order) => ({ order, beat: '发现', role: '故事', description: '画面', suggestedMaterial: '庭院' })) };
   response = story;
   const generated = await video.generateVideoStoryDraft({ account: {}, noteTask: {}, character: cat, sourceType: 'template', sourceContent: '月光邮局', availableWritingStyles: ['测试'] });
   assert.equal(generated.character.id, cat.id);
@@ -92,34 +95,28 @@ async function run() {
   assert.ok(requests.at(-1).input.includes('按顺序直接拼接全部 narrationText'));
   assert.ok(requests.at(-1).input.includes('模板规定的关键对白必须出现在对应 narrationText'));
   const input = { account: { name: '测试', accountParam: 'test' }, noteTask: { id: 42, topicTitle: '故事' }, story: generated, framePlan: frames, motionPlan: plannedMotions };
-  delete process.env.STORY_CHARACTER_PUBLIC_BASE_URL;
   const attachmentTask = video.buildStoryVideoTask(input);
   assert.ok(attachmentTask.includes('cat > "$TASK_ROOT/plan.json"'));
   assert.ok(attachmentTask.includes('story-video prepare'));
   assert.ok(attachmentTask.includes('story-video render'));
   assert.ok(attachmentTask.includes('--size 1080x1440'));
   assert.ok(attachmentTask.includes('3:4 构图'));
-  assert.ok(!attachmentTask.includes('9:16'));
   assert.ok(attachmentTask.includes('story-video reset'));
-  assert.ok(attachmentTask.includes('character-reference.png'));
+  assert.ok(attachmentTask.includes('角色图已提供公网 HTTPS 地址'));
   assert.ok(!attachmentTask.includes('prepare_frame()'));
   assert.ok(!attachmentTask.includes('render_video()'));
   assert.ok(!attachmentTask.includes('ffprobe'));
+  assert.ok(attachmentTask.includes(cat.imageUrl));
   const jsonText = attachmentTask.match(/<<'JSON'\n([^\n]+)\nJSON/)?.[1];
   assert.ok(jsonText);
   const taskPlan = JSON.parse(jsonText);
   assert.equal(taskPlan.version, 1);
+  assert.equal(taskPlan.character.imageUrl, cat.imageUrl);
   assert.equal(taskPlan.noteTask.id, 42);
   assert.deepEqual(taskPlan.shots.map((shot) => shot.narrationText), motions.map((motion) => motion.narrationText));
-  const second = video.buildStoryVideoTask({ ...input, story: { ...generated, character: library.resolveStoryCharacter('cat_moon_post', 'cat-gray') } });
-  assert.notEqual(JSON.parse(second.match(/<<'JSON'\n([^\n]+)\nJSON/)[1]).character.id, taskPlan.character.id);
-  process.env.STORY_CHARACTER_PUBLIC_BASE_URL = 'https://site.example.com';
-  const publicTask = video.buildStoryVideoTask(input);
-  assert.ok(publicTask.includes('https://site.example.com/story-characters/cat-orange.png'));
-  assert.ok(!publicTask.includes('由用户随任务附带'));
-  delete process.env.STORY_CHARACTER_PUBLIC_BASE_URL;
-  const plain = video.buildStoryVideoTask({ ...input, story: { ...story, character: null } });
+  const plain = video.buildStoryVideoTask({ ...input, story: { ...generated, character: null } });
   assert.equal(JSON.parse(plain.match(/<<'JSON'\n([^\n]+)\nJSON/)[1]).character, null);
-  console.log('PASS: compact story-video plan, staged CLI commands, character delivery, and narration contract');
+  console.log('PASS: server story-character contract, HTTPS delivery, and compact story-video plan');
 }
+
 run().catch((error) => { console.error(error); process.exitCode = 1; });

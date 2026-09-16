@@ -4,6 +4,7 @@
  */
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
 import { buildBackendSignedHeaders, buildProxyAuthHeaders } from "@/lib/xhs-signature";
+import { isPublicStoryCharacterImageUrl, normalizeStoryCharacter, type StoryCharacter } from "@/lib/storyCharacters";
 
 const API_BASE_URL = getBackendApiBaseUrl();
 
@@ -264,6 +265,10 @@ export function getUser(): LoginResponse | null {
   } catch {
     return null;
   }
+}
+
+export function isPlatformAdmin(user: LoginResponse | null = getUser()) {
+  return user?.role === "platform_admin";
 }
 
 export function setAuth(data: LoginResponse) {
@@ -532,6 +537,53 @@ export function autoLogin(): Promise<LoginResponse> {
  */
 export async function getProfile() {
   return authRequest("/user/v1/profile");
+}
+
+export async function fetchBackendStoryCharacters(templateId: string): Promise<StoryCharacter[]> {
+  const res = await authRequest<{ characters?: unknown[] }>("/storyCharacter/v1/list", {
+    method: "POST",
+    body: { templateId }
+  });
+  if (!res.status || !Array.isArray(res.data?.characters)) {
+    throw new Error(res.message || "获取故事角色失败。");
+  }
+  const characters = res.data.characters.map(normalizeStoryCharacter);
+  if (characters.some((character) => !character)) {
+    throw new Error("服务端返回了无效的故事角色数据。");
+  }
+  const normalized = characters as StoryCharacter[];
+  if (normalized.some((character) => character.templateId !== templateId || !isPublicStoryCharacterImageUrl(character.imageUrl))) {
+    throw new Error("服务端返回了无效的故事角色图片地址。");
+  }
+  return normalized;
+}
+
+export async function uploadBackendStoryCharacter(
+  templateId: string,
+  name: string,
+  description: string,
+  file: File
+): Promise<StoryCharacter> {
+  if (!isPlatformAdmin()) throw new Error("仅平台管理员可以上传故事角色。");
+  const form = new FormData();
+  form.set("templateId", templateId);
+  form.set("name", name);
+  form.set("description", description);
+  form.set("file", file);
+  const response = await authenticatedFetch("/api/story-characters/upload", {
+    method: "POST",
+    headers: buildProxyHeaders(),
+    body: form
+  });
+  const res = await response.json().catch(() => ({})) as ApiResponse<unknown>;
+  if (!response.ok || !res.status) {
+    throw new Error(res.message || "上传故事角色失败。");
+  }
+  const character = normalizeStoryCharacter(res.data);
+  if (!character || character.templateId !== templateId || !isPublicStoryCharacterImageUrl(character.imageUrl)) {
+    throw new Error("服务端返回了无效的故事角色数据。");
+  }
+  return character;
 }
 
 export async function fetchBackendAccounts(): Promise<BackendAccountDetail[]> {
