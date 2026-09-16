@@ -4,6 +4,12 @@
 
 :root {
   color-scheme: light;
+  --mountain-ink: #17343a;
+  --mountain-teal: #168c82;
+  --mountain-mist: #dcefeb;
+  --mountain-water: #b8ded8;
+  --mountain-paper: #f2f8f6;
+  --mountain-line: rgba(42, 113, 106, 0.14);
 }
 
 * {
@@ -12,9 +18,27 @@
 
 body {
   margin: 0;
-  background: #f7f5ef;
-  color: #1f2933;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 86% 2%, rgba(196, 227, 224, 0.62), transparent 28rem),
+    radial-gradient(circle at 14% 78%, rgba(208, 233, 226, 0.48), transparent 30rem),
+    linear-gradient(145deg, #f8fbfa 0%, var(--mountain-paper) 48%, #edf6f4 100%);
+  color: var(--mountain-ink);
   font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  isolation: isolate;
+}
+
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(154deg, transparent 0 61%, rgba(105, 151, 142, 0.08) 61.2% 62.2%, transparent 62.4%),
+    linear-gradient(205deg, transparent 0 69%, rgba(74, 132, 124, 0.07) 69.2% 70.2%, transparent 70.4%),
+    radial-gradient(ellipse at 72% 9%, rgba(255, 255, 255, 0.84) 0 9%, transparent 31%);
+  opacity: 0.85;
 }
 
 button,
@@ -22,6 +46,18 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 textarea {
@@ -34,23 +70,54 @@ textarea {
 
 @layer components {
   .panel {
-    @apply min-w-0 max-w-full rounded-md border border-ink/10 bg-white/70 p-5 shadow-panel;
+    @apply min-w-0 max-w-full rounded-xl border p-5 shadow-panel backdrop-blur-md;
+    border-color: rgba(42, 113, 106, 0.13);
+    background: rgba(255, 255, 255, 0.82);
   }
 
   .section-title {
-    @apply text-lg font-semibold;
+    @apply flex items-center gap-2 text-lg font-semibold tracking-tight;
+  }
+
+  .section-title::before {
+    width: 4px;
+    height: 1.15rem;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #2aa89c, #7bc5ba);
+    content: "";
   }
 
   .primary-button {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded bg-ink px-4 text-base font-medium leading-none text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-base font-medium leading-none text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50;
+    background: linear-gradient(135deg, #147f77, #209b90);
+    box-shadow: 0 8px 20px rgba(22, 140, 130, 0.2);
+  }
+
+  .primary-button:hover:not(:disabled) {
+    background: linear-gradient(135deg, #116f69, #188b82);
+    box-shadow: 0 10px 24px rgba(22, 140, 130, 0.28);
   }
 
   .secondary-button {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded border border-ink/15 bg-white px-4 text-sm font-medium transition hover:bg-ink/5;
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg border bg-white/80 px-4 text-sm font-medium text-ink transition;
+    border-color: rgba(42, 113, 106, 0.2);
+  }
+
+  .secondary-button:hover:not(:disabled) {
+    border-color: rgba(22, 140, 130, 0.38);
+    background: rgba(224, 243, 239, 0.72);
+    color: #10766f;
   }
 
   .icon-button {
-    @apply inline-flex h-10 w-10 items-center justify-center rounded border border-ink/15 bg-white text-ink transition hover:bg-ink hover:text-white;
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-lg border bg-white/80 text-ink transition;
+    border-color: rgba(42, 113, 106, 0.18);
+  }
+
+  .icon-button:hover {
+    border-color: var(--mountain-teal);
+    background: var(--mountain-teal);
+    color: white;
   }
 
   .field {
@@ -58,13 +125,14 @@ textarea {
   }
 
   .field span {
-    @apply text-xs font-medium text-ink/60;
+    @apply text-xs font-medium text-ink/65;
   }
 
   .field input,
   .field textarea,
   .field select {
-    @apply h-11 min-w-0 max-w-full w-full rounded border border-ink/15 bg-white px-3 text-sm leading-none outline-none transition focus:border-teal focus:ring-2 focus:ring-teal/15;
+    @apply h-11 min-w-0 max-w-full w-full rounded-lg border bg-white/85 px-3 text-sm leading-none outline-none transition focus:border-teal focus:ring-2 focus:ring-teal/15;
+    border-color: rgba(42, 113, 106, 0.18);
   }
 
   .field .input-with-icon {
@@ -72,6 +140,175 @@ textarea {
   }
 
   .code-textarea {
-    @apply min-w-0 max-w-full w-full rounded border border-ink/10 bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-teal focus:ring-2 focus:ring-teal/15;
+    @apply min-w-0 max-w-full w-full rounded-lg border bg-white/85 p-4 font-mono text-sm leading-6 outline-none focus:border-teal focus:ring-2 focus:ring-teal/15;
+    border-color: rgba(42, 113, 106, 0.14);
   }
+}
+
+.app-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 76% 0%, rgba(184, 222, 216, 0.22), transparent 34rem),
+    transparent;
+}
+
+.app-sidebar {
+  border-color: rgba(42, 113, 106, 0.14);
+  background:
+    linear-gradient(180deg, rgba(250, 253, 252, 0.97) 0%, rgba(244, 251, 249, 0.95) 44%, rgba(236, 248, 246, 0.68) 72%, rgba(231, 246, 244, 0.46) 100%),
+    url("/sidebar-ink-landscape.png") center bottom / 100% auto no-repeat;
+  box-shadow: 12px 0 36px rgba(42, 92, 87, 0.07);
+}
+
+.app-sidebar nav,
+.app-sidebar > div {
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar-scroll {
+  scrollbar-color: rgba(22, 140, 130, 0.3) transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(22, 140, 130, 0.28);
+}
+
+.app-header {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(42, 113, 106, 0.12);
+  background:
+    linear-gradient(90deg, rgba(248, 252, 251, 0.99) 0%, rgba(247, 252, 251, 0.9) 34%, rgba(244, 251, 249, 0.48) 68%, rgba(247, 252, 251, 0.64) 100%);
+  box-shadow: 0 8px 28px rgba(42, 92, 87, 0.05);
+}
+
+.workspace-hero-image {
+  opacity: 0.92;
+  object-fit: contain;
+  object-position: right center;
+}
+
+.app-header::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(223, 242, 238, 0.08));
+  content: "";
+  pointer-events: none;
+}
+
+.workspace-heading h1 {
+  text-shadow: 0 2px 18px rgba(68, 128, 120, 0.08);
+}
+
+.account-switcher,
+.user-profile-card {
+  border-color: rgba(42, 113, 106, 0.14);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 24px rgba(42, 92, 87, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.account-switcher:hover,
+.user-profile-card:hover {
+  border-color: rgba(22, 140, 130, 0.3);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.dashboard-stat-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 8.5rem;
+  padding: 1rem;
+}
+
+.dashboard-stat-card::after {
+  position: absolute;
+  right: -2rem;
+  bottom: -2.5rem;
+  width: 6.5rem;
+  height: 6.5rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(117, 190, 179, 0.13), transparent 68%);
+  content: "";
+}
+
+.dashboard-stat-card:hover {
+  border-color: rgba(22, 140, 130, 0.3);
+  box-shadow: 0 22px 54px rgba(35, 83, 79, 0.13);
+  transform: translateY(-2px);
+}
+
+.current-note-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 32rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.96) 52%, rgba(255, 255, 255, 0.66) 73%, rgba(255, 255, 255, 0.22) 100%),
+    url("/current-note-landscape.png") center bottom / 100% auto no-repeat;
+}
+
+.app-content {
+  position: relative;
+}
+
+.app-content::before {
+  position: absolute;
+  top: 0;
+  right: 2rem;
+  left: 2rem;
+  height: 11rem;
+  z-index: -1;
+  border-radius: 0 0 3rem 3rem;
+  background:
+    radial-gradient(ellipse at 72% 10%, rgba(177, 218, 211, 0.2), transparent 43%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent);
+  content: "";
+}
+
+.login-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.login-shell::before,
+.login-shell::after {
+  position: absolute;
+  right: -5vw;
+  bottom: 0;
+  width: 76vw;
+  height: 34vh;
+  content: "";
+  pointer-events: none;
+}
+
+.login-shell::before {
+  background: linear-gradient(180deg, rgba(159, 207, 198, 0.04), rgba(116, 180, 169, 0.18));
+  clip-path: polygon(0 100%, 0 80%, 9% 70%, 17% 77%, 28% 48%, 36% 68%, 48% 35%, 59% 64%, 69% 47%, 79% 73%, 90% 55%, 100% 70%, 100% 100%);
+}
+
+.login-shell::after {
+  right: auto;
+  left: -7vw;
+  bottom: -2vh;
+  width: 70vw;
+  height: 27vh;
+  background: linear-gradient(180deg, rgba(195, 227, 220, 0.04), rgba(165, 211, 203, 0.2));
+  clip-path: polygon(0 100%, 0 72%, 12% 61%, 22% 74%, 35% 43%, 45% 65%, 57% 54%, 70% 76%, 81% 58%, 91% 68%, 100% 60%, 100% 100%);
+}
+
+.login-card {
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 28px 75px rgba(33, 86, 80, 0.13);
+}
+
+.landscape-motto {
+  color: rgba(23, 52, 58, 0.48);
+  letter-spacing: 0.28em;
 }

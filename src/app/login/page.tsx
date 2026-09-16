@@ -49,7 +49,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-paper px-4">
+    <div className="login-shell flex min-h-screen items-center justify-center bg-paper px-4">
       <div className="w-full max-w-md">
         {/* Logo 区域 */}
         <div className="mb-8 text-center">
@@ -73,7 +73,7 @@ export default function LoginPage() {
         </div>
 
         {/* 表单卡片 */}
-        <div className="panel">
+        <div className="panel login-card">
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === "register" && (
               <label className="field">
@@ -199,6 +199,7 @@ export default function LoginPage() {
             )}
           </div>
         </div>
+        <p className="landscape-motto relative z-10 mt-6 text-center text-xs">山水有灵 · 内容有光</p>
       </div>
     </div>
   );

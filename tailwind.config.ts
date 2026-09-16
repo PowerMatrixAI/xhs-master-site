@@ -5,15 +5,15 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#1f2933",
-        paper: "#f7f5ef",
-        sage: "#64786a",
-        coral: "#d96c56",
-        teal: "#2b7a78",
-        plum: "#5f4b66"
+        ink: "#17343a",
+        paper: "#f2f8f6",
+        sage: "#69877b",
+        coral: "#df665d",
+        teal: "#168c82",
+        plum: "#536a73"
       },
       boxShadow: {
-        panel: "0 16px 45px rgba(31, 41, 51, 0.08)"
+        panel: "0 18px 50px rgba(35, 83, 79, 0.09), 0 2px 8px rgba(35, 83, 79, 0.04)"
       }
     }
   },

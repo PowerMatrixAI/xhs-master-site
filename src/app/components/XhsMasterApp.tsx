@@ -14,7 +14,6 @@ import {
   Database,
   Download,
   FileText,
-  Gauge,
   ImageIcon,
   LayoutDashboard,
   Library,
@@ -439,9 +438,7 @@ const mainTabs = [
 
 const advancedTabs = [
   ["reference", "参考研究", Search],
-  ["strategy", "策划案", Sparkles],
-  ["agents", "配置文件", FileText],
-  ["health", "系统状态", Gauge]
+  ["strategy", "策划案", Sparkles]
 ] as const;
 
 const tabs = [...mainTabs, ...advancedTabs] as const;
@@ -479,16 +476,6 @@ function accountUiMode(accountType?: string) {
 
 function isHikingUiType(accountType?: string) {
   return accountUiMode(accountType) === "outdoor";
-}
-
-async function readJsonResponse<T>(res: Response, fallback: T): Promise<T> {
-  const text = await res.text();
-  if (!text.trim()) return fallback;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(text.slice(0, 300) || "服务返回了无效响应。");
-  }
 }
 
 function formatFileSize(bytes: number) {
@@ -1574,7 +1561,6 @@ export function XhsMasterApp() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("dashboard");
   const [accountForm, setAccountForm] = useState(emptyAccountForm([]));
-  const [profileContent, setProfileContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [toast, setToast] = useState<FeedbackDialog | null>(null);
@@ -1589,7 +1575,6 @@ export function XhsMasterApp() {
   const [videoPromptResults, setVideoPromptResults] = useState<Record<number, VideoPromptResult>>({});
   const [batchImagePostResults, setBatchImagePostResults] = useState<Record<number, BatchImagePostsResult>>({});
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null);
-  const [health, setHealth] = useState<any>(null);
   const [manifest, setManifest] = useState<{ content: string; validation: string; path: string } | null>(null);
   const [referenceDraft, setReferenceDraft] = useState<{
     accountId?: number;
@@ -1653,7 +1638,6 @@ export function XhsMasterApp() {
           setAccounts([]);
           setSelectedId(null);
           setSelectedNoteId(null);
-          setProfileContent("");
           return;
         }
 
@@ -1714,7 +1698,6 @@ export function XhsMasterApp() {
   }, []);
 
   useEffect(() => {
-    if (selected?.profile?.content) setProfileContent(selected.profile.content);
     if (selected && selectedId === null) setSelectedId(selected.id);
     if (latestPlan?.noteTasks?.[0] && !selectedNoteId) setSelectedNoteId(latestPlan.noteTasks[0].id);
   }, [selected, selectedId, latestPlan, selectedNoteId]);
@@ -1811,9 +1794,6 @@ export function XhsMasterApp() {
       setSelectedId(created.id);
       setActiveTab("strategy");
       setAccountForm(emptyAccountForm(templates));
-      if (persistedAccount.profile?.content) {
-        setProfileContent(persistedAccount.profile.content);
-      }
       showToast(
         strategyResult.usedLlm ? "账号已创建，AI 策划案已生成。" : strategyResult.error || "账号已创建，并已生成默认策划案。",
         strategyResult.usedLlm || !strategyResult.error ? "success" : "error"
@@ -1839,7 +1819,6 @@ export function XhsMasterApp() {
       const nextAccountId = remaining[0]?.id ?? null;
       setAccounts(remaining);
       setSelectedId(nextAccountId);
-      setProfileContent("");
       await refresh();
       setSelectedNoteId(null);
       setPromptResults({});
@@ -1856,19 +1835,6 @@ export function XhsMasterApp() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function saveProfile() {
-    if (!selected) return;
-    setLoading(true);
-    updateSelectedAccount((account) => ({
-      ...account,
-      profile: account.profile
-        ? { ...account.profile, content: profileContent, version: (account.profile.version || 0) + 1 }
-        : { content: profileContent, version: 1, path: account.profilePath }
-    }));
-    setLoading(false);
-    showToast("配置文件已保存。", "success");
   }
 
   async function uploadAsset(form: HTMLFormElement, files: File[], clearFiles?: () => void) {
@@ -2223,8 +2189,7 @@ export function XhsMasterApp() {
           profileContent: resolved.account.profile?.content || ""
         });
       }
-      setProfileContent(resolved.account?.profile?.content || profileContent);
-      showToast("已基于爆款研究增强策划案和配置文件。", "success");
+      showToast("已基于爆款研究增强账号策划。", "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "保存参考账号研究失败。", "error");
     } finally {
@@ -3041,11 +3006,6 @@ export function XhsMasterApp() {
     }
   }
 
-  async function loadHealth() {
-    const res = await authenticatedFetch("/api/system-health", { cache: "no-store" });
-    setHealth(await readJsonResponse(res, { status: "error", checks: [], summary: "系统状态接口返回异常。" }));
-  }
-
   function showToast(message: string, tone: FeedbackTone) {
     if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
     setToast({ message, tone });
@@ -3136,24 +3096,24 @@ export function XhsMasterApp() {
   }
 
   return (
-    <div className="min-h-screen bg-paper text-ink">
-      <aside className="fixed left-0 top-0 hidden h-screen w-64 border-r border-ink/10 bg-white/80 px-4 py-5 shadow-panel backdrop-blur lg:block">
-        <div className="mb-6">
-          <div className="flex items-center gap-2.5">
+    <div className="app-shell min-h-screen bg-paper text-ink">
+      <aside className="app-sidebar fixed left-0 top-0 hidden h-screen w-64 flex-col border-r px-4 py-5 backdrop-blur lg:flex">
+        <div className="mb-4 shrink-0">
+          <div className="flex items-center gap-3">
             <Image
-              src="/xhs-master-logo.png"
-              alt="小红书运营策划大师 Logo"
-              width={200}
-              height={200}
+              src="/xiaohongshu-mark.png"
+              alt="小红书 Logo"
+              width={512}
+              height={512}
               priority
-              className="h-10 w-10 shrink-0 rounded-md object-cover"
+              className="h-11 w-11 shrink-0 rounded-xl object-cover shadow-sm"
             />
-            <div className="min-w-0 text-base font-semibold leading-5">小红书运营策划大师</div>
-          </div>
-          <div className="mt-2 inline-flex items-center gap-2 rounded bg-teal/10 px-2 py-1 text-xs font-medium text-teal">
-            <ShieldCheck size={14} /> 只生成方案，不自动发布
+            <div className="min-w-0 flex-1">
+              <div className="whitespace-nowrap text-[15px] font-semibold leading-5 tracking-tight text-ink">小红书运营策划大师</div>
+            </div>
           </div>
         </div>
+        <div className="sidebar-scroll scrollbar-thin min-h-0 flex-1 overflow-y-auto pr-1">
         <nav className="space-y-1">
           {mainTabs.map(([id, label, Icon]) => (
             <button
@@ -3164,7 +3124,7 @@ export function XhsMasterApp() {
               }}
               className={clsx(
                 "flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm transition",
-                activeTab === id ? "bg-ink text-white" : "hover:bg-ink/5"
+                activeTab === id ? "bg-teal/15 font-medium text-teal shadow-sm" : "text-ink/75 hover:bg-white/70 hover:text-teal"
               )}
             >
               <Icon size={17} />
@@ -3182,11 +3142,10 @@ export function XhsMasterApp() {
                   type="button"
                   onClick={() => {
                     setActiveTab(id);
-                    if (id === "health") loadHealth();
                   }}
                   className={clsx(
                     "flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm transition",
-                    activeTab === id ? "bg-ink text-white" : "hover:bg-ink/5"
+                    activeTab === id ? "bg-teal/15 font-medium text-teal shadow-sm" : "text-ink/75 hover:bg-white/70 hover:text-teal"
                   )}
                 >
                   <Icon size={17} />
@@ -3196,36 +3155,48 @@ export function XhsMasterApp() {
             </div>
           </details>
         </nav>
+        <div className="sidebar-landscape-copy pointer-events-none mt-6 flex min-h-[250px] flex-col justify-end pb-2 pt-7">
+          <div className="rounded-xl border border-white/65 bg-white/55 p-4 shadow-sm backdrop-blur-sm">
+            <p className="font-serif text-sm font-semibold leading-6 tracking-[0.08em] text-ink/75">让好内容<br />点亮更多目的地</p>
+            <div className="mt-4 h-1 overflow-hidden rounded-full bg-white/70"><div className="h-full w-12 rounded-full bg-teal" /></div>
+          </div>
+        </div>
+        </div>
       </aside>
 
       <main className="lg:pl-64">
-        <header className="sticky top-0 z-20 border-b border-ink/10 bg-paper/90 px-4 py-4 backdrop-blur lg:px-8">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-sm text-ink/60">小红书运营策划大师</div>
-              <h1 className="text-2xl font-semibold">{selected?.name || "创建第一个账号"}</h1>
+        <header className="app-header sticky top-0 z-20 border-b px-4 py-4 backdrop-blur-xl lg:px-8">
+          <img className="workspace-hero-image pointer-events-none absolute right-0 top-0 h-full w-auto max-w-none" src="/workspace-hero-banner.png" alt="" aria-hidden="true" />
+          <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="workspace-heading">
+              <div className="text-xs font-medium tracking-[0.2em] text-teal/80">小红书运营策划大师</div>
+              <h1 className="mt-1 font-serif text-3xl font-semibold tracking-[0.08em] text-ink">运营工作台</h1>
+              <p className="mt-1 text-xs text-ink/50">{selected ? `正在运营：${selected.name}` : "创建第一个账号，开始内容旅程"}</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={selected?.id ?? ""}
-                onChange={(event) => setSelectedId(Number(event.target.value))}
-                className="h-10 rounded border border-ink/15 bg-white px-3 text-sm"
-              >
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name} / {account.accountParam}
-                  </option>
-                ))}
-              </select>
-              <button title="刷新" type="button" onClick={refresh} className="icon-button">
-                <Activity size={17} />
-              </button>
+            <div className="flex flex-wrap items-stretch gap-2">
+              <label className="account-switcher flex min-w-[230px] items-center gap-3 rounded-xl border px-3 py-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal"><LayoutDashboard size={17} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-medium tracking-[0.12em] text-ink/45">当前账号</span>
+                  <select
+                    value={selected?.id ?? ""}
+                    onChange={(event) => setSelectedId(Number(event.target.value))}
+                    className="mt-0.5 w-full appearance-none bg-transparent text-sm font-medium text-ink outline-none"
+                  >
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name} / {account.accountParam}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </label>
               {currentUser && (
-                <div className="flex items-center gap-2 rounded border border-ink/10 bg-white px-3 py-1.5">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-teal/15 text-xs font-medium text-teal">
+                <div className="user-profile-card flex min-w-[148px] items-center gap-2.5 rounded-xl border px-3 py-2">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-teal/15 to-teal/30 text-sm font-semibold text-teal ring-2 ring-white/80">
                     {currentUser.name?.charAt(0).toUpperCase() || "U"}
                   </div>
-                  <span className="text-sm font-medium">{currentUser.name}</span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{currentUser.name}</span><span className="block truncate text-[10px] text-ink/45">{currentUser.role || "运营成员"}</span></span>
                   <button
                     type="button"
                     title="登出"
@@ -3240,14 +3211,14 @@ export function XhsMasterApp() {
           </div>
           <div className="mt-3 flex gap-2 overflow-x-auto lg:hidden">
             {mainTabs.map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setActiveTab(id)} className={clsx("shrink-0 rounded px-3 py-2 text-sm", activeTab === id ? "bg-ink text-white" : "bg-white")}>
+              <button key={id} type="button" onClick={() => setActiveTab(id)} className={clsx("shrink-0 rounded-lg px-3 py-2 text-sm", activeTab === id ? "bg-teal text-white" : "bg-white/80 text-ink/70")}>
                 {label}
               </button>
             ))}
           </div>
         </header>
 
-        <section className="px-4 py-6 lg:px-8">
+        <section className="app-content px-4 py-6 lg:px-8">
           {copyNotice && (
             <div className="pointer-events-none fixed inset-x-4 top-4 z-[60] flex justify-center sm:inset-x-auto sm:right-6 sm:justify-end" role="status" aria-live="polite">
               <div className="inline-flex items-center gap-2 rounded border border-teal/20 bg-white px-4 py-3 text-sm font-medium text-teal shadow-panel">
@@ -3315,15 +3286,6 @@ export function XhsMasterApp() {
             />
           )}
           {activeTab === "strategy" && <StrategyPanel selected={selected} copy={copy} />}
-          {activeTab === "agents" && (
-            <AgentsPanel
-              selected={selected}
-              profileContent={profileContent}
-              setProfileContent={setProfileContent}
-              saveProfile={saveProfile}
-              copy={copy}
-            />
-          )}
           {activeTab === "assets" && (
             <AssetsPanel
               selected={selected}
@@ -3436,7 +3398,6 @@ export function XhsMasterApp() {
               loadingAction={loadingAction}
             />
           )}
-          {activeTab === "health" && <HealthPanel health={health} loadHealth={loadHealth} />}
         </section>
       </main>
     </div>
@@ -3473,17 +3434,14 @@ function Dashboard({
   loadingAction: string | null;
 }) {
   const cards = [
-    ["账号策划", selected?.strategy ? "已可用" : "待创建", "strategy"],
-    ["本周内容", `${selected?.weeklyPlans?.[0]?.noteTasks?.length ?? 0} 篇`, "weekly"],
-    ["图片方案", selected?.weeklyPlans?.[0]?.noteTasks?.length ? "可生成" : "待计划", "images"],
-    ["视频方案", selected?.weeklyPlans?.[0]?.noteTasks?.some((task) => task.type === "video_text") ? "可生成" : "待视频计划", "videos"],
-    ["笔记草稿", selected?.weeklyPlans?.[0]?.noteTasks?.length ? "可生成" : "待计划", "prompts"],
-    ["素材库", `${selected?.assets?.length ?? 0} 个`, "assets"],
-    ["发布后互动", selected?.interactionPlans?.[0]?.status || "可选", "interactions"]
-  ];
-  const optionalCards = [
-    ["爆款研究", selected?.referenceResearches?.[0]?.status || "可选增强", "reference"],
-    ["配置文件", selected?.profile ? `v${selected.profile.version}` : "自动生成", "agents"]
+    { label: "账号策划", value: selected?.strategy ? "已可用" : "待创建", tab: "strategy", Icon: Sparkles, accent: "bg-teal/10 text-teal" },
+    { label: "爆款研究", value: selected?.referenceResearches?.[0]?.status || "可选", tab: "reference", Icon: Search, accent: "bg-orange-50 text-orange-700" },
+    { label: "本周内容", value: `${selected?.weeklyPlans?.[0]?.noteTasks?.length ?? 0} 篇`, tab: "weekly", Icon: CalendarDays, accent: "bg-sky-50 text-sky-700" },
+    { label: "图片方案", value: selected?.weeklyPlans?.[0]?.noteTasks?.length ? "可生成" : "待计划", tab: "images", Icon: ImageIcon, accent: "bg-emerald-50 text-emerald-700" },
+    { label: "视频方案", value: selected?.weeklyPlans?.[0]?.noteTasks?.some((task) => task.type === "video_text") ? "可生成" : "待视频计划", tab: "videos", Icon: Video, accent: "bg-violet-50 text-violet-700" },
+    { label: "笔记草稿", value: selected?.weeklyPlans?.[0]?.noteTasks?.length ? "可生成" : "待计划", tab: "prompts", Icon: NotebookPen, accent: "bg-amber-50 text-amber-700" },
+    { label: "素材库", value: `${selected?.assets?.length ?? 0} 个`, tab: "assets", Icon: Library, accent: "bg-cyan-50 text-cyan-700" },
+    { label: "发布后互动", value: selected?.interactionPlans?.[0]?.status || "可选", tab: "interactions", Icon: MessageCircle, accent: "bg-rose-50 text-rose-700" }
   ];
   const currentNote = plan?.noteTasks.find((task) => task.id === selectedNoteId) ?? plan?.noteTasks?.[0];
   const currentImageResult = currentNote ? imagePromptResults[currentNote.id] : null;
@@ -3511,7 +3469,7 @@ function Dashboard({
   }
 
   return (
-    <div className="mx-auto max-w-[1480px] space-y-5">
+    <div className="space-y-5">
       <div className="panel flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="section-title">账号运营工作台</h2>
@@ -3533,29 +3491,14 @@ function Dashboard({
           </button>
         </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-7">
-        {cards.map(([label, value, tab]) => (
-          <button key={label} type="button" onClick={() => setActiveTab(tab)} className="panel text-left">
-            <div className="text-sm text-ink/55">{label}</div>
-            <div className="mt-3 text-2xl font-semibold">{value}</div>
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-8">
+        {cards.map(({ label, value, tab, Icon, accent }) => (
+          <button key={label} type="button" onClick={() => setActiveTab(tab)} className="dashboard-stat-card panel group text-left">
+            <div className={clsx("flex h-10 w-10 items-center justify-center rounded-xl transition group-hover:scale-105", accent)}><Icon size={19} /></div>
+            <div className="mt-4 text-xs font-medium tracking-[0.08em] text-ink/50">{label}</div>
+            <div className="mt-1 text-xl font-semibold tracking-tight text-ink">{value}</div>
           </button>
         ))}
-      </div>
-      <div className="panel">
-        <div className="mb-3">
-          <h2 className="text-lg font-semibold">可选增强</h2>
-          <p className="mt-1 text-sm text-ink/60">
-            创建账号后策划已经可用，可以直接进入素材、本周内容、图片方案和笔记草稿。爆款研究只在需要校准同行风格时再做。
-          </p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {optionalCards.map(([label, value, tab]) => (
-            <button key={label} type="button" onClick={() => setActiveTab(tab)} className="rounded border border-ink/10 bg-white p-3 text-left transition hover:border-teal/40 hover:bg-teal/5">
-              <div className="text-sm text-ink/55">{label}</div>
-              <div className="mt-1 text-lg font-semibold">{value}</div>
-            </button>
-          ))}
-        </div>
       </div>
       <section className="space-y-3">
         <div>
@@ -3645,7 +3588,7 @@ function Dashboard({
                 </div>
               </div>
 
-              <div className="panel min-w-0">
+              <div className="current-note-card panel min-w-0">
                 <div className="border-b border-ink/10 pb-4">
                   <div className="text-sm font-medium text-ink/55">当前笔记</div>
                   <h3 className="mt-2 text-xl font-semibold leading-8">{currentNote.topicTitle}</h3>
@@ -3726,15 +3669,14 @@ function Dashboard({
                   )}
                 </div>
 
-                <button type="button" onClick={openImageSetup} className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-teal hover:underline">
-                  <ExternalLink size={16} /> 调整{isVideoTask ? "视频来源或图片顺序" : "图片来源、数量或精修要求"}
-                </button>
-
                 {hasImagePlan && hasDraftTask ? (
                   <div className="mt-5 rounded border border-teal/20 bg-teal/5 p-3 text-sm leading-6 text-teal">
                     两项任务已就绪。先把{isVideoTask ? "视频" : "图片"}方案交给智能体；素材完成后，再发送文字方案生成{isVideoTask ? "视频" : "图文"}笔记并保存到草稿箱。
                   </div>
                 ) : null}
+                <button type="button" onClick={openImageSetup} className="mt-auto inline-flex items-center gap-2 pt-8 text-sm font-medium text-teal hover:underline">
+                  <ExternalLink size={16} /> 调整{isVideoTask ? "视频来源或图片顺序" : "图片来源、数量或精修要求"}
+                </button>
               </div>
             </div>
 
@@ -4019,9 +3961,6 @@ function ReferenceResearchPanel(props: {
             <button type="button" onClick={() => setActiveTab("strategy")} className="secondary-button">
               <Sparkles size={16} /> 策划案
             </button>
-            <button type="button" onClick={() => setActiveTab("agents")} className="secondary-button">
-              <FileText size={16} /> 配置文件
-            </button>
             <IconButton title="复制总结" onClick={() => copy(summaryMarkdown)} icon={<Clipboard size={17} />} />
             <IconButton title="导出 Markdown" onClick={() => downloadText(`${selected.name}-reference-research.md`, summaryMarkdown)} icon={<Download size={17} />} />
           </div>
@@ -4065,33 +4004,6 @@ function StrategyPanel({ selected, copy }: { selected?: Account; copy: (text: st
         </div>
       </div>
       <MarkdownBox value={strategyMarkdown || "暂无策划案，请先创建账号。"} />
-    </div>
-  );
-}
-
-function AgentsPanel(props: {
-  selected?: Account;
-  profileContent: string;
-  setProfileContent: (value: string) => void;
-  saveProfile: () => void;
-  copy: (text: string) => void;
-}) {
-  const { selected, profileContent, setProfileContent, saveProfile, copy } = props;
-  if (!selected) return <EmptyState />;
-  return (
-    <div className="panel">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="section-title">配置文件编辑器</h2>
-          <p className="text-sm text-ink/60">{selected.profilePath}</p>
-        </div>
-        <div className="flex gap-2">
-          <IconButton title="保存版本" onClick={saveProfile} icon={<Save size={17} />} />
-          <IconButton title="复制" onClick={() => copy(profileContent)} icon={<Clipboard size={17} />} />
-          <IconButton title="导出 Markdown" onClick={() => downloadText(`${selected.name}-AGENTS.md`, profileContent)} icon={<Download size={17} />} />
-        </div>
-      </div>
-      <textarea className="code-textarea min-h-[620px]" value={profileContent} onChange={(event) => setProfileContent(event.target.value)} />
     </div>
   );
 }
@@ -6333,36 +6245,6 @@ function IndustryLearningPanel(props: {
   );
 }
 
-function HealthPanel({ health, loadHealth }: { health: any; loadHealth: () => void }) {
-  return (
-    <div className="panel">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="section-title">系统状态</h2>
-        <button type="button" onClick={loadHealth} className="secondary-button">
-          <Activity size={17} /> 刷新诊断
-        </button>
-      </div>
-      {!health ? (
-        <EmptyState text="点击刷新诊断查看环境状态。" />
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          <Info label="当前模式" value={health.mode} />
-          <Info label="AI 服务" value={`${health.llm.enabled ? "可用" : "不可用"} / ${health.llm.model}`} />
-          <Info label="uv" value={`${health.uv.available ? "可用" : "不可用"} / ${health.uv.version}`} />
-          <div className="md:col-span-2">
-            <div className="mb-2 text-sm font-medium">环境诊断报告</div>
-            <div className="space-y-2">
-              {health.diagnostics.map((item: string) => (
-                <div key={item} className="rounded border border-ink/10 bg-white px-3 py-2 text-sm">{item}</div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function Input(props: {
   label: string;
   type?: React.HTMLInputTypeAttribute;
@@ -6410,15 +6292,6 @@ function Textarea(props: {
       <textarea name={props.name} value={props.value} defaultValue={props.defaultValue} placeholder={props.placeholder} rows={4} onChange={(event) => props.onChange?.(event.target.value)} />
       {props.help && <span className="text-xs leading-5 text-ink/50">{props.help}</span>}
     </label>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-ink/10 bg-white p-3">
-      <div className="text-xs text-ink/55">{label}</div>
-      <div className="mt-1 break-words text-sm">{value}</div>
-    </div>
   );
 }
 

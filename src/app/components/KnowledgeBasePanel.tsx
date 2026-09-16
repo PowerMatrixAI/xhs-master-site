@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, FileText, LoaderCircle, Pencil, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, LoaderCircle, Pencil, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import {
   deleteBackendKnowledgeDocument,
   fetchBackendKnowledgeDocuments,
@@ -235,17 +235,14 @@ export function KnowledgeBasePanel({ selected, notify }: KnowledgeBasePanelProps
   }
 
   if (!selected) {
-    return <div className="mx-auto max-w-[1480px] rounded border border-dashed border-ink/20 bg-white/60 p-8 text-center text-sm text-ink/60">请先选择一个账号，再管理该账号的知识库。</div>;
+    return <div className="rounded border border-dashed border-ink/20 bg-white/60 p-8 text-center text-sm text-ink/60">请先选择一个账号，再管理该账号的知识库。</div>;
   }
 
   return (
-    <div className="mx-auto max-w-[1480px] space-y-5">
+    <div className="space-y-5">
       <div className="panel flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <FileText size={20} className="text-teal" />
-            <h2 className="section-title">知识库</h2>
-          </div>
+          <h2 className="section-title">知识库</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/60">
             当前账号：{selected.name}。上传真实业务资料后，系统会在生成一周计划前按需检索；原始资料不会展示给浏览器端。
           </p>
