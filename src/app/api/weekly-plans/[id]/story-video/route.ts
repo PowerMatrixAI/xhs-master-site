@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveStoryCharacter } from "@/lib/storyCharacters";
+import { resolveStoryCharacter, resolveStoryCharacterTemplate } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
 import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
 import type { BackendAiCredentials } from "@/lib/backendAiClient";
@@ -11,12 +11,13 @@ async function buildStoryResult(body: Record<string, unknown>, credentials: Back
   const account = body.account as Record<string, unknown> & { name: string; accountParam: string; referenceAccounts?: string };
   const weeklyPlan = body.weeklyPlan as { id?: number; knowledgeSnapshotId?: string };
   const sourceType = body.storySourceType === "template" ? "template" as VideoStorySourceType : null;
-  const sourceContent = String(body.storySourceContent || "").trim();
-  const character = await resolveStoryCharacter(String(body.templateId || ""), String(body.characterId || ""), credentials);
+  const template = await resolveStoryCharacterTemplate(String(body.templateId || ""), credentials);
+  const character = await resolveStoryCharacter(template.id, String(body.characterId || ""), credentials);
+  const sourceContent = `${template.name}：${template.outline}${template.requiredScenes.length ? `\n强制场景：${template.requiredScenes.join("；")}` : ""}`;
   const knowledgeSnapshotId = String(body.knowledgeSnapshotId || weeklyPlan?.knowledgeSnapshotId || "").trim();
 
   if (!account?.accountParam || !weeklyPlan?.id) throw new Error("缺少账号或当前周计划上下文。");
-  if (!sourceType || !sourceContent) throw new Error("请选择故事来源并填写故事内容。");
+  if (!sourceType) throw new Error("请选择故事来源。");
 
   const styles = extractWritingStyleReferences(account.referenceAccounts || "");
   if (!styles.length) throw new Error("当前账号还没有可用爆款文风，请先完成爆款研究并增强策划。");

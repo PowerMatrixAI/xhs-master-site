@@ -46,6 +46,7 @@ import {
   logout,
   getToken,
   getUser,
+  fetchBackendStoryCharacterTemplates,
   fetchBackendStoryCharacters,
   isPlatformAdmin,
   saveBackendAssets,
@@ -80,7 +81,7 @@ import { isExpertRuleEnabled } from "@/lib/expertLearning";
 import { KnowledgeBasePanel } from "@/app/components/KnowledgeBasePanel";
 import type React from "react";
 import clsx from "clsx";
-import type { StoryCharacter } from "@/lib/storyCharacters";
+import type { StoryCharacter, StoryCharacterTemplate } from "@/lib/storyCharacters";
 import { StoryCharacterPicker } from "@/app/components/StoryCharacterPicker";
 import { StoryCharacterLibraryPanel } from "@/app/components/StoryCharacterLibraryPanel";
 
@@ -347,39 +348,6 @@ type StoryVideoMotionPlan = Array<{
   endingTransitionPrompt: string;
   narrationText: string;
 }>;
-
-const VIDEO_STORY_TEMPLATES = [
-  {
-    id: "cat_moon_post",
-    name: "小猫｜月光邮局",
-    outline: "一只小猫在夜里收到一封没有地址的月光信。它循着信封掉落的星点寻找收件人，以为要把信送出去，最后发现信写给的是“还没敢回家的自己”。",
-    requiredScenes: []
-  },
-  {
-    id: "dog_reverse_map",
-    name: "小狗｜反方向的地图",
-    outline: "一只小狗捡到一张箭头总是指向反方向的地图。它越走越像在迷路，直到最后才发现地图没有带它去终点，而是带它找回出发时丢下的勇气。",
-    requiredScenes: []
-  },
-  {
-    id: "niu_lai_dream",
-    name: "牛来｜云雀入梦",
-    outline: "初生牛犊牛来遇见一只从荒漠飞来的云雀，带它走进一场会不断变形的梦。牛来以为自己是在替云雀找回天空，最后才发现云雀一直在带它看见那个不敢长大的自己。",
-    requiredScenes: ["第 2 个场景必须出现对话：牛来喊“妈妈”，妈妈回应“牛来”。"]
-  },
-  {
-    id: "fox_borrowed_moon",
-    name: "小狐狸｜借月亮的人",
-    outline: "一只小狐狸把天上的月亮误认为别人遗失的灯，决定借走一晚照亮回家的路。月亮越来越小，它才发现自己一路照亮的，其实是许多和它一样不敢独自前行的人。",
-    requiredScenes: []
-  },
-  {
-    id: "rabbit_last_train",
-    name: "小兔子｜末班车没有终点",
-    outline: "一只小兔子赶上了一趟没有终点站的末班车。每到一站，车门外都会出现它最想逃开的场景；当它终于决定下车，才发现车一直停在它最想抵达的地方。",
-    requiredScenes: []
-  }
-];
 
 type BatchImagePostsResult = {
   planningPrompt: { content: string; title: string; path: string };
@@ -5494,7 +5462,11 @@ function VideosPanel(props: {
   const note = tasks.find((task) => task.id === selectedNoteId) || tasks[0];
   const [mode, setMode] = useState<VideoSourceMode>("direct_video");
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
-  const [storyTemplateId, setStoryTemplateId] = useState(VIDEO_STORY_TEMPLATES[0].id);
+  const [storyTemplates, setStoryTemplates] = useState<StoryCharacterTemplate[]>([]);
+  const [storyTemplatesLoading, setStoryTemplatesLoading] = useState(false);
+  const [storyTemplatesError, setStoryTemplatesError] = useState("");
+  const [storyTemplatesReloadKey, setStoryTemplatesReloadKey] = useState(0);
+  const [storyTemplateId, setStoryTemplateId] = useState("");
   const [characterId, setCharacterId] = useState("");
   const [storyExtraRequirements, setStoryExtraRequirements] = useState("");
   const [storyDraft, setStoryDraft] = useState<VideoStoryDraft | null>(null);
@@ -5516,6 +5488,40 @@ function VideosPanel(props: {
 
   useEffect(() => {
     if (mode !== "story_video") return;
+    let cancelled = false;
+    setStoryTemplatesLoading(true);
+    setStoryTemplatesError("");
+    fetchBackendStoryCharacterTemplates()
+      .then((templates) => {
+        if (cancelled) return;
+        setStoryTemplates(templates);
+        setStoryTemplateId((currentTemplateId) => templates.some((template) => template.id === currentTemplateId)
+          ? currentTemplateId
+          : templates[0]?.id || "");
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStoryTemplates([]);
+          setStoryTemplateId("");
+          setStoryTemplatesError(error instanceof Error ? error.message : "获取故事模板失败。");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setStoryTemplatesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, storyTemplatesReloadKey]);
+
+  useEffect(() => {
+    if (mode !== "story_video") return;
+    if (!storyTemplateId) {
+      setStoryCharacters([]);
+      setStoryCharactersError("");
+      setStoryCharactersLoading(false);
+      return;
+    }
     let cancelled = false;
     setStoryCharactersLoading(true);
     setStoryCharactersError("");
@@ -5566,9 +5572,11 @@ function VideosPanel(props: {
     : mode === "image_to_video"
       ? Boolean(note) && selectedAssets.length >= 2 && selectedAssets.length <= 6
       : Boolean(storyDraft && storyTask);
-  const storyTemplate = VIDEO_STORY_TEMPLATES.find((template) => template.id === storyTemplateId) || VIDEO_STORY_TEMPLATES[0];
+  const storyTemplate = storyTemplates.find((template) => template.id === storyTemplateId);
   const canGenerateStory = !storyCharactersLoading && !storyCharactersError && storyCharacters.some((character) => character.id === characterId);
-  const storySourceContent = `${storyTemplate.name}：${storyTemplate.outline}${storyTemplate.requiredScenes.length ? `\n强制场景：${storyTemplate.requiredScenes.join("；")}` : ""}`;
+  const storySourceContent = storyTemplate
+    ? `${storyTemplate.name}：${storyTemplate.outline}${storyTemplate.requiredScenes.length ? `\n强制场景：${storyTemplate.requiredScenes.join("；")}` : ""}`
+    : "";
   const isGeneratingVideoTask = ["generateVideoPrompt", "generateStoryVideoFrames", "generateStoryVideoMotion", "buildStoryVideoTask"].includes(loadingAction || "");
   const videoTaskLoadingText = loadingAction === "generateStoryVideoFrames"
     ? "1/ 正在规划首帧与素材......"
@@ -5660,9 +5668,14 @@ function VideosPanel(props: {
         {mode === "story_video" && <div className="mt-5 space-y-4 border-t border-ink/10 pt-5">
           <div>
             <h3 className="text-base font-semibold">第一步：选择故事模板</h3>
-            <p className="mt-1 text-sm text-ink/60">模板自带主角、冲突与反转；生成时会用账号素材承接故事场景，确认后新增一篇视频笔记到当前周计划。</p>
+            <p className="mt-1 text-sm text-ink/60">模板由平台管理员维护；生成时会用账号素材承接故事场景，确认后新增一篇视频笔记到当前周计划。</p>
           </div>
-          <label className="field"><span>选择故事模板</span><select disabled={loading || Boolean(storyTask)} value={storyTemplateId} onChange={(event) => { setStoryTemplateId(event.target.value); setCharacterId(""); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}>{VIDEO_STORY_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
+          <label className="field"><span>选择故事模板</span><select disabled={loading || Boolean(storyTask) || storyTemplatesLoading || !storyTemplates.length} value={storyTemplateId} onChange={(event) => { setStoryTemplateId(event.target.value); setCharacterId(""); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}>
+            {storyTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+          </select></label>
+          {storyTemplatesLoading && <p className="text-xs text-ink/55">正在读取服务端故事模板...</p>}
+          {storyTemplatesError && <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-coral/25 bg-coral/5 p-3 text-sm text-coral"><span>{storyTemplatesError}</span><button type="button" className="secondary-button" onClick={() => setStoryTemplatesReloadKey((current) => current + 1)}>重试</button></div>}
+          {!storyTemplatesLoading && !storyTemplatesError && !storyTemplates.length && <div className="rounded border border-dashed border-ink/20 bg-white/60 p-3 text-sm text-ink/60">平台还没有可用的故事模板，请联系平台管理员创建。</div>}
           <StoryCharacterPicker
             templateId={storyTemplateId}
             value={characterId}
@@ -5673,10 +5686,10 @@ function VideosPanel(props: {
             onRetry={() => setStoryCharactersReloadKey((current) => current + 1)}
             onChange={(id) => { setCharacterId(id); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}
           />
-          <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/75">
+          {storyTemplate && <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/75">
             <span className="font-medium text-ink">模板剧情：</span>{storyTemplate.outline}
             {storyTemplate.requiredScenes.length ? <div className="mt-2"><span className="font-medium text-ink">强制场景：</span>{storyTemplate.requiredScenes.join("；")}</div> : null}
-          </div>
+          </div>}
           <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">
             首帧由 AI 自动规划：优先依据当前素材库图片的标签、文件名和适用类型选择真实图片；没有合适素材时生成 AI 首帧。
           </div>

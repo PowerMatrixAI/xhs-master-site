@@ -35,9 +35,15 @@ const video = loadTs('src/lib/videoPrompts.ts', {
 });
 
 async function run() {
-  assert.equal(library.STORY_CHARACTER_TEMPLATES.length, 5);
-  assert.equal(library.isStoryCharacterTemplate('cat_moon_post'), true);
-  assert.equal(library.isStoryCharacterTemplate('unknown'), false);
+  const template = library.normalizeStoryCharacterTemplate({
+    templateId: 'custom_story',
+    name: '自定义故事',
+    outline: '一个可以由平台管理员维护的故事模板。',
+    requiredScenes: ['第 2 个场景需要对白。']
+  });
+  assert.ok(template);
+  assert.equal(template.id, 'custom_story');
+  assert.deepEqual(template.requiredScenes, ['第 2 个场景需要对白。']);
 
   const cat = library.normalizeStoryCharacter({
     id: 101,

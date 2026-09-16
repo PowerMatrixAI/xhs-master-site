@@ -4,7 +4,13 @@
  */
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
 import { buildBackendSignedHeaders, buildProxyAuthHeaders } from "@/lib/xhs-signature";
-import { isPublicStoryCharacterImageUrl, normalizeStoryCharacter, type StoryCharacter } from "@/lib/storyCharacters";
+import {
+  isPublicStoryCharacterImageUrl,
+  normalizeStoryCharacter,
+  normalizeStoryCharacterTemplate,
+  type StoryCharacter,
+  type StoryCharacterTemplate
+} from "@/lib/storyCharacters";
 
 const API_BASE_URL = getBackendApiBaseUrl();
 
@@ -537,6 +543,51 @@ export function autoLogin(): Promise<LoginResponse> {
  */
 export async function getProfile() {
   return authRequest("/user/v1/profile");
+}
+
+export async function fetchBackendStoryCharacterTemplates(): Promise<StoryCharacterTemplate[]> {
+  const res = await authRequest<{ templates?: unknown[] }>("/storyCharacter/v1/template/list", { method: "POST" });
+  if (!res.status || !Array.isArray(res.data?.templates)) {
+    throw new Error(res.message || "获取故事模板失败。");
+  }
+  const templates = res.data.templates.map(normalizeStoryCharacterTemplate);
+  if (templates.some((template) => !template)) {
+    throw new Error("服务端返回了无效的故事模板数据。");
+  }
+  return templates as StoryCharacterTemplate[];
+}
+
+export async function createBackendStoryCharacterTemplate(input: {
+  name: string;
+  outline: string;
+  requiredScenes: string[];
+}): Promise<StoryCharacterTemplate> {
+  if (!isPlatformAdmin()) throw new Error("仅平台管理员可以管理故事模板。");
+  const res = await authRequest<unknown>("/storyCharacter/v1/template/create", {
+    method: "POST",
+    body: input
+  });
+  if (!res.status) throw new Error(res.message || "创建故事模板失败。");
+  const template = normalizeStoryCharacterTemplate(res.data);
+  if (!template) throw new Error("服务端返回了无效的故事模板数据。");
+  return template;
+}
+
+export async function updateBackendStoryCharacterTemplate(input: {
+  templateId: string;
+  name: string;
+  outline: string;
+  requiredScenes: string[];
+}): Promise<StoryCharacterTemplate> {
+  if (!isPlatformAdmin()) throw new Error("仅平台管理员可以管理故事模板。");
+  const res = await authRequest<unknown>("/storyCharacter/v1/template/update", {
+    method: "POST",
+    body: input
+  });
+  if (!res.status) throw new Error(res.message || "保存故事模板失败。");
+  const template = normalizeStoryCharacterTemplate(res.data);
+  if (!template) throw new Error("服务端返回了无效的故事模板数据。");
+  return template;
 }
 
 export async function fetchBackendStoryCharacters(templateId: string): Promise<StoryCharacter[]> {

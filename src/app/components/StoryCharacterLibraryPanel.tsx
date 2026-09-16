@@ -2,14 +2,16 @@
 
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ImagePlus, LoaderCircle, RefreshCw, ShieldCheck, Upload } from "lucide-react";
+import { FileText, ImagePlus, LoaderCircle, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 import {
+  fetchBackendStoryCharacterTemplates,
   fetchBackendStoryCharacters,
   isPlatformAdmin,
   uploadBackendStoryCharacter,
   type LoginResponse
 } from "@/lib/api";
-import { STORY_CHARACTER_TEMPLATES, type StoryCharacter } from "@/lib/storyCharacters";
+import type { StoryCharacter, StoryCharacterTemplate } from "@/lib/storyCharacters";
+import { StoryTemplateManagementPanel } from "@/app/components/StoryTemplateManagementPanel";
 
 type FeedbackTone = "success" | "error";
 
@@ -17,7 +19,12 @@ export function StoryCharacterLibraryPanel({ currentUser, notify }: {
   currentUser: LoginResponse | null;
   notify: (message: string, tone: FeedbackTone) => void;
 }) {
-  const [templateId, setTemplateId] = useState<string>(STORY_CHARACTER_TEMPLATES[0].id);
+  const [section, setSection] = useState<"characters" | "templates">("characters");
+  const [templatePage, setTemplatePage] = useState<"list" | "create">("list");
+  const [templates, setTemplates] = useState<StoryCharacterTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [templatesError, setTemplatesError] = useState("");
+  const [templateId, setTemplateId] = useState("");
   const [characters, setCharacters] = useState<StoryCharacter[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -28,7 +35,31 @@ export function StoryCharacterLibraryPanel({ currentUser, notify }: {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const admin = isPlatformAdmin(currentUser);
 
+  const loadTemplates = useCallback(async () => {
+    setTemplatesLoading(true);
+    setTemplatesError("");
+    try {
+      const nextTemplates = await fetchBackendStoryCharacterTemplates();
+      setTemplates(nextTemplates);
+      setTemplateId((currentTemplateId) => nextTemplates.some((template) => template.id === currentTemplateId)
+        ? currentTemplateId
+        : nextTemplates[0]?.id || "");
+    } catch (loadError) {
+      setTemplates([]);
+      setTemplateId("");
+      setTemplatesError(loadError instanceof Error ? loadError.message : "获取故事模板失败。");
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }, []);
+
   const loadCharacters = useCallback(async () => {
+    if (!templateId) {
+      setCharacters([]);
+      setError("");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -40,6 +71,10 @@ export function StoryCharacterLibraryPanel({ currentUser, notify }: {
       setLoading(false);
     }
   }, [templateId]);
+
+  useEffect(() => {
+    void loadTemplates();
+  }, [loadTemplates]);
 
   useEffect(() => {
     void loadCharacters();
@@ -87,6 +122,10 @@ export function StoryCharacterLibraryPanel({ currentUser, notify }: {
     }
   }
 
+  if (section === "templates") {
+    return <StoryTemplateManagementPanel currentUser={currentUser} notify={notify} initialPage={templatePage} onBackToLibrary={() => setSection("characters")} />;
+  }
+
   return (
     <div className="space-y-5">
       <div className="panel">
@@ -98,9 +137,15 @@ export function StoryCharacterLibraryPanel({ currentUser, notify }: {
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/60">管理创意故事视频的主角形象。角色属于平台资源，不绑定客户账号；普通用户可以在故事视频中选择，只有平台管理员可以上传。</p>
           </div>
-          <button type="button" onClick={() => void loadCharacters()} disabled={loading} className="secondary-button">
-            {loading ? <LoaderCircle size={16} className="animate-spin" /> : <RefreshCw size={16} />} 刷新角色
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {admin && <>
+              <button type="button" onClick={() => { setTemplatePage("list"); setSection("templates"); }} className="secondary-button"><FileText size={16} /> 故事模板</button>
+              <button type="button" onClick={() => { setTemplatePage("create"); setSection("templates"); }} className="primary-button"><FileText size={16} /> 新建故事模板</button>
+            </>}
+            <button type="button" onClick={() => { void loadTemplates(); void loadCharacters(); }} disabled={loading || templatesLoading} className="secondary-button">
+              {loading || templatesLoading ? <LoaderCircle size={16} className="animate-spin" /> : <RefreshCw size={16} />} 刷新模板和角色
+            </button>
+          </div>
         </div>
       </div>
 
@@ -110,10 +155,13 @@ export function StoryCharacterLibraryPanel({ currentUser, notify }: {
           <p className="mt-1 text-sm text-ink/60">切换模板后只展示该模板的角色。</p>
           <label className="field mt-4">
             <span>故事模板</span>
-            <select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
-              {STORY_CHARACTER_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+            <select disabled={templatesLoading || !templates.length} value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+              {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
             </select>
           </label>
+          {templatesLoading && <p className="mt-2 text-xs text-ink/55">正在读取服务端故事模板...</p>}
+          {templatesError && <div className="mt-3 rounded border border-coral/25 bg-coral/5 p-3 text-sm text-coral">{templatesError}</div>}
+          {!templatesLoading && !templatesError && !templates.length && <div className="mt-3 rounded border border-dashed border-ink/20 bg-white/60 p-3 text-sm leading-6 text-ink/60">平台还没有故事模板，请先创建一个模板。</div>}
 
           {admin ? (
             <form onSubmit={submitUpload} className="mt-5 border-t border-ink/10 pt-5">
@@ -139,7 +187,7 @@ export function StoryCharacterLibraryPanel({ currentUser, notify }: {
         <div className="panel">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="section-title">{STORY_CHARACTER_TEMPLATES.find((template) => template.id === templateId)?.name} · 角色列表</h3>
+              <h3 className="section-title">{templates.find((template) => template.id === templateId)?.name || "故事模板"} · 角色列表</h3>
               <p className="mt-1 text-sm text-ink/60">{loading ? "正在读取服务端角色列表..." : `共 ${characters.length} 个角色`}</p>
             </div>
             <ImagePlus size={22} className="text-teal" />

@@ -11,13 +11,14 @@ export type StoryCharacter = {
   createdAt?: string;
 };
 
-export const STORY_CHARACTER_TEMPLATES = [
-  { id: "cat_moon_post", name: "小猫｜月光邮局" },
-  { id: "dog_reverse_map", name: "小狗｜反方向的地图" },
-  { id: "niu_lai_dream", name: "牛来｜云雀入梦" },
-  { id: "fox_borrowed_moon", name: "小狐狸｜借月亮的人" },
-  { id: "rabbit_last_train", name: "小兔子｜末班车没有终点" }
-] as const;
+export type StoryCharacterTemplate = {
+  id: string;
+  name: string;
+  outline: string;
+  requiredScenes: string[];
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 type StoryCharacterListResponse = {
   status?: boolean;
@@ -25,8 +26,30 @@ type StoryCharacterListResponse = {
   data?: { characters?: unknown };
 };
 
-export function isStoryCharacterTemplate(templateId: string) {
-  return STORY_CHARACTER_TEMPLATES.some((template) => template.id === templateId);
+type StoryCharacterTemplateListResponse = {
+  status?: boolean;
+  message?: string;
+  data?: { templates?: unknown };
+};
+
+export function normalizeStoryCharacterTemplate(value: unknown): StoryCharacterTemplate | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  const id = String(item.templateId ?? item.id ?? "").trim();
+  const name = String(item.name ?? "").trim();
+  const outline = String(item.outline ?? "").trim();
+  const requiredScenes = Array.isArray(item.requiredScenes)
+    ? item.requiredScenes.map((scene) => String(scene).trim()).filter(Boolean)
+    : [];
+  if (!id || !name || !outline) return null;
+  return {
+    id,
+    name,
+    outline,
+    requiredScenes,
+    createdAt: item.createdAt ? String(item.createdAt) : undefined,
+    updatedAt: item.updatedAt ? String(item.updatedAt) : undefined
+  };
 }
 
 export function normalizeStoryCharacter(value: unknown): StoryCharacter | null {
@@ -75,11 +98,47 @@ export async function resolveStoryCharacter(
   return character;
 }
 
+export async function resolveStoryCharacterTemplate(
+  templateId: string,
+  credentials: BackendAiCredentials
+): Promise<StoryCharacterTemplate> {
+  const templates = await fetchStoryCharacterTemplatesFromBackend(credentials);
+  const template = templates.find((item) => item.id === String(templateId || "").trim());
+  if (!template) throw new Error("故事模板不存在或已被删除。");
+  return template;
+}
+
+export async function fetchStoryCharacterTemplatesFromBackend(
+  credentials: BackendAiCredentials
+): Promise<StoryCharacterTemplate[]> {
+  const url = `${getBackendApiBaseUrl()}/storyCharacter/v1/template/list`;
+  const body = "{}";
+  const response = await fetch(url, {
+    method: "POST",
+    headers: buildBackendSignedHeaders({
+      url,
+      method: "POST",
+      body,
+      token: credentials.token,
+      uid: credentials.uid,
+      test: credentials.test
+    }),
+    body
+  });
+  const result = await response.json().catch(() => ({})) as StoryCharacterTemplateListResponse;
+  if (!response.ok || !result.status) {
+    throw new Error(result.message || `获取故事模板失败（HTTP ${response.status}）。`);
+  }
+  const rawTemplates = Array.isArray(result.data?.templates) ? result.data.templates : [];
+  const templates = rawTemplates.map(normalizeStoryCharacterTemplate);
+  if (templates.some((template) => !template)) throw new Error("服务端返回了无效的故事模板数据。");
+  return templates as StoryCharacterTemplate[];
+}
+
 export async function fetchStoryCharactersFromBackend(
   templateId: string,
   credentials: BackendAiCredentials
 ): Promise<StoryCharacter[]> {
-  if (!isStoryCharacterTemplate(templateId)) throw new Error("故事模板无效。");
   const url = `${getBackendApiBaseUrl()}/storyCharacter/v1/list`;
   const body = JSON.stringify({ templateId });
   const response = await fetch(url, {
