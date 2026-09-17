@@ -5,6 +5,7 @@ const vm = require('node:vm');
 const ts = require('typescript');
 
 let response;
+let retryableFailures = 0;
 const requests = [];
 function loadTs(file, overrides = {}) {
   const output = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
@@ -30,6 +31,10 @@ const video = loadTs('src/lib/videoPrompts.ts', {
   '@/lib/storyCharacters': library,
   '@/lib/backendAiServerClient': { completeWithBackendAi: async (input) => {
     requests.push(input);
+    if (retryableFailures > 0) {
+      retryableFailures -= 1;
+      return { ok: false, error: 'responses stream error: {"code":"server_error"}' };
+    }
     return { ok: true, text: JSON.stringify(response), model: 'mock' };
   } }
 });
@@ -76,12 +81,15 @@ async function run() {
       framePrompt: '角色在庭院'
     }))
   };
+  retryableFailures = 1;
+  const frameRequestCount = requests.length;
   const plannedFrames = await video.planStoryVideoFrames({
     account: { accountType: '文旅', strategy: { markdown: 'FULL_STRATEGY_MUST_NOT_REACH_FRAME_PROMPT' } },
     noteTask: { topicTitle: '月光邮局', contentGoal: '讲故事' },
-    story: generated,
+    story: { ...generated, noteTask: { ...generated.noteTask, writingStyleReference: 'WRITING_STYLE_REFERENCE_MUST_NOT_REACH_FRAME_PROMPT' } },
     assets: [{ id: 9, filePath: 'scenes/garden.png', fileUrl: backgroundUrl, fileType: 'image/png', tags: '庭院', suitableTypes: '故事背景' }]
   });
+  assert.equal(requests.length, frameRequestCount + 2);
   assert.equal(plannedFrames.framePlan[0].assetUrl, backgroundUrl);
   assert.equal(plannedFrames.framePlan[1].assetUrl, '');
   const frameRequest = requests.at(-1).input;
@@ -91,15 +99,19 @@ async function run() {
   assert.equal((frameRequest.match(/"framePrompt": ""/g) || []).length, 3);
   assert.ok(!frameRequest.includes(backgroundUrl));
   assert.ok(!frameRequest.includes('FULL_STRATEGY_MUST_NOT_REACH_FRAME_PROMPT'));
+  assert.equal(frameRequest.knowledgeSnapshotId, undefined);
 
   const frames = plannedFrames.framePlan;
   const motions = [1,2,3].map((order) => ({ order, mainVideoPrompt: '缓慢向前', endingTransitionPrompt: '轻轻停下', narrationText: `第${order}段月光旁白` }));
   response = { shots: motions };
-  const plannedMotions = await video.planStoryVideoMotion({ story: generated, framePlan: frames });
+  const motionStory = { ...generated, noteTask: { ...generated.noteTask, writingStyleReference: 'WRITING_STYLE_REFERENCE_MUST_NOT_REACH_MOTION_PROMPT' } };
+  const plannedMotions = await video.planStoryVideoMotion({ story: motionStory, framePlan: frames });
   assert.equal(JSON.stringify(plannedMotions), JSON.stringify(motions));
   assert.ok(requests.at(-1).input.includes('narrationText'));
   assert.ok(requests.at(-1).input.includes('按顺序直接拼接全部 narrationText'));
   assert.ok(requests.at(-1).input.includes('模板规定的关键对白必须出现在对应 narrationText'));
+  assert.ok(requests.at(-1).input.includes('"月光邮局"'));
+  assert.ok(!requests.at(-1).input.includes('WRITING_STYLE_REFERENCE_MUST_NOT_REACH_MOTION_PROMPT'));
   const input = { account: { name: '测试', accountParam: 'test' }, noteTask: { id: 42, topicTitle: '故事' }, story: generated, framePlan: frames, motionPlan: plannedMotions };
   const attachmentTask = video.buildStoryVideoTask(input);
   assert.ok(attachmentTask.includes('cat > "$TASK_ROOT/plan.json"'));
@@ -120,6 +132,7 @@ async function run() {
   assert.equal(taskPlan.character.imageUrl, cat.imageUrl);
   assert.equal(taskPlan.noteTask.id, 42);
   assert.deepEqual(taskPlan.shots.map((shot) => shot.narrationText), motions.map((motion) => motion.narrationText));
+  assert.ok(taskPlan.shots.every((shot) => shot.narrationTargetDuration === 4.5));
   const plain = video.buildStoryVideoTask({ ...input, story: { ...generated, character: null } });
   assert.equal(JSON.parse(plain.match(/<<'JSON'\n([^\n]+)\nJSON/)[1]).character, null);
   console.log('PASS: server story-character contract, HTTPS delivery, and compact story-video plan');

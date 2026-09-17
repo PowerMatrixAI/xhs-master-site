@@ -134,6 +134,28 @@ function compactStoryFrameContext(account: Record<string, unknown>, noteTask: Re
   };
 }
 
+function compactStorySceneContext(story: VideoStoryDraft) {
+  return {
+    title: story.title,
+    summary: story.summary,
+    emotionalArc: story.emotionalArc,
+    character: story.character
+      ? { id: story.character.id, name: story.character.name, description: story.character.description }
+      : null,
+    shots: story.shots.map((shot) => ({
+      order: shot.order,
+      beat: shot.beat,
+      role: shot.role,
+      description: shot.description,
+      suggestedMaterial: shot.suggestedMaterial
+    }))
+  };
+}
+
+function shouldRetryStoryFramePlanning(error: string) {
+  return /responses stream error|server_error|AI 服务调用失败（HTTP 5\d{2}/iu.test(error);
+}
+
 function extractJson(text: string) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const source = fenced || text;
@@ -607,10 +629,8 @@ export async function planStoryVideoFrames(input: {
       framePrompt: ""
     }))
   };
-  const response = await completeWithBackendAi({
+  const framePlanningRequest = {
     instructions: "你是小红书故事型竖屏短视频首帧与素材规划师。根据已确认故事、用户指定图片和素材库文字元数据，规划3-6个镜头的首帧来源和首帧处理提示词。只返回JSON。",
-    knowledgeSnapshotId: input.knowledgeSnapshotId,
-    knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `根据已确认故事规划镜头的首帧与素材来源。
 
 硬性要求：
@@ -628,7 +648,7 @@ ${input.story.character ? `- 本次已锁定主角参考图：${input.story.char
 ${JSON.stringify(compactStoryFrameContext(input.account, input.noteTask), null, 2)}
 
 已确认故事：
-${JSON.stringify(input.story, null, 2)}
+${JSON.stringify(compactStorySceneContext(input.story), null, 2)}
 
 已沉淀专家规则：
 ${input.expertRules || "暂无相关规则。"}
@@ -640,7 +660,12 @@ ${assetReferences.length ? JSON.stringify(assetReferences.map(({ fileUrl: _fileU
 - 严格保留下方 ${input.story.shots.length} 个镜头的 order、role 和 description，为每个镜头填写 frameSource、assetKey 和 framePrompt。
 - frameSource 只能是 asset 或 generate。骨架中的 generate 仅是安全初始值；如有明确匹配素材，应改为 asset 并填写对应 assetKey。
 ${JSON.stringify(responseSkeleton, null, 2)}`
-  });
+  };
+  let response = await completeWithBackendAi(framePlanningRequest);
+  // 首帧规划没有外部副作用；仅在上游短暂 5xx/流错误时补试一次，避免把认证和结构性错误掩盖为重试。
+  if (!response.ok && shouldRetryStoryFramePlanning(response.error)) {
+    response = await completeWithBackendAi(framePlanningRequest);
+  }
   if (!response.ok) throw new Error(`后端 AI 未能规划故事视频首帧与素材：${response.error}`);
   const parsed = extractJson(response.text);
   const framePlan = parseStoryVideoFramePlan(parsed?.shots, assetReferences, input.story.shots.length);
@@ -665,7 +690,7 @@ export async function planStoryVideoMotion(input: {
 - 严格按 framePlan 中的 order 输出，数量必须完全一致；不得更换素材、首帧来源、镜头顺序、角色或画面职责。
 - mainVideoPrompt 只描述前约4秒的主体运动、镜头运动、环境微动和情绪变化。
 - endingTransitionPrompt 描述最后约1秒的自然转场动作、遮挡、光影、推拉或运动趋势，为下一镜头建立衔接；最后一个镜头必须写自然收束，不得跳转到未出现的画面。
-- narrationText 是单一旁白音色朗读的成品台词，每个镜头必须有且只有一条，建议 6-16 个汉字，最多 30 个字符，正常语速下必须能在前 4 秒内说完。
+- narrationText 是单一旁白音色朗读的成品台词，每个镜头必须有且只有一条，建议 6-16 个汉字，最多 30 个字符，正常语速下必须能在前 4.5 秒内说完。旁白可自然延续到片尾转场开头，但必须在 5 秒镜头结束前留出收束余量。
 - 必须先在内部把所有 narrationText 连成一篇完整短故事，再按镜头边界切分。按顺序直接拼接全部 narrationText 时，应具备“引出人物/目标 → 事件推进 → 意外或选择 → 反转/发现/收束”的连续叙事，不得像互不相关的独立文案。
 - 第一条旁白负责建立人物、目标或悬念；中间每条必须带来新动作、新发现或新变化，并自然承接前文；最后一条必须回应开头并完成故事结局，不能只写空泛感悟。
 - 相邻旁白要保持同一叙述视角、时态、称谓和语气，合理使用指代、因果或时间关系；不要在每个镜头重复介绍主角、重复故事背景、重复总结，也不要机械地每句都使用“然后”“接着”。
@@ -673,8 +698,8 @@ export async function planStoryVideoMotion(input: {
 - narrationText 只包含要朗读的中文正文，不得包含“旁白：”、角色标签、舞台说明、Markdown、SSML、字幕指令或引号外说明。
 - 不生成独立转场镜头，不要求字幕、背景音乐或新增首帧画面。
 
-已确认故事：
-${JSON.stringify(input.story, null, 2)}
+已确认故事（仅保留动态规划所需信息）：
+${JSON.stringify(compactStorySceneContext(input.story), null, 2)}
 
 已锁定首帧计划：
 ${JSON.stringify(input.framePlan, null, 2)}
@@ -683,7 +708,7 @@ ${JSON.stringify(input.framePlan, null, 2)}
 ${input.expertRules || "暂无相关规则。"}
 
 返回格式：
-{"shots":[{"order":1,"mainVideoPrompt":"前约4秒主体动态","endingTransitionPrompt":"最后约1秒片尾转场或自然收束","narrationText":"前4秒内可朗读完成的单一旁白"}]}`
+{"shots":[{"order":1,"mainVideoPrompt":"前约4秒主体动态","endingTransitionPrompt":"最后约1秒片尾转场或自然收束","narrationText":"前4.5秒内可朗读完成的单一旁白"}]}`
   });
   if (!response.ok) throw new Error(`后端 AI 未能规划故事视频动态与转场：${response.error}`);
   const parsed = extractJson(response.text);
@@ -736,7 +761,7 @@ export function buildStoryVideoTask(input: {
       videoPrompt: shot.videoPrompt,
       narrationText: shot.narrationText,
       duration: 5,
-      narrationTargetDuration: 4
+      narrationTargetDuration: 4.5
     }))
   };
   const planJson = JSON.stringify(plan);
