@@ -131,10 +131,16 @@ async function run() {
   assert.equal(taskPlan.version, 1);
   assert.equal(taskPlan.character.imageUrl, cat.imageUrl);
   assert.equal(taskPlan.noteTask.id, 42);
+  assert.deepEqual(taskPlan.styleReference, { source: 'asset', imageUrl: backgroundUrl });
   assert.deepEqual(taskPlan.shots.map((shot) => shot.narrationText), motions.map((motion) => motion.narrationText));
   assert.ok(taskPlan.shots.every((shot) => shot.narrationTargetDuration === 4.5));
   const plain = video.buildStoryVideoTask({ ...input, story: { ...generated, character: null } });
   assert.equal(JSON.parse(plain.match(/<<'JSON'\n([^\n]+)\nJSON/)[1]).character, null);
+  const allGeneratedTask = video.buildStoryVideoTask({
+    ...input,
+    framePlan: frames.map((frame) => ({ ...frame, frameSource: 'generate', assetUrl: '' }))
+  });
+  assert.equal(JSON.parse(allGeneratedTask.match(/<<'JSON'\n([^\n]+)\nJSON/)[1]).styleReference, undefined);
   console.log('PASS: server story-character contract, HTTPS delivery, and compact story-video plan');
 }
 

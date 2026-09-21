@@ -737,6 +737,7 @@ export function buildStoryVideoTask(input: {
   const shots = combineStoryVideoPlans(input.framePlan, input.motionPlan);
   const character = input.story.character;
   const characterUrl = character ? characterDownloadUrl(character) : "";
+  const styleAnchor = input.framePlan.find((shot) => shot.frameSource === "asset" && shot.assetUrl);
   const taskDir = `.tasks/xhs-video-task-${input.noteTask.id}`;
   const plan = {
     version: 1,
@@ -749,6 +750,11 @@ export function buildStoryVideoTask(input: {
       imageUrl: characterUrl,
       expectedFilename: `${character.id}.png`
     } : null,
+    // 仅以首个实际采用的素材图约束 AI 补图的视觉风格；真实素材镜头本身不重绘。
+    styleReference: styleAnchor ? {
+      source: "asset",
+      imageUrl: styleAnchor.assetUrl
+    } : undefined,
     shots: shots.map((shot) => ({
       order: shot.order,
       role: shot.role,
@@ -756,7 +762,7 @@ export function buildStoryVideoTask(input: {
       frameSource: shot.frameSource,
       assetUrl: shot.assetUrl,
       framePrompt: character
-        ? `第一张输入图是场景背景，第二张是唯一主角参考图。自然融入主角并保持外观一致，不复制参考图背景。${character.description}。${shot.framePrompt}`
+        ? `将唯一主角参考图自然融入场景并保持外观一致，不复制角色参考图的展示背景。${character.description}。${shot.framePrompt}`
         : shot.framePrompt,
       videoPrompt: shot.videoPrompt,
       narrationText: shot.narrationText,
