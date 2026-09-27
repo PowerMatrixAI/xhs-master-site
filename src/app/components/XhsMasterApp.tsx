@@ -83,7 +83,8 @@ import type React from "react";
 import clsx from "clsx";
 import type { StoryCharacter, StoryCharacterTemplate } from "@/lib/storyCharacters";
 import { StoryCharacterPicker } from "@/app/components/StoryCharacterPicker";
-import { StoryCharacterLibraryPanel } from "@/app/components/StoryCharacterLibraryPanel";
+import { FeaturedVlogManagementPanel } from "@/app/components/FeaturedVlogManagementPanel";
+import { PlatformAssetLibraryPanel } from "@/app/components/PlatformAssetLibraryPanel";
 
 type Template = {
   id: number;
@@ -404,8 +405,7 @@ const mainTabs = [
   ["knowledgeBase", "知识库", Database],
   ["interactions", "发布后互动", MessageCircle],
   ["reports", "专家复盘", Activity],
-  ["learning", "行业学习", BookOpen],
-  ["storyCharacters", "平台素材库", ImageIcon]
+  ["learning", "行业学习", BookOpen]
 ] as const;
 
 const advancedTabs = [
@@ -413,7 +413,12 @@ const advancedTabs = [
   ["strategy", "策划案", Sparkles]
 ] as const;
 
-const tabs = [...mainTabs, ...advancedTabs] as const;
+const platformManagementTabs = [
+  ["platformFeaturedVlog", "精选 Vlog 视频", Sparkles],
+  ["platformAssets", "平台素材库", ImageIcon]
+] as const;
+
+const tabs = [...mainTabs, ...advancedTabs, ...platformManagementTabs] as const;
 
 const sourceTypes = [
   "真实素材",
@@ -1540,9 +1545,8 @@ export function XhsMasterApp() {
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const copyNoticeTimerRef = useRef<number | null>(null);
   const [currentUser, setCurrentUser] = useState<LoginResponse | null>(null);
-  const visibleMainTabs = currentUser && isPlatformAdmin(currentUser)
-    ? mainTabs
-    : mainTabs.filter(([id]) => id !== "storyCharacters");
+  const visibleMainTabs = mainTabs;
+  const visiblePlatformManagementTabs = currentUser && isPlatformAdmin(currentUser) ? platformManagementTabs : [];
   const [promptResults, setPromptResults] = useState<Record<number, PromptResult>>({});
   // 三版文案仅保存在当前页面会话中，不同步到浏览器工作区或后端。
   const [draftVariants, setDraftVariants] = useState<Record<number, DraftVariant[]>>({});
@@ -1583,7 +1587,7 @@ export function XhsMasterApp() {
   const selectedNote = latestPlan?.noteTasks?.find((task) => task.id === selectedNoteId) ?? latestPlan?.noteTasks?.[0];
 
   useEffect(() => {
-    if (currentUser && !isPlatformAdmin(currentUser) && activeTab === "storyCharacters") {
+    if (currentUser && !isPlatformAdmin(currentUser) && platformManagementTabs.some(([id]) => id === activeTab)) {
       setActiveTab("dashboard");
     }
   }, [activeTab, currentUser]);
@@ -3112,6 +3116,29 @@ export function XhsMasterApp() {
               {label}
             </button>
           ))}
+          {visiblePlatformManagementTabs.length > 0 && (
+            <details className="pt-2" open={visiblePlatformManagementTabs.some(([id]) => id === activeTab)}>
+              <summary className="cursor-pointer rounded px-3 py-2 text-xs font-medium text-ink/55 transition hover:bg-ink/5 hover:text-teal">
+                平台管理
+              </summary>
+              <div className="mt-1 space-y-1 pl-2">
+                {visiblePlatformManagementTabs.map(([id, label, Icon]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setActiveTab(id)}
+                    className={clsx(
+                      "flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm transition",
+                      activeTab === id ? "bg-teal/15 font-medium text-teal" : "text-ink/75 hover:bg-white/70 hover:text-teal"
+                    )}
+                  >
+                    <Icon size={16} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
           <details className="pt-2">
             <summary className="cursor-pointer rounded px-3 py-2 text-xs font-medium text-ink/55 transition hover:bg-ink/5">
               高级设置
@@ -3192,6 +3219,11 @@ export function XhsMasterApp() {
           </div>
           <div className="mt-3 flex gap-2 overflow-x-auto lg:hidden">
             {visibleMainTabs.map(([id, label]) => (
+              <button key={id} type="button" onClick={() => setActiveTab(id)} className={clsx("shrink-0 rounded px-3 py-2 text-sm", activeTab === id ? "bg-ink text-white" : "bg-white")}>
+                {label}
+              </button>
+            ))}
+            {visiblePlatformManagementTabs.map(([id, label]) => (
               <button key={id} type="button" onClick={() => setActiveTab(id)} className={clsx("shrink-0 rounded px-3 py-2 text-sm", activeTab === id ? "bg-ink text-white" : "bg-white")}>
                 {label}
               </button>
@@ -3280,8 +3312,11 @@ export function XhsMasterApp() {
               loadingAction={loadingAction}
             />
           )}
-          {activeTab === "storyCharacters" && isPlatformAdmin(currentUser) && (
-            <StoryCharacterLibraryPanel currentUser={currentUser} notify={showToast} />
+          {activeTab === "platformFeaturedVlog" && isPlatformAdmin(currentUser) && (
+            <FeaturedVlogManagementPanel currentUser={currentUser} notify={showToast} />
+          )}
+          {activeTab === "platformAssets" && isPlatformAdmin(currentUser) && (
+            <PlatformAssetLibraryPanel currentUser={currentUser} notify={showToast} />
           )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
