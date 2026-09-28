@@ -6,6 +6,9 @@ import {
   type ApiResponse,
   type LoginResponse
 } from "@/lib/api";
+import { getBackendApiBaseUrl } from "@/lib/backendApi";
+import { buildBackendSignedHeaders } from "@/lib/xhs-signature";
+import type { BackendAiCredentials } from "@/lib/backendAiClient";
 
 export type FeaturedVlogBeat = {
   name: string;
@@ -46,6 +49,53 @@ export type PlatformMusic = {
 
 export type MusicCandidate = Pick<PlatformMusic, "id" | "name" | "tags" | "durationSeconds" | "mimeType" | "audioUrl">;
 
+export type FeaturedVlogScript = {
+  title: string;
+  summary: string;
+  perspective: string;
+  moodTags: string[];
+  musicTags: string[];
+  noteTask: {
+    topicTitle: string;
+    contentType: string;
+    contentGoal: string;
+    targetUser: string;
+    painPoint: string;
+    coreView: string;
+    requiredMaterials: string;
+    recommendedAssets: string;
+    coverCopyDirection: string;
+    commentHook: string;
+    expectedGoal: string;
+    writingStyleName: string;
+    writingStyleReference: string;
+    knowledgeSourceKeys: string[];
+  };
+  shots: Array<{
+    order: number;
+    beat: string;
+    role: string;
+    description: string;
+    suggestedMaterial: string;
+    subjectPresence: "pov" | "traveler" | "environment";
+  }>;
+};
+
+export type FeaturedVlogFramePlan = Array<{
+  order: number;
+  role: string;
+  description: string;
+  frameSource: "asset" | "generate";
+  assetUrl: string;
+  framePrompt: string;
+}>;
+
+export type FeaturedVlogMotionPlan = Array<{
+  order: number;
+  mainVideoPrompt: string;
+  endingTransitionPrompt: string;
+}>;
+
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
 }
@@ -62,10 +112,19 @@ function stringList(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];
 }
 
-function isPublicAudioUrl(value: string) {
+export function isPublicAudioUrl(value: string) {
   try {
     const url = new URL(value);
     return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function isHttpsUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password;
   } catch {
     return false;
   }
@@ -229,4 +288,34 @@ export async function fetchMusicCandidates(accountId: number) {
   });
   if (!response.status || !Array.isArray(response.data?.candidates)) throw new Error(response.message || "获取候选配乐失败。");
   return response.data.candidates.map(normalizePlatformMusic).filter((music): music is PlatformMusic => Boolean(music));
+}
+
+export async function fetchFeaturedVlogTemplatesFromBackend(credentials: BackendAiCredentials) {
+  const url = `${getBackendApiBaseUrl()}/featuredVlog/v1/template/list`;
+  const body = "{}";
+  const response = await fetch(url, {
+    method: "POST",
+    headers: buildBackendSignedHeaders({ url, method: "POST", body, token: credentials.token, uid: credentials.uid, test: credentials.test }),
+    body
+  });
+  const result = await response.json().catch(() => ({})) as ApiResponse<{ templates?: unknown[] }>;
+  if (!response.ok || !result.status || !Array.isArray(result.data?.templates)) {
+    throw new Error(result.message || `获取精选 Vlog 模板失败（HTTP ${response.status}）。`);
+  }
+  return result.data.templates.map(readTemplateResponse);
+}
+
+export async function fetchMusicCandidatesFromBackend(accountId: number, credentials: BackendAiCredentials) {
+  const url = `${getBackendApiBaseUrl()}/featuredVlog/v1/music/candidates`;
+  const body = JSON.stringify({ accountId });
+  const response = await fetch(url, {
+    method: "POST",
+    headers: buildBackendSignedHeaders({ url, method: "POST", body, token: credentials.token, uid: credentials.uid, test: credentials.test }),
+    body
+  });
+  const result = await response.json().catch(() => ({})) as ApiResponse<{ candidates?: unknown[] }>;
+  if (!response.ok || !result.status || !Array.isArray(result.data?.candidates)) {
+    throw new Error(result.message || `获取候选配乐失败（HTTP ${response.status}）。`);
+  }
+  return result.data.candidates.map(normalizePlatformMusic).filter((music): music is PlatformMusic => Boolean(music));
 }

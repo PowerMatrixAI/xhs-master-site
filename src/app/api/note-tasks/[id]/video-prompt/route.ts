@@ -15,6 +15,20 @@ import {
   type VideoStoryDraft
 } from "@/lib/videoPrompts";
 import { formatExpertRulesForPrompt } from "@/lib/expertLearning";
+import {
+  fetchFeaturedVlogTemplatesFromBackend,
+  fetchMusicCandidatesFromBackend,
+  type FeaturedVlogFramePlan,
+  type FeaturedVlogMotionPlan,
+  type FeaturedVlogScript,
+  type MusicCandidate
+} from "@/lib/featuredVlog";
+import {
+  buildFeaturedVlogVideoTask,
+  planFeaturedVlogFrames,
+  planFeaturedVlogMotion,
+  selectFeaturedVlogMusic
+} from "@/lib/featuredVlogPrompts";
 
 function requestContext(body: Record<string, unknown>) {
   const account = body.account as Record<string, unknown> & { name: string; accountParam: string };
@@ -111,6 +125,76 @@ async function buildStoryTaskResult(body: Record<string, unknown>, credentials: 
   };
 }
 
+async function featuredVlogContext(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const context = requestContext(body);
+  const script = body.featuredVlogScript as FeaturedVlogScript;
+  const templateId = String(body.featuredVlogTemplateId || "").trim();
+  const assets = (Array.isArray(body.assets) ? body.assets : []) as VideoSourceAsset[];
+  if (!script?.title || !Array.isArray(script.shots) || script.shots.length < 3 || script.shots.length > 6) {
+    throw new Error("请先生成并确认完整的精选vlog脚本。");
+  }
+  const templates = await fetchFeaturedVlogTemplatesFromBackend(credentials);
+  const template = templates.find((item) => item.id === templateId);
+  if (!template) throw new Error("精选vlog模板不存在或已被停用。");
+  const submittedVersion = Number(body.featuredVlogTemplateVersion || 0);
+  if (submittedVersion && template.version && submittedVersion !== template.version) {
+    throw new Error("精选vlog模板在脚本生成后发生了修改，请重新生成脚本。");
+  }
+  if (assets.some((asset) => !String(asset.fileUrl || "").startsWith("https://"))) {
+    throw new Error("精选vlog候选素材中存在不可公开访问的图片地址。");
+  }
+  return { ...context, script, template, assets };
+}
+
+async function buildFeaturedVlogFrameResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const input = await featuredVlogContext(body, credentials);
+  const result = await planFeaturedVlogFrames({ script: input.script, template: input.template, assets: input.assets, credentials });
+  return { ...result, ai: { used: true, calls: 1, stage: "featured_vlog_frames" } };
+}
+
+async function buildFeaturedVlogMotionResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const input = await featuredVlogContext(body, credentials);
+  const framePlan = body.framePlan;
+  if (!Array.isArray(framePlan) || framePlan.length !== input.script.shots.length) throw new Error("缺少有效的精选vlog首帧规划结果。");
+  const result = await planFeaturedVlogMotion({ script: input.script, framePlan: framePlan as FeaturedVlogFramePlan, expertRules: input.expertRules, credentials });
+  return { ...result, ai: { used: true, calls: 1, stage: "featured_vlog_motion" } };
+}
+
+async function buildFeaturedVlogMusicResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const input = await featuredVlogContext(body, credentials);
+  const result = await selectFeaturedVlogMusic({ accountId: Number(input.account.id), script: input.script, credentials });
+  return { ...result, ai: { used: true, calls: 1, stage: "featured_vlog_music" } };
+}
+
+async function buildFeaturedVlogTaskResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const input = await featuredVlogContext(body, credentials);
+  const framePlan = body.framePlan;
+  const motionPlan = body.motionPlan;
+  const selectedMusicInput = body.selectedMusic && typeof body.selectedMusic === "object" ? body.selectedMusic as Record<string, unknown> : {};
+  const musicId = String(selectedMusicInput.id || "").trim();
+  if (!Array.isArray(framePlan) || !Array.isArray(motionPlan) || !musicId) {
+    throw new Error("缺少精选vlog首帧、动态或配乐结果。");
+  }
+  const candidates = await fetchMusicCandidatesFromBackend(Number(input.account.id), credentials);
+  const selectedMusic = candidates.find((candidate) => candidate.id === Number(musicId)) as MusicCandidate | undefined;
+  if (!selectedMusic) throw new Error("所选平台配乐已不可用，请重新生成视频任务。");
+  const content = buildFeaturedVlogVideoTask({
+    account: input.account,
+    noteTask: input.noteTask,
+    template: input.template,
+    script: input.script,
+    framePlan: framePlan as FeaturedVlogFramePlan,
+    motionPlan: motionPlan as FeaturedVlogMotionPlan,
+    music: selectedMusic,
+    overallDirection: String(body.overallDirection || "")
+  });
+  return {
+    videoPrompt: { title: `${input.noteTask.topicTitle} 视频方案`, content },
+    openclawTask: { title: `${input.noteTask.topicTitle} Agent 视频任务`, content },
+    ai: { used: true, calls: 3, stage: "featured_vlog_complete", totalCalls: 3 }
+  };
+}
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   if (!body.account || !body.noteTask) return NextResponse.json({ error: "缺少任务上下文" }, { status: 400 });
@@ -120,6 +204,22 @@ export async function POST(request: Request) {
   if (body.action === "plan_story_frames") {
     const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildStoryFrameResult(body, credentials)));
     return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
+  }
+  if (body.mode === "featured_vlog" && body.action === "plan_featured_vlog_frames") {
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildFeaturedVlogFrameResult(body, credentials)));
+    return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
+  }
+  if (body.mode === "featured_vlog" && body.action === "plan_featured_vlog_motion") {
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildFeaturedVlogMotionResult(body, credentials)));
+    return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
+  }
+  if (body.mode === "featured_vlog" && body.action === "select_featured_vlog_music") {
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildFeaturedVlogMusicResult(body, credentials)));
+    return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
+  }
+  if (body.mode === "featured_vlog" && body.action === "build_featured_vlog_task") {
+    try { return NextResponse.json(await runWithBackendAiCredentials(credentials, () => buildFeaturedVlogTaskResult(body, credentials))); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "组装精选vlog视频任务失败。" }, { status: 400 }); }
   }
   if (body.action === "plan_story_motion") {
     const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildStoryMotionResult(body, credentials)));
