@@ -5978,7 +5978,7 @@ function VideosPanel(props: {
             <div className="mt-4 text-sm text-ink/70"><span className="font-medium">将创建周计划视频笔记：</span>{featuredVlogDraft.script.noteTask.topicTitle}｜{featuredVlogDraft.script.noteTask.contentGoal}</div>
             {!featuredVlogTask && <button type="button" disabled={loading} onClick={() => void confirmAndCreateFeaturedVlogTask()} className="primary-button mt-4"><CircleCheck size={17} />确认并加入本周内容</button>}
           </div>}
-          <div className="border-t border-ink/10 pt-4"><h3 className="text-base font-semibold">第二步：生成完整视频任务</h3><p className="mt-1 text-sm text-ink/60">系统将规划首帧和镜头动态；平台配乐功能上线后会自动匹配配乐。智能体制作视频时不生成旁白。</p></div>
+          <div className="border-t border-ink/10 pt-4"><h3 className="text-base font-semibold">第二步：生成完整视频任务</h3><p className="mt-1 text-sm text-ink/60">系统将规划首帧和镜头动态，读取已启用的平台配乐并按脚本标签自动选曲；没有可用配乐时会停止生成。智能体制作视频时铺设整片配乐，不生成旁白 TTS。</p></div>
         </div>}
 
         <button type="button" disabled={loading || !canGenerate} onClick={() => {

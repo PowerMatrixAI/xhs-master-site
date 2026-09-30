@@ -176,7 +176,7 @@ async function buildFeaturedVlogTaskResult(body: Record<string, unknown>, creden
     throw new Error("缺少精选vlog首帧、动态或配乐结果。");
   }
   const candidates = await fetchMusicCandidatesFromBackend(Number(input.account.id), credentials);
-  const selectedMusic = candidates.find((candidate) => candidate.id === Number(musicId)) as MusicCandidate | undefined;
+  const selectedMusic: MusicCandidate | undefined = candidates.find((candidate) => candidate.id === Number(musicId));
   if (!selectedMusic) throw new Error("所选平台配乐已不可用，请重新生成视频任务。");
   const content = buildFeaturedVlogVideoTask({
     account: input.account,

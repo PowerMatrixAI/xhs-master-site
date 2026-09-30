@@ -182,6 +182,14 @@ export function normalizePlatformMusic(value: unknown): PlatformMusic | null {
   return music.id > 0 && music.name && isPublicAudioUrl(music.audioUrl) ? music : null;
 }
 
+function readMusicCandidates(data: { candidates?: unknown[]; music?: unknown[] } | undefined) {
+  const items = Array.isArray(data?.candidates) ? data.candidates : data?.music;
+  if (!Array.isArray(items)) throw new Error("服务端未返回有效的候选配乐列表。");
+  return items.map(normalizePlatformMusic).filter((music): music is PlatformMusic => Boolean(
+    music && isHttpsUrl(music.audioUrl) && (!music.authorizationState || music.authorizationState === "available")
+  ));
+}
+
 function requireAdmin(user?: LoginResponse | null) {
   if (!isPlatformAdmin(user)) throw new Error("仅平台管理员可以管理精选 Vlog 平台素材。");
 }
@@ -282,12 +290,12 @@ export async function updatePlatformMusic(input: Pick<PlatformMusic, "id" | "nam
 }
 
 export async function fetchMusicCandidates(accountId: number) {
-  const response = await authRequest<{ candidates?: unknown[] }>("/featuredVlog/v1/music/candidates", {
+  const response = await authRequest<{ candidates?: unknown[]; music?: unknown[] }>("/featuredVlog/v1/music/candidates", {
     method: "POST",
     body: { accountId }
   });
-  if (!response.status || !Array.isArray(response.data?.candidates)) throw new Error(response.message || "获取候选配乐失败。");
-  return response.data.candidates.map(normalizePlatformMusic).filter((music): music is PlatformMusic => Boolean(music));
+  if (!response.status) throw new Error(response.message || "获取候选配乐失败。");
+  return readMusicCandidates(response.data);
 }
 
 export async function fetchFeaturedVlogTemplatesFromBackend(credentials: BackendAiCredentials) {
@@ -313,9 +321,9 @@ export async function fetchMusicCandidatesFromBackend(accountId: number, credent
     headers: buildBackendSignedHeaders({ url, method: "POST", body, token: credentials.token, uid: credentials.uid, test: credentials.test }),
     body
   });
-  const result = await response.json().catch(() => ({})) as ApiResponse<{ candidates?: unknown[] }>;
-  if (!response.ok || !result.status || !Array.isArray(result.data?.candidates)) {
+  const result = await response.json().catch(() => ({})) as ApiResponse<{ candidates?: unknown[]; music?: unknown[] }>;
+  if (!response.ok || !result.status) {
     throw new Error(result.message || `获取候选配乐失败（HTTP ${response.status}）。`);
   }
-  return result.data.candidates.map(normalizePlatformMusic).filter((music): music is PlatformMusic => Boolean(music));
+  return readMusicCandidates(result.data);
 }
