@@ -1,6 +1,7 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import { createHash } from "node:crypto";
 import { characterDownloadUrl, type StoryCharacter } from "@/lib/storyCharacters";
+import { VIDEO_TIMELINE_PROMPT, videoTimelineV2Enabled, validateVideoTimeline, videoTimelineDuration, timedMotionPrompt, type TimedVideoShot } from "@/lib/videoTimeline";
 
 export type VideoSourceAsset = {
   id: number;
@@ -14,6 +15,7 @@ export type VideoSourceAsset = {
 export type VideoStorySourceType = "template";
 
 export type VideoStoryDraft = {
+  timingVersion?: 1 | 2;
   character?: StoryCharacter | null;
   title: string;
   summary: string;
@@ -33,7 +35,7 @@ export type VideoStoryDraft = {
     writingStyleName: string;
     knowledgeSourceKeys: string[];
   };
-  shots: Array<{
+  shots: Array<TimedVideoShot & {
     order: number;
     beat: string;
     role: string;
@@ -136,6 +138,7 @@ function compactStoryFrameContext(account: Record<string, unknown>, noteTask: Re
 
 function compactStorySceneContext(story: VideoStoryDraft) {
   return {
+    timingVersion: story.timingVersion,
     title: story.title,
     summary: story.summary,
     emotionalArc: story.emotionalArc,
@@ -147,7 +150,8 @@ function compactStorySceneContext(story: VideoStoryDraft) {
       beat: shot.beat,
       role: shot.role,
       description: shot.description,
-      suggestedMaterial: shot.suggestedMaterial
+      suggestedMaterial: shot.suggestedMaterial,
+      ...(story.timingVersion === 2 ? { duration: shot.duration, transitionToNext: shot.transitionToNext, narrationText: shot.narrationText } : {})
     }))
   };
 }
@@ -193,9 +197,13 @@ function parseShots(value: unknown, assets: VideoSourceAsset[]): VideoShot[] | n
   return shots as VideoShot[];
 }
 
-function parseStoryDraft(value: unknown): VideoStoryDraft | null {
+function parseStoryDraft(value: unknown, timed = false): VideoStoryDraft | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
+  if (timed) {
+    if (item.timingVersion !== 2 || !Array.isArray(item.shots)) throw new Error("故事脚本缺少新版时间线。");
+    validateVideoTimeline(2, item.shots, true);
+  }
   const title = String(item.title || "").trim();
   const summary = String(item.summary || "").trim();
   const emotionalArc = String(item.emotionalArc || "").trim();
@@ -228,10 +236,11 @@ function parseStoryDraft(value: unknown): VideoStoryDraft | null {
     const description = String(shot.description || "").trim();
     const suggestedMaterial = String(shot.suggestedMaterial || "").trim();
     if (!beat || !role || !description || !suggestedMaterial) return null;
-    return { order: index + 1, beat, role, description, suggestedMaterial };
+    return { order: index + 1, beat, role, description, suggestedMaterial,
+      ...(timed ? { duration: shot.duration, transitionToNext: shot.transitionToNext, narrationText: shot.narrationText } : {}) };
   });
   if (shots.some((shot) => !shot)) return null;
-  return { title, summary, emotionalArc, noteTask, shots: shots as VideoStoryDraft["shots"] };
+  return { title, summary, emotionalArc, noteTask, shots: shots as VideoStoryDraft["shots"], ...(timed ? { timingVersion: 2 as const } : {}) };
 }
 
 type StoryFrameAssetReference = {
@@ -317,8 +326,9 @@ export async function generateVideoStoryDraft(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
+  const timed = videoTimelineV2Enabled();
   const response = await completeWithBackendAi({
-    instructions: "你是小红书竖屏短视频故事策划师。把用户选择的创意故事模板发展成可由多个5秒镜头完成、具有漫剧感与反转的短故事。只返回JSON，不要输出Markdown。",
+    instructions: "你是小红书竖屏短视频故事策划师。把用户选择的创意故事模板发展成具有漫剧感与反转的短故事，遵守下方时间线要求。只返回JSON，不要输出Markdown。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
     knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `为当前账号新建一版待用户确认的故事型视频。
@@ -328,7 +338,7 @@ export async function generateVideoStoryDraft(input: {
 - 模板中标记为“强制场景”的场景顺序、人物关系和指定对话必须原样保留；例如要求第 2 个场景出现的对话，不得挪到其他镜头、删减或替换。
 - 故事要像短篇漫剧：开头有悬念或目标，中段出现意外、误会或选择，结尾完成反转、和解或新的发现。
 - 账号定位、业务场景和可用素材只用于承接故事发生地、道具或环境，不得覆盖模板本身的创意剧情。
-- 输出 3-6 个镜头节点；每个节点后续固定生成 5 秒视频。
+${timed ? VIDEO_TIMELINE_PROMPT + "\n每镜新增 narrationText：先构思一篇有开端、推进、反转和结局的连续旁白，再按镜头语义分配。每镜最多30字符，建议6-16汉字并适配本镜时长，语音要避开入场/出场叠化并留出收束停顿。模板关键对白须原样纳入对应镜头旁白；只含要朗读的正文，全部由单一旁白音色朗读。用户确认后不得改写。" : "- 输出 3-6 个镜头节点；每个节点后续固定生成 5 秒视频。"}
 - 镜头描述必须能转化为具体画面，不要写运营分析、制作说明或空泛口号。
 - suggestedMaterial 只描述需要什么画面，不得声称看过素材库图片。
 - 不生成标题正文，不执行视频制作。
@@ -352,11 +362,12 @@ ${input.expertRules || "暂无相关规则。"}
 ${input.availableWritingStyles.join("、")}
 
 返回格式：
+${timed ? "以下是业务字段骨架，顶层必须额外包含 timingVersion:2；每镜必须额外包含 duration、transitionToNext 和 narrationText。" : ""}
 {"title":"故事标题","summary":"故事摘要","emotionalArc":"情绪主线","noteTask":{"topicTitle":"由故事自然派生的笔记主题","contentType":"故事型视频","contentGoal":"","targetUser":"","painPoint":"","coreView":"","requiredMaterials":"","recommendedAssets":"","coverCopyDirection":"","commentHook":"","expectedGoal":"","writingStyleName":"必须精确匹配可选文风名称"},"shots":[{"order":1,"beat":"剧情节点","role":"镜头职责","description":"具体画面和事件","suggestedMaterial":"建议需要的画面"}]}`
   });
   if (!response.ok) throw new Error(`后端 AI 未能生成视频故事：${response.error}`);
   const parsed = extractJson(response.text);
-  const story = parseStoryDraft(parsed);
+  const story = parseStoryDraft(parsed, timed);
   if (!story) throw new Error("后端 AI 返回的视频故事 JSON 不完整，请重试。");
   if (/牛来喊[“"]妈妈[”"]，妈妈回应[“"]牛来[”"]/u.test(input.sourceContent)) {
     const secondScene = story.shots[1];
@@ -635,6 +646,7 @@ export async function planStoryVideoFrames(input: {
 
 硬性要求：
 - 必须严格输出 ${input.story.shots.length} 个镜头，且顺序与已确认故事节点一一对应；只规划首帧，不要输出视频动态或转场。
+- 已确认故事包含 transitionToNext 时，构图与主体位置须承接前镜结束状态和本镜开始状态，不修改时间线或场地事实。
 - 优先从候选素材库图片中选择与镜头职责匹配的真实图片；只能根据文件名、标签、适用类型等文字元数据判断。
 - 候选素材无法匹配当前镜头时，使用 frameSource=generate 生成 AI 首帧；不得勉强套用不相关真实图片。
 - 只能根据文件名、标签、适用类型等文字元数据判断素材，不得声称看过图片。
@@ -680,22 +692,24 @@ export async function planStoryVideoMotion(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
+  validateVideoTimeline(input.story.timingVersion, input.story.shots, true);
+  const timed = input.story.timingVersion === 2;
   const response = await completeWithBackendAi({
-    instructions: "你是小红书故事型竖屏短视频动态导演和旁白编剧。先为整条视频构思一段有开端、推进、变化和收束的连续旁白，再按镜头语义切分；同时生成每个镜头的主体动态与片尾转场。只返回JSON。",
+    instructions: timed ? "你是视频动态导演。遵守已确认的时长和相邻镜头衔接，仅细化运动，不改写脚本旁白。只返回JSON。" : "你是小红书故事型竖屏短视频动态导演和旁白编剧。先为整条视频构思一段有开端、推进、变化和收束的连续旁白，再按镜头语义切分；同时生成每个镜头的主体动态与片尾转场。只返回JSON。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
     knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `为以下已锁定的首帧镜头规划视频动态与片尾转场。
 
 硬性要求：
 - 严格按 framePlan 中的 order 输出，数量必须完全一致；不得更换素材、首帧来源、镜头顺序、角色或画面职责。
-- mainVideoPrompt 只描述前约4秒的主体运动、镜头运动、环境微动和情绪变化。
+${timed ? "- 必须按脚本每镜 duration 安排运动，关键动作在目标时间内完整完成。endingTransitionPrompt 只描述已确认 outgoingState 的自然收束，不切换或变形成下一场景；叠化由后期完成。narrationText 原样复制脚本，禁止重新创作。" : `- mainVideoPrompt 只描述前约4秒的主体运动、镜头运动、环境微动和情绪变化。
 - endingTransitionPrompt 描述最后约1秒的自然转场动作、遮挡、光影、推拉或运动趋势，为下一镜头建立衔接；最后一个镜头必须写自然收束，不得跳转到未出现的画面。
 - narrationText 是单一旁白音色朗读的成品台词，每个镜头必须有且只有一条，建议 6-16 个汉字，最多 30 个字符，正常语速下必须能在前 4.5 秒内说完。旁白可自然延续到片尾转场开头，但必须在 5 秒镜头结束前留出收束余量。
 - 必须先在内部把所有 narrationText 连成一篇完整短故事，再按镜头边界切分。按顺序直接拼接全部 narrationText 时，应具备“引出人物/目标 → 事件推进 → 意外或选择 → 反转/发现/收束”的连续叙事，不得像互不相关的独立文案。
 - 第一条旁白负责建立人物、目标或悬念；中间每条必须带来新动作、新发现或新变化，并自然承接前文；最后一条必须回应开头并完成故事结局，不能只写空泛感悟。
 - 相邻旁白要保持同一叙述视角、时态、称谓和语气，合理使用指代、因果或时间关系；不要在每个镜头重复介绍主角、重复故事背景、重复总结，也不要机械地每句都使用“然后”“接着”。
 - narrationText 要与对应镜头正在发生的动作一致，但不能只描述画面。模板规定的关键对白必须出现在对应 narrationText 中，不能只存在于画面描述里；全部角色对白仍由同一个旁白音色朗读。
-- narrationText 只包含要朗读的中文正文，不得包含“旁白：”、角色标签、舞台说明、Markdown、SSML、字幕指令或引号外说明。
+- narrationText 只包含要朗读的中文正文，不得包含“旁白：”、角色标签、舞台说明、Markdown、SSML、字幕指令或引号外说明。`}
 - 不生成独立转场镜头，不要求字幕、背景音乐或新增首帧画面。
 
 已确认故事（仅保留动态规划所需信息）：
@@ -708,11 +722,12 @@ ${JSON.stringify(input.framePlan, null, 2)}
 ${input.expertRules || "暂无相关规则。"}
 
 返回格式：
-{"shots":[{"order":1,"mainVideoPrompt":"前约4秒主体动态","endingTransitionPrompt":"最后约1秒片尾转场或自然收束","narrationText":"前4.5秒内可朗读完成的单一旁白"}]}`
+${JSON.stringify({ shots: [{ order: 1, mainVideoPrompt: timed ? "按已确认时长完成主体动作" : "前约4秒主体动态", endingTransitionPrompt: timed ? "按已确认衔接自然收束" : "最后约1秒片尾转场或自然收束", narrationText: timed ? "原样复制对应脚本旁白" : "前4.5秒内可朗读完成的单一旁白" }] })}`
   });
   if (!response.ok) throw new Error(`后端 AI 未能规划故事视频动态与转场：${response.error}`);
   const parsed = extractJson(response.text);
-  const motionPlan = parseStoryVideoMotionPlan(parsed?.shots, input.framePlan);
+  const rawMotions = timed && Array.isArray(parsed?.shots) ? parsed.shots.map((shot, index) => ({ ...shot, narrationText: input.story.shots[index]?.narrationText })) : parsed?.shots;
+  const motionPlan = parseStoryVideoMotionPlan(rawMotions, input.framePlan);
   if (!motionPlan) throw new Error("后端 AI 返回的视频动态与转场 JSON 不完整，请重试。");
   return motionPlan;
 }
@@ -725,8 +740,12 @@ export function buildStoryVideoTask(input: {
   motionPlan: StoryVideoMotionPlan;
   overallDirection?: string;
 }) {
+  validateVideoTimeline(input.story.timingVersion, input.story.shots, true);
+  const timed = input.story.timingVersion === 2;
+  if (timed && !videoTimelineV2Enabled()) throw new Error("新版视频时间线尚未启用，请先完成执行器与 Kling 接口验收。");
   if (
     input.framePlan.length < 3
+    || input.framePlan.length !== input.story.shots.length
     || input.framePlan.length > 6
     || input.motionPlan.length !== input.framePlan.length
     || input.framePlan.some((shot, index) => shot.order !== index + 1 || !shot.role || !shot.description || !shot.framePrompt)
@@ -740,7 +759,7 @@ export function buildStoryVideoTask(input: {
   const styleAnchor = input.framePlan.find((shot) => shot.frameSource === "asset" && shot.assetUrl);
   const taskDir = `.tasks/xhs-video-task-${input.noteTask.id}`;
   const plan = {
-    version: 1,
+    version: timed ? 2 : 1,
     account: { name: input.account.name, accountParam: input.account.accountParam },
     noteTask: { id: input.noteTask.id, topicTitle: input.noteTask.topicTitle },
     character: character ? {
@@ -755,7 +774,7 @@ export function buildStoryVideoTask(input: {
       source: "asset",
       imageUrl: styleAnchor.assetUrl
     } : undefined,
-    shots: shots.map((shot) => ({
+    shots: shots.map((shot, index) => ({
       order: shot.order,
       role: shot.role,
       description: shot.description,
@@ -764,10 +783,10 @@ export function buildStoryVideoTask(input: {
       framePrompt: character
         ? `将唯一主角参考图自然融入场景并保持外观一致，不复制角色参考图的展示背景。${character.description}。${shot.framePrompt}`
         : shot.framePrompt,
-      videoPrompt: shot.videoPrompt,
-      narrationText: shot.narrationText,
-      duration: 5,
-      narrationTargetDuration: 4.5
+      videoPrompt: timed ? timedMotionPrompt(input.story.shots[index], input.motionPlan[index].mainVideoPrompt, input.motionPlan[index].endingTransitionPrompt, input.story.shots[index - 1]?.transitionToNext?.incomingState) : shot.videoPrompt,
+      narrationText: timed ? input.story.shots[index].narrationText : shot.narrationText,
+      duration: timed ? input.story.shots[index].duration : 5,
+      ...(timed ? { transitionToNext: input.story.shots[index].transitionToNext } : { narrationTargetDuration: 4.5 })
     }))
   };
   const planJson = JSON.stringify(plan);
@@ -777,7 +796,8 @@ export function buildStoryVideoTask(input: {
 
 - 账号：${input.account.name} / ${input.account.accountParam}
 - 任务：${input.noteTask.topicTitle}（${input.noteTask.id}）
-- 镜头：${shots.length} 段，每段 5 秒；火山引擎单一旁白
+- 镜头：${shots.length} 段，预计 ${videoTimelineDuration(input.story.shots, input.story.timingVersion)} 秒；火山引擎单一旁白
+${timed ? "- 需要兼容 version=2 的执行器：先生成原始旁白、实测并有限调整镜头时长，再生成视频、裁切、转场，最后按实际时间线铺设旁白。resolved-plan.json 记录实际时长；必须查看成片动作完整性与转场，不能仅检查时长。" : ""}
 - 任务目录：\`$PWD/${taskDir}\`
 
 ## 1. 保存计划

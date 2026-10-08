@@ -10,6 +10,7 @@ export type BrowserWorkspaceSnapshot = {
   promptResults?: Record<number, unknown>;
   imagePromptResults?: Record<number, unknown>;
   videoPromptResults?: Record<number, unknown>;
+  videoDrafts?: Record<number, unknown>;
   batchImagePostResults?: Record<number, unknown>;
   referenceDraft?: Record<string, unknown>;
   imageStyleDraft?: Record<string, unknown>;

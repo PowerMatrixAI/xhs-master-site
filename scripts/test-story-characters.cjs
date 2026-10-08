@@ -28,6 +28,7 @@ const library = loadTs('src/lib/storyCharacters.ts', {
   '@/lib/backendAiClient': {}
 });
 const video = loadTs('src/lib/videoPrompts.ts', {
+  '@/lib/videoTimeline': loadTs('src/lib/videoTimeline.ts'),
   '@/lib/storyCharacters': library,
   '@/lib/backendAiServerClient': { completeWithBackendAi: async (input) => {
     requests.push(input);

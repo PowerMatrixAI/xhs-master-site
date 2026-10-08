@@ -10,6 +10,7 @@ import {
 } from "@/lib/featuredVlog";
 import type { BackendAiCredentials } from "@/lib/backendAiClient";
 import type { VideoSourceAsset } from "@/lib/videoPrompts";
+import { VIDEO_TIMELINE_PROMPT, videoTimelineV2Enabled, validateVideoTimeline, videoTimelineDuration, timedMotionPrompt, type VideoTransition } from "@/lib/videoTimeline";
 
 function extractJson(text: string): Record<string, unknown> | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/iu)?.[1];
@@ -42,6 +43,7 @@ export async function generateFeaturedVlogScript(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
+  const timed = videoTimelineV2Enabled();
   const response = await completeWithBackendAi({
     instructions: "你是民宿旅行纪录片与 Vlog 编导。将体验编排模板改写成适合当前民宿的 3-6 镜头短视频脚本。只返回合法 JSON。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
@@ -49,7 +51,7 @@ export async function generateFeaturedVlogScript(input: {
     input: `请为当前民宿账号生成一份待用户确认的精选vlog视频脚本。
 
 要求：
-- 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；最终镜头为 3-6 个，每个后续生成约 5 秒视频。
+- 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VIDEO_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
 - 将账号真实业务资料用于确定地点、房型、设施、服务与活动。资料未提及的信息不得补造；不声称虚构游客是实际顾客，不生成真实顾客评价。
 - suggestedMaterial 只描述镜头需要的画面类型（如入口、客房、林间步道），不要把“素材必须能证明属于本民宿或拍摄当日现场”写成选图前提。画面素材可以承接氛围和体验叙事，但不能据此宣称未核实的房型、设施或服务是本店事实。
 - 如模板需要户外活动但账号资料没有已核实的具体活动，可从“登山、玩水、徒步”中选择一种作为游客视角的通用体验画面；不要称其为民宿提供的项目、已举办的活动或附近真实可达的路线/水域，不添加地点、距离、价格或开放信息。
@@ -91,13 +93,17 @@ ${input.extraRequirements || "无"}
 
 可选文风名称：${input.availableWritingStyles.join("、")}
 
-只返回以下结构：
+返回以下业务字段结构${timed ? "，并必须在顶层增加 timingVersion:2，在每镜增加 duration 和 transitionToNext，不能省略时间线字段" : ""}：
 {"title":"视频脚本标题","summary":"脚本概要","perspective":"叙事视角","moodTags":["整片情绪标签"],"musicTags":["配乐标签"],"noteTask":{"topicTitle":"本周笔记主题","contentType":"精选Vlog视频","contentGoal":"","targetUser":"","painPoint":"","coreView":"","requiredMaterials":"","recommendedAssets":"","coverCopyDirection":"","commentHook":"","expectedGoal":"","writingStyleName":"精确文风名称"},"shots":[{"order":1,"beat":"体验环节","role":"镜头职责","description":"具体发生的画面和事件","suggestedMaterial":"可用实拍素材建议","subjectPresence":"pov|traveler|environment"}]}`
   });
   if (!response.ok) throw new Error(`后端 AI 未能生成精选vlog脚本：${response.error}`);
   const parsed = extractJson(response.text);
   const rawTask = parsed?.noteTask && typeof parsed.noteTask === "object" ? parsed.noteTask as Record<string, unknown> : {};
   const rawShots = Array.isArray(parsed?.shots) ? parsed.shots : [];
+  if (timed) {
+    if (parsed?.timingVersion !== 2) throw new Error("脚本缺少新版时间线，请重新生成。");
+    validateVideoTimeline(2, rawShots);
+  }
   const shots = rawShots.map((raw, index) => {
     const shot = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
     const order = Number(shot.order);
@@ -107,7 +113,8 @@ ${input.extraRequirements || "无"}
     const suggestedMaterial = text(shot.suggestedMaterial);
     const subjectPresence = shot.subjectPresence;
     if (order !== index + 1 || !beat || !role || !description || !suggestedMaterial || !["pov", "traveler", "environment"].includes(String(subjectPresence))) return null;
-    return { order, beat, role, description, suggestedMaterial, subjectPresence: subjectPresence as "pov" | "traveler" | "environment" };
+    return { order, beat, role, description, suggestedMaterial, subjectPresence: subjectPresence as "pov" | "traveler" | "environment",
+      ...(timed ? { duration: shot.duration as number, transitionToNext: shot.transitionToNext as VideoTransition | null } : {}) };
   });
   const title = text(parsed?.title);
   const summary = text(parsed?.summary);
@@ -135,6 +142,7 @@ ${input.extraRequirements || "无"}
   };
   if (!noteTask.topicTitle || !noteTask.contentGoal) throw new Error("后端 AI 返回的精选vlog笔记信息不完整，请重试。");
   const script: FeaturedVlogScript = {
+    ...(timed ? { timingVersion: 2 as const } : {}),
     title,
     summary,
     perspective,
@@ -189,6 +197,7 @@ export async function planFeaturedVlogFrames(input: {
 
 规则：
 - 严格按脚本镜头数量和顺序输出，不能增删镜头。
+- 脚本如包含 transitionToNext，本镜首帧应使用前一镜 transitionToNext.incomingState，并参考前一镜 outgoingState 的主体位置、构图、运动方向；真实素材仍须保留场地事实。
 - 优先从当前账号素材库选图：依据文件名、标签和适用类型，只要素材描述的主要场景或主体能承接镜头画面，就选择 asset。无需标签写明民宿名称、拍摄地点或日期，也无需原图已经包含游客手部、行李和完整动作；这些视角和动作可在后续精修中补充。不得声称已经看过图片或核实其拍摄地点。
 - 每个素材最多使用一次，只返回候选 assetKey，不返回 URL。
 - 仅在候选素材没有能承接镜头主要场景或主体的图片时选择 generate；不要因为脚本提及“真实现场”“已核验”，或素材标签只是通用场景描述，就拒绝画面匹配的素材。也不得勉强使用场景不相关的图片。
@@ -250,7 +259,7 @@ export async function planFeaturedVlogMotion(input: {
 
 硬性要求：
 - 与首帧规划镜头数量、顺序完全一致，不得更换场景和镜头职责。
-- 每个片段总长 5 秒；主体动态约前 4 秒，最后约 1 秒自然转场。
+${input.script.timingVersion === 2 ? "- 严格沿用脚本 duration 和 transitionToNext。关键动作在目标时长内完成，结尾自然收束，不独立发明转场、不变形成下一场景；首尾运动与邻镜衔接。" : "- 每个片段总长 5 秒；主体动态约前 4 秒，最后约 1 秒自然转场。"}
 - 动作应真实可拍，突出入住体验和环境氛围，不添加未提供事实、招牌文字或可识别的真实顾客。
 - 对未核实的活动镜头，只表现脚本所选“登山、玩水、徒步”中的通用动作，不暗示民宿实际提供、组织该活动或保证附近存在相应路线/水域。
 - 不生成旁白、字幕、配乐或新增镜头。
@@ -338,6 +347,9 @@ export function buildFeaturedVlogVideoTask(input: {
   music: MusicCandidate;
   overallDirection: string;
 }) {
+  validateVideoTimeline(input.script.timingVersion, input.script.shots);
+  const timed = input.script.timingVersion === 2;
+  if (timed && !videoTimelineV2Enabled()) throw new Error("新版视频时间线尚未启用，请先完成执行器与 Kling 接口验收。");
   if (input.script.shots.length < 3 || input.script.shots.length > 6
     || input.framePlan.length !== input.script.shots.length
     || input.motionPlan.length !== input.script.shots.length
@@ -349,12 +361,13 @@ export function buildFeaturedVlogVideoTask(input: {
   const styleAnchor = input.framePlan.find((shot) => shot.frameSource === "asset" && shot.assetUrl);
   const shots = input.framePlan.map((frame, index) => ({
     ...frame,
-    videoPrompt: `总时长严格为 5 秒。前约 4 秒主体动态：${input.motionPlan[index].mainVideoPrompt}；最后约 1 秒转场：${input.motionPlan[index].endingTransitionPrompt}`,
-    duration: 5
+    videoPrompt: timed ? timedMotionPrompt(input.script.shots[index], input.motionPlan[index].mainVideoPrompt, input.motionPlan[index].endingTransitionPrompt, input.script.shots[index - 1]?.transitionToNext?.incomingState) : `总时长严格为 5 秒。前约 4 秒主体动态：${input.motionPlan[index].mainVideoPrompt}；最后约 1 秒转场：${input.motionPlan[index].endingTransitionPrompt}`,
+    duration: timed ? input.script.shots[index].duration! : 5,
+    ...(timed ? { transitionToNext: input.script.shots[index].transitionToNext } : {})
   }));
   const taskDir = `.tasks/xhs-featured-vlog-${input.noteTask.id}`;
   const plan = {
-    version: 1,
+    version: timed ? 2 : 1,
     kind: "featured_vlog",
     account: { name: input.account.name, accountParam: input.account.accountParam },
     noteTask: { id: input.noteTask.id, topicTitle: input.noteTask.topicTitle },
@@ -382,7 +395,8 @@ export function buildFeaturedVlogVideoTask(input: {
       assetUrl: shot.assetUrl,
       framePrompt: shot.framePrompt,
       videoPrompt: shot.videoPrompt,
-      duration: shot.duration
+      duration: shot.duration,
+      ...(timed ? { transitionToNext: shot.transitionToNext } : {})
     }))
   };
   const executionSteps = `1. 保存 plan.json 后执行：\`uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${taskDir}/plan.json" --work-dir "$PWD/${taskDir}"\`。prepare 会从计划中的 HTTPS 地址下载唯一的整片配乐；如下载或校验失败，停止任务，不得改用其他曲目。
@@ -397,7 +411,7 @@ export function buildFeaturedVlogVideoTask(input: {
 - 账号：${input.account.name} / ${input.account.accountParam}
 - 笔记：${input.noteTask.topicTitle}（${input.noteTask.id}）
 - 模板：${input.template.name}
-- 总时长：约 ${shots.length * 5} 秒；${shots.length} 段，每段 5 秒
+- 总时长：约 ${videoTimelineDuration(input.script.shots, input.script.timingVersion)} 秒；${shots.length} 段，${timed ? "按脚本时长裁切并执行结构化转场；需要支持 version=2 的执行器。必须查看成片动作完整性与转场观感，不能仅检查时长。resolved-plan.json 记录实际时间线。" : "每段 5 秒"}
 - 配乐：${input.music.name}（${input.music.tags.join("、")}）
 - 配乐下载地址：${input.music.audioUrl}
 - 任务目录：\`$PWD/${taskDir}\`

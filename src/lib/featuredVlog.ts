@@ -50,6 +50,7 @@ export type PlatformMusic = {
 export type MusicCandidate = Pick<PlatformMusic, "id" | "name" | "tags" | "durationSeconds" | "mimeType" | "audioUrl">;
 
 export type FeaturedVlogScript = {
+  timingVersion?: 1 | 2;
   title: string;
   summary: string;
   perspective: string;
@@ -78,6 +79,8 @@ export type FeaturedVlogScript = {
     description: string;
     suggestedMaterial: string;
     subjectPresence: "pov" | "traveler" | "environment";
+    duration?: number;
+    transitionToNext?: import("./videoTimeline").VideoTransition | null;
   }>;
 };
 
