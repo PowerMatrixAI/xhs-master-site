@@ -33,3 +33,11 @@ Vlog按脚本剪辑，最后将平台配乐适配实际总长。最终只有一�
 5. 先交付兼容v1/v2的执行器，再设置控制台 `VIDEO_TIMELINE_V2_ENABLED=true` 并重启。回滚关闭开关；已有v2脚本保留但停止创建新任务，不能按v1执行。
 
 不需要新增业务后端接口。两个仓库独立提交、交付。
+
+## Vlog 人物与起止状态
+
+新生成的Vlog脚本另有sceneVersion=1和整片characters人物表；每镜包含startState、mainAction、endState、characterChanges、continuityNote。人物由稳定id关联，每个状态中id不能重复；起止出镜身份发生变化时须提供入场/离场依据。手部/背影仍沿用同一身份，多人或纯环境场景均允许。
+
+首帧规划只输入起始快照，不传入结束状态和整段动作。视频请求只包含本镜起始、动作与结束状态，不拼接下一镜事件。计划JSON保留这些字段供Hermes核对，现有执行器仍执行framePrompt与videoPrompt，无需升级计划version。旧缓存无sceneVersion时保持可读，重新生成脚本才有完整保护。
+
+模版上传字段不变；其节拍解释为体验环节和叙事目的，可拆镜，不要求同屏画出全部过程。自动结构校验不能判定图片实际人数、服装、道具或语义矛盾；这些需要首帧和成片视觉验收。运行 `node scripts/test-vlog-scenes.cjs` 验证单游客、双游客、手部特写、环境镜头、素材已有人的提示要求及跨镜头泄漏修复。

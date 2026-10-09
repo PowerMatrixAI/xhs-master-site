@@ -11,7 +11,8 @@ function load(file, overrides = {}) {
 const timing = load('src/lib/videoTimeline.ts');
 let response, lastRequest;
 const ai = { completeWithBackendAi: async request => { lastRequest = request; return { ok: true, text: JSON.stringify(response) }; } };
-const overrides = { '@/lib/videoTimeline': timing, '@/lib/backendAiServerClient': ai };
+const scenes = load('src/lib/vlogScene.ts');
+const overrides = { '@/lib/videoTimeline': timing, '@/lib/vlogScene': scenes, '@/lib/backendAiServerClient': ai };
 const storyLib = load('src/lib/videoPrompts.ts', { ...overrides, '@/lib/storyCharacters': { characterDownloadUrl: () => '' } });
 const vlogLib = load('src/lib/featuredVlogPrompts.ts', { ...overrides, '@/lib/featuredVlog': { isHttpsUrl: url => url.startsWith('https://') } });
 const shots = [2, 3.5, 2.5].map((duration, i) => ({ order: i+1, beat: '抵达', role: '体验', description: '沿路看窗景', suggestedMaterial: '窗景', subjectPresence: 'pov', narrationText: '我们终于来到这里', duration, transitionToNext: i === 2 ? null : { type: i === 0 ? 'dissolve' : 'cut', duration: i === 0 ? .5 : 0, reason: '构图衔接', outgoingState: '向右移动', incomingState: '向右延续' } }));
@@ -48,7 +49,7 @@ async function main() {
   assert.equal(plan.shots[0].narrationText, shots[0].narrationText);
   assert.ok(!plan.shots[0].videoPrompt.includes('总时长严格为5秒'));
 
-  response = script;
+  response = { ...script, sceneVersion: 1, characters: [], shots: shots.map(s => ({ ...s, startState: { location: '庭院', characters: [], props: [] }, endState: { location: '庭院', characters: [], props: [] }, mainAction: '花草轻微摇动', characterChanges: [], continuityNote: '相同庭院' })) };
   const vlog = await vlogLib.generateFeaturedVlogScript({ ...base, template: { beats: [] }, availableWritingStyles: ['测试'] });
   assert.equal(vlog.script.timingVersion, 2);
   const vlogInput = { ...base, script, template: { id: 't', name: '旅行' }, music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' };

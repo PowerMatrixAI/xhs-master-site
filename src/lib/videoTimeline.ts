@@ -55,5 +55,5 @@ export function videoTimelineDuration(shots: readonly TimedVideoShot[], version?
 }
 
 export function timedMotionPrompt(shot: TimedVideoShot, main: string, ending: string, incomingState = "自然开始") {
-  return `关键动作在前 ${shot.duration} 秒内完整完成，额外生成时间自然保持。本镜开始状态：${incomingState}。主体动态：${main}；自然收束：${ending}。本镜结束状态：${shot.transitionToNext?.outgoingState || "自然收束"}；邻镜承接状态：${shot.transitionToNext?.incomingState || "整片结束"}。不在本镜内部切镜或变形成下一场景；叠化由剪辑器执行。`;
+  return `关键动作在前 ${shot.duration} 秒内完整完成，额外生成时间自然保持。本镜开始状态：${incomingState}。主体动态：${main}；自然收束：${ending}。本镜结束状态：${shot.transitionToNext?.outgoingState || "自然收束"}。不在本镜内部切镜或变形成下一场景；叠化由剪辑器执行。`;
 }

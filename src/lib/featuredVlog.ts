@@ -50,6 +50,8 @@ export type PlatformMusic = {
 export type MusicCandidate = Pick<PlatformMusic, "id" | "name" | "tags" | "durationSeconds" | "mimeType" | "audioUrl">;
 
 export type FeaturedVlogScript = {
+  sceneVersion?: 1;
+  characters?: import("./vlogScene").VlogCharacter[];
   timingVersion?: 1 | 2;
   title: string;
   summary: string;
@@ -72,7 +74,7 @@ export type FeaturedVlogScript = {
     writingStyleReference: string;
     knowledgeSourceKeys: string[];
   };
-  shots: Array<{
+  shots: Array<import("./vlogScene").VlogShotScene & {
     order: number;
     beat: string;
     role: string;
