@@ -92,6 +92,8 @@ import { StoryCharacterPicker } from "@/app/components/StoryCharacterPicker";
 import { FeaturedVlogManagementPanel } from "@/app/components/FeaturedVlogManagementPanel";
 import { PlatformAssetLibraryPanel } from "@/app/components/PlatformAssetLibraryPanel";
 import { PlatformMusicLibraryPanel } from "@/app/components/PlatformMusicLibraryPanel";
+import { ReferenceVideoManagementPanel } from "@/app/components/ReferenceVideoManagementPanel";
+import { ReferenceVideoPreview } from "@/app/components/ReferenceVideoPreview";
 import {
   fetchFeaturedVlogTemplates,
   type FeaturedVlogFramePlan,
@@ -468,7 +470,8 @@ const advancedTabs = [
 const platformManagementTabs = [
   ["platformFeaturedVlog", "精选Vlog模版", Sparkles],
   ["platformAssets", "故事角色与模板", ImageIcon],
-  ["platformMusic", "平台配乐", Music2]
+  ["platformMusic", "平台配乐", Music2],
+  ["platformReferenceVideos", "参考视频", Video]
 ] as const;
 
 const tabs = [...mainTabs, ...advancedTabs, ...platformManagementTabs] as const;
@@ -3573,6 +3576,9 @@ export function XhsMasterApp() {
           {activeTab === "platformMusic" && isPlatformAdmin(currentUser) && (
             <PlatformMusicLibraryPanel currentUser={currentUser} notify={showToast} />
           )}
+          {activeTab === "platformReferenceVideos" && isPlatformAdmin(currentUser) && (
+            <ReferenceVideoManagementPanel currentUser={currentUser} notify={showToast} />
+          )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
           {activeTab === "images" && (
@@ -6200,6 +6206,7 @@ function VideosPanel(props: {
             {featuredVlogTemplate.musicTags.length > 0 && <div className="mt-2"><span className="font-medium text-ink">建议配乐氛围：</span>{featuredVlogTemplate.musicTags.join("、")}</div>}
           </div>}
           <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">首帧优先依据当前账号素材图片的标签和文件名选用真实场景；AI 补图会参考首个实际使用的素材图保持摄影风格。配乐由系统自动匹配，不提供手动选择。</div>
+          {featuredVlogTemplate?.referenceVideo && <div className="space-y-2"><h4 className="text-sm font-medium">模板参考视频</h4><ReferenceVideoPreview video={featuredVlogTemplate.referenceVideo} /></div>}
           <label className="field"><span>补充要求（可选）</span><textarea disabled={loading} value={featuredVlogExtraRequirements} onChange={(event) => { setFeaturedVlogExtraRequirements(event.target.value); setFeaturedVlogInputsDirty(Boolean(featuredVlogDraft)); }} placeholder="例如：重点呈现窗景和早餐；游客只以主观镜头或背影出现。" /></label>
           <button type="button" disabled={loading || !featuredVlogTemplate || featuredVlogTemplatesLoading} onClick={() => void createFeaturedVlog()} className="secondary-button"><ActionButtonContent loading={loadingAction === "generateFeaturedVlogScript"} icon={<Wand2 size={17} />} idleText={featuredVlogDraft ? "重新生成脚本" : "生成Vlog脚本"} loadingText="正在生成脚本..." /></button>
           {featuredVlogDraft && <div className={clsx("rounded border p-4", featuredVlogTask ? "border-teal bg-teal/5" : "border-ink/10 bg-white")}>
