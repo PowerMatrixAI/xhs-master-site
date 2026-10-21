@@ -51,6 +51,8 @@ import {
   isPlatformAdmin,
   saveBackendAssets,
   updateBackendAssetTags,
+  requestBackendAssetAnalysis,
+  type AssetAnalysisAction,
   saveBackendNoteTask,
   saveBackendPostReviewResult,
   saveBackendWeeklyPlan,
@@ -79,6 +81,7 @@ import {
 } from "@/lib/weeklyPlanningObjectives";
 import { isExpertRuleEnabled } from "@/lib/expertLearning";
 import { KnowledgeBasePanel } from "@/app/components/KnowledgeBasePanel";
+import { AssetAnalysisCard } from "@/app/components/AssetAnalysisCard";
 import type React from "react";
 import clsx from "clsx";
 import type { StoryCharacter, StoryCharacterTemplate } from "@/lib/storyCharacters";
@@ -222,6 +225,8 @@ type Asset = {
   location?: string;
   shotAt?: string;
   tags: string;
+  aiAnalysis?: string;
+  aiAnalysisStatus?: BackendAsset["aiAnalysisStatus"];
   suitableTypes: string;
   coverReady: boolean;
   used: boolean;
@@ -231,6 +236,8 @@ type Asset = {
   height?: number;
   sizeBytes?: number;
   hash?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type WeeklyPlan = {
@@ -1433,6 +1440,8 @@ function mapBackendAssetToUiAsset(asset: BackendAsset, fallback?: Partial<Asset>
     location: asset.location || "",
     shotAt: asset.shotAt || "",
     tags: asset.tags || "",
+    aiAnalysis: asset.aiAnalysis || "",
+    aiAnalysisStatus: asset.aiAnalysisStatus,
     suitableTypes: asset.suitableTypes || "",
     coverReady: Boolean(asset.coverReady),
     used: Boolean(asset.used),
@@ -1441,7 +1450,9 @@ function mapBackendAssetToUiAsset(asset: BackendAsset, fallback?: Partial<Asset>
     width: asset.width || 0,
     height: asset.height || 0,
     sizeBytes: asset.sizeBytes || 0,
-    hash: asset.hash || ""
+    hash: asset.hash || "",
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt
   };
 }
 
@@ -1600,6 +1611,39 @@ export function XhsMasterApp() {
   const selected = useMemo(() => accounts.find((account) => account.id === selectedId) ?? accounts[0], [accounts, selectedId]);
   const latestPlan = selected?.weeklyPlans?.[0];
   const selectedNote = latestPlan?.noteTasks?.find((task) => task.id === selectedNoteId) ?? latestPlan?.noteTasks?.[0];
+
+  const pendingAnalysisKey = (selected?.assets || [])
+    .filter((asset) => asset.fileType.startsWith("image") && asset.aiAnalysisStatus === "pending")
+    .map((asset) => asset.id).join(",");
+  const analysisAccountId = selected?.id;
+  useEffect(() => {
+    if (activeTab !== "assets" || loading || !analysisAccountId || !pendingAnalysisKey || !getToken()) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let attempts = 0;
+    const pendingIds = new Set(pendingAnalysisKey.split(",").map(Number));
+    async function poll() {
+      try {
+        const detail = await fetchBackendAccountDetail(analysisAccountId!);
+        if (cancelled) return;
+        const assetsById = new Map((detail.assets || []).map((asset) => [asset.id, asset]));
+        setAccounts((current) => current.map((account) => account.id !== analysisAccountId ? account : {
+          ...account,
+          assets: account.assets.map((asset) => {
+            const saved = assetsById.get(asset.id);
+            if (!saved || !pendingIds.has(asset.id) || asset.aiAnalysisStatus !== "pending") return asset;
+            return { ...asset, aiAnalysis: saved.aiAnalysis || "", aiAnalysisStatus: saved.aiAnalysisStatus };
+          })
+        }));
+      } catch {
+        // Background refresh failures leave the current result and manual actions available.
+      }
+      attempts += 1;
+      if (!cancelled && attempts < 30) timer = setTimeout(poll, 10_000);
+    }
+    timer = setTimeout(poll, 4_000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [activeTab, loading, analysisAccountId, pendingAnalysisKey]);
 
   useEffect(() => {
     if (currentUser && !isPlatformAdmin(currentUser) && platformManagementTabs.some(([id]) => id === activeTab)) {
@@ -1971,6 +2015,29 @@ export function XhsMasterApp() {
     const data = await res.json();
     setManifest(data);
     showToast("素材清单已生成。", "success");
+  }
+
+  async function assetAnalysisAction(assetId: number, action: AssetAnalysisAction, content?: string) {
+    if (!selected) return;
+    const accountId = selected.id;
+    setLoading(true);
+    setLoadingAction(`assetAnalysis-${assetId}-${action}`);
+    try {
+      const saved = await requestBackendAssetAnalysis(accountId, assetId, action, content);
+      setAccounts((current) => current.map((account) => account.id !== accountId ? account : {
+        ...account,
+        assets: account.assets.map((asset) => asset.id === assetId ? {
+          ...asset,
+          aiAnalysis: saved.aiAnalysis || "",
+          aiAnalysisStatus: saved.aiAnalysisStatus
+        } : asset)
+      }));
+      setManifest(null);
+      if (action !== "get") showToast(action === "delete" ? "图片分析已删除。" : action === "generate" ? "已提交图片分析，完成后自动显示。" : "图片分析已保存。", "success");
+    } finally {
+      setLoading(false);
+      setLoadingAction(null);
+    }
   }
 
   async function generateWeeklyPlan(event: React.FormEvent<HTMLFormElement>) {
@@ -3449,10 +3516,12 @@ export function XhsMasterApp() {
           {activeTab === "strategy" && <StrategyPanel selected={selected} copy={copy} />}
           {activeTab === "assets" && (
             <AssetsPanel
+              key={selected?.id}
               selected={selected}
               uploadAsset={uploadAsset}
               deleteAsset={deleteAsset}
               updateAssetTags={updateAssetTags}
+              assetAnalysisAction={assetAnalysisAction}
               generateManifest={generateManifest}
               manifest={manifest}
               copy={copy}
@@ -4191,13 +4260,14 @@ function AssetsPanel(props: {
   uploadAsset: (form: HTMLFormElement, files: File[], clearFiles?: () => void) => void;
   deleteAsset: (assetId: number) => Promise<void>;
   updateAssetTags: (assetId: number, tags: string) => Promise<void>;
+  assetAnalysisAction: (assetId: number, action: AssetAnalysisAction, content?: string) => Promise<void>;
   generateManifest: () => void;
   manifest: { content: string; validation: string; path: string } | null;
   copy: (text: string) => void;
   loading: boolean;
   loadingAction: string | null;
 }) {
-  const { selected, uploadAsset, deleteAsset, updateAssetTags, generateManifest, manifest, copy, loading, loadingAction } = props;
+  const { selected, uploadAsset, deleteAsset, updateAssetTags, assetAnalysisAction, generateManifest, manifest, copy, loading, loadingAction } = props;
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [editingAssetId, setEditingAssetId] = useState<number | null>(null);
   const [tagDrafts, setTagDrafts] = useState<string[]>([]);
@@ -4268,7 +4338,7 @@ function AssetsPanel(props: {
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="section-title">上传素材</h2>
-            <p className="text-sm text-ink/60">上传后会进入当前账号素材库。</p>
+            <p className="text-sm text-ink/60">图片入库后会自动生成标签和100字以内的画面分析，可在素材卡片中编辑。</p>
           </div>
           <button type="submit" disabled={loading} aria-busy={loadingAction === "uploadAsset"} className="primary-button">
             <ActionButtonContent
@@ -4454,27 +4524,32 @@ function AssetsPanel(props: {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {splitAssetTags(asset.tags || "").length ? splitAssetTags(asset.tags || "").map((tag) => (
-                        <span key={`${asset.id}-${tag}`} className="rounded bg-ink/5 px-2 py-1 text-xs text-ink/70">{tag}</span>
-                      )) : (
-                        <span className="text-ink/55">未标注标签</span>
-                      )}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                        {splitAssetTags(asset.tags || "").length ? splitAssetTags(asset.tags || "").map((tag) => (
+                          <span key={`${asset.id}-${tag}`} className="rounded bg-ink/5 px-2 py-1 text-xs text-ink/70">{tag}</span>
+                        )) : (
+                          <span className="text-ink/55">未标注标签</span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => beginEditTags(asset)}
+                        className="inline-flex shrink-0 items-center gap-1 py-1 text-xs text-teal hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Pencil size={13} /> 编辑标签
+                      </button>
                     </div>
                   )}
                   <div className="flex gap-2 text-xs">
                     <span className={clsx("rounded px-2 py-1", asset.coverReady ? "bg-teal/10 text-teal" : "bg-ink/5")}>封面 {asset.coverReady ? "是" : "否"}</span>
                     <span className={clsx("rounded px-2 py-1", asset.used ? "bg-coral/10 text-coral" : "bg-ink/5")}>已用 {asset.used ? "是" : "否"}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-2 border-t border-ink/5 pt-2">
-                    <button
-                      type="button"
-                      disabled={loading}
-                      onClick={() => beginEditTags(asset)}
-                      className="inline-flex items-center gap-1 text-xs text-teal hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Pencil size={13} /> 编辑标签
-                    </button>
+                  {asset.fileType.startsWith("image") && (
+                    <AssetAnalysisCard asset={asset} disabled={loading} loadingAction={loadingAction} onAction={assetAnalysisAction} />
+                  )}
+                  <div className="flex items-center justify-end gap-2 border-t border-ink/5 pt-2">
                     <button
                       type="button"
                       disabled={loading}

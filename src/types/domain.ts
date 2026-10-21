@@ -38,6 +38,8 @@ export type Asset = {
   location?: string;
   shotAt?: DateLike;
   tags: string;
+  aiAnalysis?: string;
+  aiAnalysisStatus?: "pending" | "completed" | "failed" | "deleted";
   suitableTypes: string;
   coverReady: boolean;
   used: boolean;

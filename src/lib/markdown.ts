@@ -70,6 +70,7 @@ ${assets
 - 类型：${asset.fileType}
 - 来源：${asset.sourceType}
 - 标签：${asset.tags || "未标注"}
+- 图片分析：${asset.aiAnalysis || "未填写"}
 - 适合内容：${asset.suitableTypes || "未标注"}
 - 适合封面：${asset.coverReady ? "是" : "否"}
 - 已使用：${asset.used ? "是" : "否"}

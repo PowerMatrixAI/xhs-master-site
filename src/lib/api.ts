@@ -153,6 +153,8 @@ export interface BackendAsset {
   location?: string;
   shotAt?: string;
   tags: string;
+  aiAnalysis?: string;
+  aiAnalysisStatus?: "pending" | "completed" | "failed" | "deleted";
   suitableTypes: string;
   coverReady: boolean;
   used: boolean;
@@ -738,6 +740,24 @@ export async function updateBackendAssetTags(accountId: number, assetId: number,
   });
   if (!res.status || !res.data) {
     throw new Error(res.message || "更新素材标签失败");
+  }
+  return res.data;
+}
+
+export type AssetAnalysisAction = "get" | "update" | "delete" | "generate";
+
+export async function requestBackendAssetAnalysis(
+  accountId: number,
+  assetId: number,
+  action: AssetAnalysisAction,
+  aiAnalysis?: string
+) {
+  const res = await authRequest<BackendAsset>(`/account/v1/${action}AssetAnalysis`, {
+    method: "POST",
+    body: { accountId, assetId, ...(action === "update" ? { aiAnalysis } : {}) }
+  });
+  if (!res.status || !res.data) {
+    throw new Error(res.message || "图片分析操作失败");
   }
   return res.data;
 }
