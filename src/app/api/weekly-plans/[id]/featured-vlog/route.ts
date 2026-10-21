@@ -40,7 +40,7 @@ async function buildScriptResult(body: Record<string, unknown>, weeklyPlanId: nu
     script: { ...result.script, noteTask: { ...result.script.noteTask, writingStyleReference: writingStyle.reference } },
     templateVersion: template.version,
     knowledgeSnapshotId,
-    ai: { used: true, calls: 1, stage: "script", model: result.model }
+    ai: { used: true, calls: result.calls, stage: "script", model: result.model }
   };
 }
 

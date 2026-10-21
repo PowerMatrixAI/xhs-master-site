@@ -2684,7 +2684,7 @@ export function XhsMasterApp() {
       let knowledgeSnapshotId = latestPlan.knowledgeSnapshotId || "";
       try {
         const snapshot = await retrieveBackendKnowledgeSnapshot(selected.id, [
-          `${input.template.name}：${input.template.outline}；结合民宿真实房型、设施、服务和体验环节生成精选 Vlog，不虚构未提供事实。`
+          `${input.template.name}：${input.template.outline}；围绕模版主题检索民宿真实房型、设施和住宿体验，以及目的地自然景观、村落环境、季节特点与已有体验资料，兼顾室内和室外；不虚构具体景点、路线或民宿提供的活动。`
         ]);
         if (snapshot?.hasReferences && snapshot.status.toLowerCase() === "ready") knowledgeSnapshotId = snapshot.snapshotId;
       } catch (error) {
@@ -2699,7 +2699,7 @@ export function XhsMasterApp() {
           templateId: input.template.id,
           extraRequirements: input.extraRequirements,
           knowledgeSnapshotId,
-          noteTask: { topicTitle: "精选Vlog视频", contentGoal: "展现当前民宿的真实入住体验" }
+          noteTask: { topicTitle: "精选Vlog视频", contentGoal: "围绕所选模版，表现住客在民宿及目的地环境中的体验，让住宿空间与室外景观共同支撑主题" }
         })
       });
       const data = await readApiJsonResponse(response, "生成精选vlog脚本失败。");
@@ -6078,7 +6078,7 @@ function VideosPanel(props: {
           <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">
             首帧由 AI 自动规划：优先依据当前素材库图片的标签、文件名和适用类型选择真实图片；没有合适素材时生成 AI 首帧。
           </div>
-          <label className="field"><span>补充要求（可选）</span><textarea disabled={Boolean(storyTask)} value={storyExtraRequirements} onChange={(event) => { setStoryExtraRequirements(event.target.value); setStoryInputsDirty(Boolean(storyDraft)); }} placeholder="例如：重点突出窗景和早餐；避免出现人物正脸。" /></label>
+          <label className="field"><span>补充要求（可选）</span><textarea disabled={Boolean(storyTask)} value={storyExtraRequirements} onChange={(event) => { setStoryExtraRequirements(event.target.value); setStoryInputsDirty(Boolean(storyDraft)); }} placeholder="例如：重点突出窗景和早餐；通过人物表情呈现情绪变化。" /></label>
           <button type="button" disabled={loading || !storySourceContent || !canGenerateStory || Boolean(storyTask)} onClick={() => void createStory()} className="secondary-button">
             <ActionButtonContent loading={loadingAction === "generateVideoStory"} icon={<Wand2 size={17} />} idleText={storyDraft ? "重新生成故事" : "生成故事"} loadingText="正在生成故事..." />
           </button>
@@ -6125,7 +6125,7 @@ function VideosPanel(props: {
             {featuredVlogTemplate.musicTags.length > 0 && <div className="mt-2"><span className="font-medium text-ink">建议配乐氛围：</span>{featuredVlogTemplate.musicTags.join("、")}</div>}
           </div>}
           <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">首帧优先依据当前账号素材图片的标签和文件名选用真实场景；AI 补图会参考首个实际使用的素材图保持摄影风格。配乐由系统自动匹配，不提供手动选择。</div>
-          <label className="field"><span>补充要求（可选）</span><textarea disabled={loading} value={featuredVlogExtraRequirements} onChange={(event) => { setFeaturedVlogExtraRequirements(event.target.value); setFeaturedVlogInputsDirty(Boolean(featuredVlogDraft)); }} placeholder="例如：重点呈现窗景和早餐；游客只以主观镜头或背影出现。" /></label>
+          <label className="field"><span>补充要求（可选）</span><textarea disabled={loading} value={featuredVlogExtraRequirements} onChange={(event) => { setFeaturedVlogExtraRequirements(event.target.value); setFeaturedVlogInputsDirty(Boolean(featuredVlogDraft)); }} placeholder="例如：重点呈现窗景和早餐；通过游客的自然表情和动作表现放松。" /></label>
           <button type="button" disabled={loading || !featuredVlogTemplate || featuredVlogTemplatesLoading} onClick={() => void createFeaturedVlog()} className="secondary-button"><ActionButtonContent loading={loadingAction === "generateFeaturedVlogScript"} icon={<Wand2 size={17} />} idleText={featuredVlogDraft ? "重新生成脚本" : "生成Vlog脚本"} loadingText="正在生成脚本..." /></button>
           {featuredVlogDraft && <div className={clsx("rounded border p-4", featuredVlogTask ? "border-teal bg-teal/5" : "border-ink/10 bg-white")}>
             <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-medium text-ink/50">{featuredVlogTask ? "已保存 Vlog 脚本" : "最近生成的 Vlog 脚本"}</div><h3 className="mt-1 text-lg font-semibold">{featuredVlogDraft.script.title}</h3></div>{featuredVlogTask && <span className="flex items-center gap-1 text-sm font-medium text-teal"><CircleCheck size={16} /> 已加入本周内容</span>}</div>
