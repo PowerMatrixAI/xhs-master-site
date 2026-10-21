@@ -20,6 +20,7 @@ import {
   LoaderCircle,
   LogOut,
   MessageCircle,
+  Music2,
   NotebookPen,
   Pencil,
   Plus,
@@ -70,6 +71,8 @@ import {
 } from "@/lib/api";
 import { generateStrategyWithBrowserLlm, generateWeeklyTasksWithBrowserLlm } from "@/lib/browserStrategyLlm";
 import { loadBrowserWorkspace, saveBrowserWorkspace } from "@/lib/browserWorkspace";
+import { videoTimelineDuration, type TimedVideoShot } from "@/lib/videoTimeline";
+import { templateVideoDraftRecords } from "@/lib/templateVideoDrafts";
 import { accountTypeTemplates } from "@/data/accountTypeTemplates";
 import { clampWeeklyFrequency, normalizeWeeklyTaskMedia } from "@/lib/weeklyPlan";
 import { collectRecentWeeklyTopicGroups } from "@/lib/weeklyTopicHistory";
@@ -88,6 +91,7 @@ import type { StoryCharacter, StoryCharacterTemplate } from "@/lib/storyCharacte
 import { StoryCharacterPicker } from "@/app/components/StoryCharacterPicker";
 import { FeaturedVlogManagementPanel } from "@/app/components/FeaturedVlogManagementPanel";
 import { PlatformAssetLibraryPanel } from "@/app/components/PlatformAssetLibraryPanel";
+import { PlatformMusicLibraryPanel } from "@/app/components/PlatformMusicLibraryPanel";
 import {
   fetchFeaturedVlogTemplates,
   type FeaturedVlogFramePlan,
@@ -314,6 +318,7 @@ type VideoSourceMode = "direct_video" | "story_video" | "featured_vlog";
 type VideoStorySourceType = "template";
 
 type VideoStoryDraft = {
+  timingVersion?: 1 | 2;
   character?: StoryCharacter | null;
   title: string;
   summary: string;
@@ -334,7 +339,7 @@ type VideoStoryDraft = {
     writingStyleReference: string;
     knowledgeSourceKeys: string[];
   };
-  shots: Array<{
+  shots: Array<TimedVideoShot & {
     order: number;
     beat: string;
     role: string;
@@ -354,6 +359,31 @@ type FeaturedVlogResult = {
   templateVersion?: number;
   knowledgeSnapshotId?: string;
   ai?: { used: boolean; calls: number; stage?: string };
+};
+
+type PersistedStoryVideoDraft = {
+  result: VideoStoryResult;
+  templateId: string;
+  characterId: string;
+  extraRequirements: string;
+  taskId?: number;
+  generatedAt: string;
+};
+
+type PersistedFeaturedVlogDraft = {
+  result: FeaturedVlogResult;
+  templateId: string;
+  extraRequirements: string;
+  taskId?: number;
+  generatedAt: string;
+};
+
+type VideoDraftWorkspace = {
+  lastMode?: VideoSourceMode;
+  storyVideo?: PersistedStoryVideoDraft;
+  featuredVlog?: PersistedFeaturedVlogDraft;
+  featuredVlogByTemplate?: Record<string, PersistedFeaturedVlogDraft>;
+  lastFeaturedVlogTemplateId?: string;
 };
 
 type StoryVideoFramePlan = Array<{
@@ -436,8 +466,9 @@ const advancedTabs = [
 ] as const;
 
 const platformManagementTabs = [
-  ["platformFeaturedVlog", "精选 Vlog 视频", Sparkles],
-  ["platformAssets", "平台素材库", ImageIcon]
+  ["platformFeaturedVlog", "精选Vlog模版", Sparkles],
+  ["platformAssets", "故事角色与模板", ImageIcon],
+  ["platformMusic", "平台配乐", Music2]
 ] as const;
 
 const tabs = [...mainTabs, ...advancedTabs, ...platformManagementTabs] as const;
@@ -1578,6 +1609,7 @@ export function XhsMasterApp() {
   const [draftVariants, setDraftVariants] = useState<Record<number, DraftVariant[]>>({});
   const [imagePromptResults, setImagePromptResults] = useState<Record<number, ImagePromptResult>>({});
   const [videoPromptResults, setVideoPromptResults] = useState<Record<number, VideoPromptResult>>({});
+  const [videoDrafts, setVideoDrafts] = useState<Record<number, VideoDraftWorkspace>>({});
   const [batchImagePostResults, setBatchImagePostResults] = useState<Record<number, BatchImagePostsResult>>({});
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null);
   const [manifest, setManifest] = useState<{ content: string; validation: string; path: string } | null>(null);
@@ -1668,6 +1700,7 @@ export function XhsMasterApp() {
         setPromptResults((snapshot.promptResults as Record<number, PromptResult>) || {});
         setImagePromptResults((snapshot.imagePromptResults as Record<number, ImagePromptResult>) || {});
         setVideoPromptResults((snapshot.videoPromptResults as Record<number, VideoPromptResult>) || {});
+        setVideoDrafts((snapshot.videoDrafts as Record<number, VideoDraftWorkspace>) || {});
         setBatchImagePostResults((snapshot.batchImagePostResults as Record<number, BatchImagePostsResult>) || {});
         setReferenceDraft((snapshot.referenceDraft as typeof referenceDraft) || {});
         setImageStyleDraft((snapshot.imageStyleDraft as typeof imageStyleDraft) || {});
@@ -1709,6 +1742,7 @@ export function XhsMasterApp() {
       promptResults,
       imagePromptResults,
       videoPromptResults,
+      videoDrafts,
       batchImagePostResults,
       referenceDraft,
       imageStyleDraft,
@@ -1725,6 +1759,7 @@ export function XhsMasterApp() {
     promptResults,
     imagePromptResults,
     videoPromptResults,
+    videoDrafts,
     batchImagePostResults,
     referenceDraft,
     imageStyleDraft,
@@ -3535,6 +3570,9 @@ export function XhsMasterApp() {
           {activeTab === "platformAssets" && isPlatformAdmin(currentUser) && (
             <PlatformAssetLibraryPanel currentUser={currentUser} notify={showToast} />
           )}
+          {activeTab === "platformMusic" && isPlatformAdmin(currentUser) && (
+            <PlatformMusicLibraryPanel currentUser={currentUser} notify={showToast} />
+          )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
           {activeTab === "images" && (
@@ -3574,6 +3612,12 @@ export function XhsMasterApp() {
               selectedNoteId={selectedNote?.id ?? null}
               setSelectedNoteId={setSelectedNoteId}
               results={videoPromptResults}
+              videoDraftWorkspace={selected ? videoDrafts[selected.id] || {} : {}}
+              videoWorkspaceReady={browserReady}
+              updateVideoDraftWorkspace={(accountId, update) => setVideoDrafts((current) => ({
+                ...current,
+                [accountId]: update(current[accountId] || {})
+              }))}
               generateVideoPrompt={generateVideoPrompt}
               generateStandaloneVideoStory={generateStandaloneVideoStory}
               createStoryVideoNoteTask={createStoryVideoNoteTask}
@@ -5703,12 +5747,24 @@ function ImagesPanel(props: {
   );
 }
 
+function VideoTimingDetails({ shot }: { shot: TimedVideoShot }) {
+  const transition = shot.transitionToNext;
+  return <div className="mt-2 space-y-1 text-xs text-teal">
+    <p>镜头时长：{shot.duration} 秒 · {transition ? transition.type === "dissolve" ? `短叠化 ${transition.duration} 秒` : "自然切换" : "末镜自然收束"}</p>
+    {transition && <p>{transition.reason}；{transition.outgoingState} → {transition.incomingState}</p>}
+    {shot.narrationText && <p className="text-ink/70">旁白：{shot.narrationText}</p>}
+  </div>;
+}
+
 function VideosPanel(props: {
   selected?: Account;
   plan?: WeeklyPlan;
   selectedNoteId: number | null;
   setSelectedNoteId: (id: number) => void;
   results: Record<number, VideoPromptResult>;
+  videoDraftWorkspace: VideoDraftWorkspace;
+  videoWorkspaceReady: boolean;
+  updateVideoDraftWorkspace: (accountId: number, update: (workspace: VideoDraftWorkspace) => VideoDraftWorkspace) => void;
   generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript }) => void;
   generateStandaloneVideoStory: (input: { templateId: string; characterId: string; sourceType: VideoStorySourceType; sourceContent: string; extraRequirements: string }) => Promise<VideoStoryResult | null>;
   createStoryVideoNoteTask: (story: VideoStoryDraft, knowledgeSnapshotId: string) => Promise<NoteTask | null>;
@@ -5719,7 +5775,7 @@ function VideosPanel(props: {
   loading: boolean;
   loadingAction: string | null;
 }) {
-  const { selected, plan, selectedNoteId, setSelectedNoteId, results, generateVideoPrompt, generateStandaloneVideoStory, createStoryVideoNoteTask, generateStandaloneFeaturedVlog, createFeaturedVlogNoteTask, uploadVideoAsset, copy, loading, loadingAction } = props;
+  const { selected, plan, selectedNoteId, setSelectedNoteId, results, videoDraftWorkspace, videoWorkspaceReady, updateVideoDraftWorkspace, generateVideoPrompt, generateStandaloneVideoStory, createStoryVideoNoteTask, generateStandaloneFeaturedVlog, createFeaturedVlogNoteTask, uploadVideoAsset, copy, loading, loadingAction } = props;
   const tasks = plan?.noteTasks.filter((task) => task.type === "video_text") || [];
   const note = tasks.find((task) => task.id === selectedNoteId) || tasks[0];
   const [mode, setMode] = useState<VideoSourceMode>("direct_video");
@@ -5732,6 +5788,7 @@ function VideosPanel(props: {
   const [characterId, setCharacterId] = useState("");
   const [storyExtraRequirements, setStoryExtraRequirements] = useState("");
   const [storyDraft, setStoryDraft] = useState<VideoStoryDraft | null>(null);
+  const [storyInputsDirty, setStoryInputsDirty] = useState(false);
   const [storyKnowledgeSnapshotId, setStoryKnowledgeSnapshotId] = useState("");
   const [storyTask, setStoryTask] = useState<NoteTask | null>(null);
   const [storyCharacters, setStoryCharacters] = useState<StoryCharacter[]>([]);
@@ -5745,7 +5802,9 @@ function VideosPanel(props: {
   const [featuredVlogTemplateId, setFeaturedVlogTemplateId] = useState("");
   const [featuredVlogExtraRequirements, setFeaturedVlogExtraRequirements] = useState("");
   const [featuredVlogDraft, setFeaturedVlogDraft] = useState<FeaturedVlogResult | null>(null);
+  const [featuredVlogInputsDirty, setFeaturedVlogInputsDirty] = useState(false);
   const [featuredVlogTask, setFeaturedVlogTask] = useState<NoteTask | null>(null);
+  const hydratedVideoWorkspaceAccount = useRef<number | null>(null);
   const videoAssets = (selected?.assets || []).filter(isRemoteVideoAsset);
   const imageAssets = (selected?.assets || []).filter(isRemoteImageAsset);
   const activeTask = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask : note;
@@ -5755,6 +5814,43 @@ function VideosPanel(props: {
   useEffect(() => {
     if (note && note.id !== selectedNoteId) setSelectedNoteId(note.id);
   }, [note, selectedNoteId, setSelectedNoteId]);
+
+  useEffect(() => {
+    if (!videoWorkspaceReady) return;
+    if (!selected) {
+      hydratedVideoWorkspaceAccount.current = null;
+      return;
+    }
+    if (hydratedVideoWorkspaceAccount.current === selected.id) return;
+
+    const storyRecord = videoDraftWorkspace.storyVideo;
+    const records = templateVideoDraftRecords(videoDraftWorkspace.featuredVlogByTemplate, videoDraftWorkspace.featuredVlog);
+    const lastTemplateId = videoDraftWorkspace.lastFeaturedVlogTemplateId || videoDraftWorkspace.featuredVlog?.templateId || Object.keys(records).at(-1) || "";
+    const featuredVlogRecord = records[lastTemplateId];
+    const existingTasks = selected.weeklyPlans.flatMap((weeklyPlan) => weeklyPlan.noteTasks);
+    const restoredStoryTask = storyRecord?.taskId
+      ? existingTasks.find((task) => task.id === storyRecord.taskId) || null
+      : null;
+    const restoredFeaturedVlogTask = featuredVlogRecord?.taskId
+      ? existingTasks.find((task) => task.id === featuredVlogRecord.taskId) || null
+      : null;
+
+    setMode(videoDraftWorkspace.lastMode
+      || (featuredVlogRecord ? "featured_vlog" : storyRecord ? "story_video" : "direct_video"));
+    setStoryDraft(storyRecord?.result.story || null);
+    setStoryKnowledgeSnapshotId(storyRecord?.result.knowledgeSnapshotId || "");
+    setStoryTemplateId(storyRecord?.templateId || "");
+    setCharacterId(storyRecord?.characterId || "");
+    setStoryExtraRequirements(storyRecord?.extraRequirements || "");
+    setStoryTask(restoredStoryTask);
+    setStoryInputsDirty(false);
+    setFeaturedVlogDraft(featuredVlogRecord?.result || null);
+    setFeaturedVlogTemplateId(lastTemplateId);
+    setFeaturedVlogExtraRequirements(featuredVlogRecord?.extraRequirements || "");
+    setFeaturedVlogTask(restoredFeaturedVlogTask);
+    setFeaturedVlogInputsDirty(false);
+    hydratedVideoWorkspaceAccount.current = selected.id;
+  }, [selected, videoDraftWorkspace, videoWorkspaceReady]);
 
   useEffect(() => {
     if (mode !== "story_video") return;
@@ -5793,7 +5889,9 @@ function VideosPanel(props: {
       .then((templates) => {
         if (cancelled) return;
         setFeaturedVlogTemplates(templates);
-        setFeaturedVlogTemplateId((current) => templates.some((template) => template.id === current) ? current : templates[0]?.id || "");
+        if (!templates.some((template) => template.id === featuredVlogTemplateId)) {
+          selectFeaturedVlogTemplate(templates[0]?.id || "");
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -5836,12 +5934,24 @@ function VideosPanel(props: {
     if (nextMode === mode) return;
     setMode(nextMode);
     setSelectedUrls([]);
-    setStoryDraft(null);
-    setStoryKnowledgeSnapshotId("");
-    setStoryTask(null);
-    setCharacterId("");
-    setFeaturedVlogDraft(null);
-    setFeaturedVlogTask(null);
+    if (selected) {
+      updateVideoDraftWorkspace(selected.id, (workspace) => ({ ...workspace, lastMode: nextMode }));
+    }
+  }
+
+  function selectFeaturedVlogTemplate(templateId: string) {
+    const record = templateVideoDraftRecords(videoDraftWorkspace.featuredVlogByTemplate, videoDraftWorkspace.featuredVlog)[templateId];
+    setFeaturedVlogTemplateId(templateId);
+    setFeaturedVlogDraft(record?.result || null);
+    setFeaturedVlogExtraRequirements(record?.extraRequirements || "");
+    setFeaturedVlogTask(record?.taskId
+      ? selected?.weeklyPlans.flatMap(p => p.noteTasks).find(task => task.id === record.taskId) || null
+      : null);
+    setFeaturedVlogInputsDirty(false);
+    if (selected) updateVideoDraftWorkspace(selected.id, workspace => ({
+      ...workspace,
+      lastFeaturedVlogTemplateId: templateId
+    }));
   }
 
   function toggle(url: string) {
@@ -5854,8 +5964,8 @@ function VideosPanel(props: {
   const canGenerate = mode === "direct_video"
     ? Boolean(note) && selectedAssets.length === 1
     : mode === "story_video"
-      ? Boolean(storyDraft && storyTask)
-      : Boolean(featuredVlogDraft && featuredVlogTask);
+      ? Boolean(storyDraft && storyTask && !storyInputsDirty)
+      : Boolean(featuredVlogDraft && !featuredVlogInputsDirty);
   const storyTemplate = storyTemplates.find((template) => template.id === storyTemplateId);
   const featuredVlogTemplate = featuredVlogTemplates.find((template) => template.id === featuredVlogTemplateId);
   const canGenerateStory = !storyCharactersLoading && !storyCharactersError && storyCharacters.some((character) => character.id === characterId);
@@ -5886,13 +5996,32 @@ function VideosPanel(props: {
       setStoryDraft(generated.story);
       setStoryKnowledgeSnapshotId(generated.knowledgeSnapshotId || "");
       setStoryTask(null);
+      setStoryInputsDirty(false);
+      if (selected) updateVideoDraftWorkspace(selected.id, (workspace) => ({
+        ...workspace,
+        lastMode: "story_video",
+        storyVideo: {
+          result: generated,
+          templateId: storyTemplateId,
+          characterId,
+          extraRequirements: storyExtraRequirements.trim(),
+          generatedAt: new Date().toISOString()
+        }
+      }));
     }
   }
 
   async function confirmAndCreateStoryTask() {
     if (!storyDraft) return;
     const created = await createStoryVideoNoteTask(storyDraft, storyKnowledgeSnapshotId);
-    if (created) setStoryTask(created);
+    if (created) {
+      setStoryTask(created);
+      if (selected) updateVideoDraftWorkspace(selected.id, (workspace) => ({
+        ...workspace,
+        lastMode: "story_video",
+        storyVideo: workspace.storyVideo ? { ...workspace.storyVideo, taskId: created.id } : workspace.storyVideo
+      }));
+    }
   }
 
   async function createFeaturedVlog() {
@@ -5901,13 +6030,43 @@ function VideosPanel(props: {
     if (generated) {
       setFeaturedVlogDraft(generated);
       setFeaturedVlogTask(null);
+      setFeaturedVlogInputsDirty(false);
+      if (selected) updateVideoDraftWorkspace(selected.id, (workspace) => ({
+        ...workspace,
+        lastMode: "featured_vlog",
+        lastFeaturedVlogTemplateId: featuredVlogTemplate.id,
+        featuredVlogByTemplate: {
+          ...templateVideoDraftRecords(workspace.featuredVlogByTemplate, workspace.featuredVlog),
+          [featuredVlogTemplate.id]: {
+          result: generated,
+          templateId: featuredVlogTemplate.id,
+          extraRequirements: featuredVlogExtraRequirements.trim(),
+          generatedAt: new Date().toISOString()
+          }
+        }
+      }));
     }
   }
 
   async function confirmAndCreateFeaturedVlogTask() {
-    if (!featuredVlogDraft) return;
+    if (!featuredVlogDraft || featuredVlogInputsDirty) return null;
     const created = await createFeaturedVlogNoteTask(featuredVlogDraft.script, featuredVlogDraft.knowledgeSnapshotId || "");
-    if (created) setFeaturedVlogTask(created);
+    if (created) {
+      setFeaturedVlogTask(created);
+      if (selected) updateVideoDraftWorkspace(selected.id, (workspace) => ({
+        ...workspace,
+        lastMode: "featured_vlog",
+        lastFeaturedVlogTemplateId: featuredVlogTemplateId,
+        featuredVlogByTemplate: {
+          ...templateVideoDraftRecords(workspace.featuredVlogByTemplate, workspace.featuredVlog),
+          [featuredVlogTemplateId]: {
+            ...templateVideoDraftRecords(workspace.featuredVlogByTemplate, workspace.featuredVlog)[featuredVlogTemplateId],
+            taskId: created.id
+          }
+        }
+      }));
+    }
+    return created;
   }
 
   return (
@@ -5971,7 +6130,7 @@ function VideosPanel(props: {
             <h3 className="text-base font-semibold">第一步：选择故事模板</h3>
             <p className="mt-1 text-sm text-ink/60">模板由平台管理员维护；生成时会用账号素材承接故事场景，确认后新增一篇视频笔记到当前周计划。</p>
           </div>
-          <label className="field"><span>选择故事模板</span><select disabled={loading || Boolean(storyTask) || storyTemplatesLoading || !storyTemplates.length} value={storyTemplateId} onChange={(event) => { setStoryTemplateId(event.target.value); setCharacterId(""); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}>
+          <label className="field"><span>选择故事模板</span><select disabled={loading || Boolean(storyTask) || storyTemplatesLoading || !storyTemplates.length} value={storyTemplateId} onChange={(event) => { setStoryTemplateId(event.target.value); setCharacterId(""); setStoryInputsDirty(Boolean(storyDraft)); }}>
             {storyTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
           </select></label>
           {storyTemplatesLoading && <p className="text-xs text-ink/55">正在读取服务端故事模板...</p>}
@@ -5985,7 +6144,7 @@ function VideosPanel(props: {
             loading={storyCharactersLoading}
             error={storyCharactersError}
             onRetry={() => setStoryCharactersReloadKey((current) => current + 1)}
-            onChange={(id) => { setCharacterId(id); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }}
+            onChange={(id) => { setCharacterId(id); setStoryInputsDirty(Boolean(storyDraft)); }}
           />
           {storyTemplate && <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/75">
             <span className="font-medium text-ink">模板剧情：</span>{storyTemplate.outline}
@@ -5994,40 +6153,41 @@ function VideosPanel(props: {
           <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">
             首帧由 AI 自动规划：优先依据当前素材库图片的标签、文件名和适用类型选择真实图片；没有合适素材时生成 AI 首帧。
           </div>
-          <label className="field"><span>补充要求（可选）</span><textarea disabled={Boolean(storyTask)} value={storyExtraRequirements} onChange={(event) => { setStoryExtraRequirements(event.target.value); setStoryDraft(null); setStoryKnowledgeSnapshotId(""); }} placeholder="例如：重点突出窗景和早餐；避免出现人物正脸。" /></label>
+          <label className="field"><span>补充要求（可选）</span><textarea disabled={Boolean(storyTask)} value={storyExtraRequirements} onChange={(event) => { setStoryExtraRequirements(event.target.value); setStoryInputsDirty(Boolean(storyDraft)); }} placeholder="例如：重点突出窗景和早餐；避免出现人物正脸。" /></label>
           <button type="button" disabled={loading || !storySourceContent || !canGenerateStory || Boolean(storyTask)} onClick={() => void createStory()} className="secondary-button">
             <ActionButtonContent loading={loadingAction === "generateVideoStory"} icon={<Wand2 size={17} />} idleText={storyDraft ? "重新生成故事" : "生成故事"} loadingText="正在生成故事..." />
           </button>
 
           {storyDraft && <div className={clsx("rounded border p-4", storyTask ? "border-teal bg-teal/5" : "border-ink/10 bg-white")}>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><div className="text-xs font-medium text-ink/50">待确认故事</div><h3 className="mt-1 text-lg font-semibold">{storyDraft.title}</h3></div>
+              <div><div className="text-xs font-medium text-ink/50">{storyTask ? "已保存故事脚本" : "最近生成的故事脚本"}</div><h3 className="mt-1 text-lg font-semibold">{storyDraft.title}</h3></div>
               {storyTask && <span className="flex items-center gap-1 text-sm font-medium text-teal"><CircleCheck size={16} /> 已加入本周内容</span>}
             </div>
+            {storyInputsDirty && <p className="mt-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-800">当前模板、角色或补充要求已修改；下面仍保留上次成功生成的脚本。请重新生成后再加入周计划或生成任务。</p>}
             <p className="mt-3 text-sm leading-6 text-ink/75">{storyDraft.summary}</p>
             {storyDraft.character && <p className="mt-2 text-sm">主角形象：{storyDraft.character.name}</p>}
             <p className="mt-2 text-sm"><span className="font-medium">情绪主线：</span>{storyDraft.emotionalArc}</p>
-            <p className="mt-2 text-sm"><span className="font-medium">视频规格：</span>{storyDraft.shots.length} 个镜头 / 约 {storyDraft.shots.length * 5} 秒</p>
+            <p className="mt-2 text-sm"><span className="font-medium">视频规格：</span>{storyDraft.shots.length} 个镜头 / 预计 {videoTimelineDuration(storyDraft.shots, storyDraft.timingVersion)} 秒{storyDraft.timingVersion === 2 && "（已扣除转场重叠；旁白实测可有限延长）"}</p>
             <div className="mt-4 divide-y divide-ink/10 border-y border-ink/10">
               {storyDraft.shots.map((shot) => <div key={shot.order} className="grid gap-1 py-3 text-sm sm:grid-cols-[74px_1fr]">
                 <div className="font-semibold text-teal">镜头 {shot.order}</div>
-                <div><div className="font-medium">{shot.beat}｜{shot.role}</div><div className="mt-1 text-ink/70">{shot.description}</div><div className="mt-1 text-xs text-ink/50">建议画面：{shot.suggestedMaterial}</div></div>
+                <div><div className="font-medium">{shot.beat}｜{shot.role}</div><div className="mt-1 text-ink/70">{shot.description}</div><div className="mt-1 text-xs text-ink/50">建议画面：{shot.suggestedMaterial}</div>{storyDraft.timingVersion === 2 && <VideoTimingDetails shot={shot} />}</div>
               </div>)}
             </div>
             <div className="mt-4 text-sm text-ink/70"><span className="font-medium">将生成任务：</span>{storyDraft.noteTask.topicTitle}｜{storyDraft.noteTask.contentGoal}</div>
-            {!storyTask && <button type="button" disabled={loading} onClick={() => void confirmAndCreateStoryTask()} className="primary-button mt-4"><CircleCheck size={17} />确认并加入本周内容</button>}
+            {!storyTask && <button type="button" disabled={loading || storyInputsDirty} onClick={() => void confirmAndCreateStoryTask()} className="primary-button mt-4"><CircleCheck size={17} />确认并加入本周内容</button>}
           </div>}
 
           <div className="border-t border-ink/10 pt-4">
             <h3 className="text-base font-semibold">第二步：生成完整视频任务</h3>
-            <p className="mt-1 text-sm text-ink/60">加入周计划后，AI 将先构思一段连续故事旁白，再按 3-6 个五秒镜头切分；每段包含约 4 秒主体内容、承接前后的单一旁白和约 1 秒片尾转场，智能体将使用火山引擎生成配音并合成到视频。</p>
+            <p className="mt-1 text-sm text-ink/60">{storyDraft?.timingVersion === 2 ? "任务沿用已确认的镜头时长、转场和旁白。智能体先实测旁白长度，必要时每镜最多延长 2 秒，再生成视频、裁切转场并铺设旁白。" : "加入周计划后，AI 将构思连续旁白，按 3-6 个五秒镜头制作视频并使用火山引擎生成配音。"}</p>
             <p className="mt-1 text-xs text-ink/50">执行前需在智能体的 xiaohongshu_auto_op 环境中配置 VOLCENGINE_TTS_API_KEY 和 VOLCENGINE_TTS_SPEAKER。</p>
           </div>
         </div>}
 
         {mode === "featured_vlog" && <div className="mt-5 space-y-4 border-t border-ink/10 pt-5">
           <div><h3 className="text-base font-semibold">第一步：生成并确认 Vlog 脚本</h3><p className="mt-1 text-sm text-ink/60">模板提供体验环节和镜头编排。脚本会结合当前账号的民宿资料与知识库生成 3–6 个镜头；确认后新增一篇视频笔记。</p></div>
-          <label className="field"><span>选择精选 Vlog 模板</span><select disabled={loading || Boolean(featuredVlogTask) || featuredVlogTemplatesLoading || !featuredVlogTemplates.length} value={featuredVlogTemplateId} onChange={(event) => { setFeaturedVlogTemplateId(event.target.value); setFeaturedVlogDraft(null); }}>
+          <label className="field"><span>选择精选 Vlog 模板</span><select disabled={loading || featuredVlogTemplatesLoading || !featuredVlogTemplates.length} value={featuredVlogTemplateId} onChange={(event) => selectFeaturedVlogTemplate(event.target.value)}>
             {featuredVlogTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
           </select></label>
           {featuredVlogTemplatesLoading && <p className="text-xs text-ink/55">正在读取服务端精选 Vlog 模板...</p>}
@@ -6040,24 +6200,37 @@ function VideosPanel(props: {
             {featuredVlogTemplate.musicTags.length > 0 && <div className="mt-2"><span className="font-medium text-ink">建议配乐氛围：</span>{featuredVlogTemplate.musicTags.join("、")}</div>}
           </div>}
           <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">首帧优先依据当前账号素材图片的标签和文件名选用真实场景；AI 补图会参考首个实际使用的素材图保持摄影风格。配乐由系统自动匹配，不提供手动选择。</div>
-          <label className="field"><span>补充要求（可选）</span><textarea disabled={Boolean(featuredVlogTask)} value={featuredVlogExtraRequirements} onChange={(event) => { setFeaturedVlogExtraRequirements(event.target.value); setFeaturedVlogDraft(null); }} placeholder="例如：重点呈现窗景和早餐；游客只以主观镜头或背影出现。" /></label>
-          <button type="button" disabled={loading || !featuredVlogTemplate || featuredVlogTemplatesLoading || Boolean(featuredVlogTask)} onClick={() => void createFeaturedVlog()} className="secondary-button"><ActionButtonContent loading={loadingAction === "generateFeaturedVlogScript"} icon={<Wand2 size={17} />} idleText={featuredVlogDraft ? "重新生成脚本" : "生成Vlog脚本"} loadingText="正在生成脚本..." /></button>
+          <label className="field"><span>补充要求（可选）</span><textarea disabled={loading} value={featuredVlogExtraRequirements} onChange={(event) => { setFeaturedVlogExtraRequirements(event.target.value); setFeaturedVlogInputsDirty(Boolean(featuredVlogDraft)); }} placeholder="例如：重点呈现窗景和早餐；游客只以主观镜头或背影出现。" /></label>
+          <button type="button" disabled={loading || !featuredVlogTemplate || featuredVlogTemplatesLoading} onClick={() => void createFeaturedVlog()} className="secondary-button"><ActionButtonContent loading={loadingAction === "generateFeaturedVlogScript"} icon={<Wand2 size={17} />} idleText={featuredVlogDraft ? "重新生成脚本" : "生成Vlog脚本"} loadingText="正在生成脚本..." /></button>
           {featuredVlogDraft && <div className={clsx("rounded border p-4", featuredVlogTask ? "border-teal bg-teal/5" : "border-ink/10 bg-white")}>
-            <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-medium text-ink/50">待确认脚本</div><h3 className="mt-1 text-lg font-semibold">{featuredVlogDraft.script.title}</h3></div>{featuredVlogTask && <span className="flex items-center gap-1 text-sm font-medium text-teal"><CircleCheck size={16} /> 已加入本周内容</span>}</div>
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-medium text-ink/50">{featuredVlogTask ? "已保存 Vlog 脚本" : "最近生成的 Vlog 脚本"}</div><h3 className="mt-1 text-lg font-semibold">{featuredVlogDraft.script.title}</h3></div>{featuredVlogTask && <span className="flex items-center gap-1 text-sm font-medium text-teal"><CircleCheck size={16} /> 已加入本周内容</span>}</div>
+            {featuredVlogInputsDirty && <p className="mt-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-800">当前模板或补充要求已修改；下面仍保留上次成功生成的脚本。请重新生成后再加入周计划或生成任务。</p>}
             <p className="mt-3 text-sm leading-6 text-ink/75">{featuredVlogDraft.script.summary}</p>
             <p className="mt-2 text-sm"><span className="font-medium">叙事视角：</span>{featuredVlogDraft.script.perspective}</p>
             <p className="mt-2 text-sm"><span className="font-medium">整体情绪：</span>{featuredVlogDraft.script.moodTags.join("、") || "按脚本自然呈现"}</p>
             <p className="mt-2 text-sm"><span className="font-medium">建议配乐氛围：</span>{featuredVlogDraft.script.musicTags.join("、") || "由系统根据脚本自动匹配"}</p>
-            <p className="mt-2 text-sm"><span className="font-medium">视频规格：</span>{featuredVlogDraft.script.shots.length} 个镜头 / 约 {featuredVlogDraft.script.shots.length * 5} 秒</p>
+            <p className="mt-2 text-sm"><span className="font-medium">视频规格：</span>{featuredVlogDraft.script.shots.length} 个镜头 / 预计 {videoTimelineDuration(featuredVlogDraft.script.shots, featuredVlogDraft.script.timingVersion)} 秒{featuredVlogDraft.script.timingVersion === 2 && "（已扣除转场重叠）"}</p>
+            {featuredVlogDraft.script.sceneVersion === 1 && <details className="mt-3 rounded border border-ink/10 p-3 text-sm">
+              <summary className="cursor-pointer font-medium">人物与镜头起止状态</summary>
+              <div className="mt-2 space-y-2 text-xs text-ink/70">{featuredVlogDraft.script.characters?.map(c => <p key={c.id}>{c.id}：{c.appearance} · 道具：{c.props.join("、") || "无"}</p>)}</div>
+              {featuredVlogDraft.script.shots.map(s => <div key={s.order} className="mt-3 border-t border-ink/10 pt-2 text-xs leading-6">
+                <p className="font-semibold">镜头 {s.order} · 起始出镜 {s.startState?.characters.length} 人</p>
+                <p>起始：{s.startState?.location}；{s.startState?.characters.map(c => `${c.id} 在${c.position}，${c.pose}（${c.view}）`).join("；") || "无人出镜"}；道具：{s.startState?.props.join("、") || "无"}</p>
+                <p>主要动作：{s.mainAction}</p>
+                <p>结束：{s.endState?.location}；{s.endState?.characters.map(c => `${c.id} 在${c.position}，${c.pose}`).join("；") || "无人出镜"}；道具：{s.endState?.props.join("、") || "无"}</p>
+                <p>承接：{s.continuityNote}；入场/离场：{s.characterChanges?.map(c => `${c.id} ${c.type}：${c.reason}`).join("；") || "无"}</p>
+              </div>)}
+            </details>}
+            {featuredVlogDraft.script.timingVersion === 2 && <div className="mt-3 rounded border border-teal/15 p-3">{featuredVlogDraft.script.shots.map(shot => <div key={shot.order} className="mb-3"><span className="text-xs font-semibold">镜头 {shot.order} 时间线</span><VideoTimingDetails shot={shot} /></div>)}</div>}
             <div className="mt-4 divide-y divide-ink/10 border-y border-ink/10">{featuredVlogDraft.script.shots.map((shot) => <div key={shot.order} className="grid gap-1 py-3 text-sm sm:grid-cols-[74px_1fr]"><div className="font-semibold text-teal">镜头 {shot.order}</div><div><div className="font-medium">{shot.beat}｜{shot.role}</div><div className="mt-1 text-ink/70">{shot.description}</div><div className="mt-1 text-xs text-ink/50">建议素材：{shot.suggestedMaterial} · {shot.subjectPresence === "pov" ? "主观镜头" : shot.subjectPresence === "traveler" ? "游客入镜" : "环境镜头"}</div></div></div>)}</div>
             <div className="mt-4 text-sm text-ink/70"><span className="font-medium">将创建周计划视频笔记：</span>{featuredVlogDraft.script.noteTask.topicTitle}｜{featuredVlogDraft.script.noteTask.contentGoal}</div>
-            {!featuredVlogTask && <button type="button" disabled={loading} onClick={() => void confirmAndCreateFeaturedVlogTask()} className="primary-button mt-4"><CircleCheck size={17} />确认并加入本周内容</button>}
+            {!featuredVlogTask && <button type="button" disabled={loading || featuredVlogInputsDirty} onClick={() => void confirmAndCreateFeaturedVlogTask()} className="primary-button mt-4"><CircleCheck size={17} />确认并加入本周内容</button>}
           </div>}
-          <div className="border-t border-ink/10 pt-4"><h3 className="text-base font-semibold">第二步：生成完整视频任务</h3><p className="mt-1 text-sm text-ink/60">系统将规划首帧和镜头动态；平台配乐功能上线后会自动匹配配乐。智能体制作视频时不生成旁白。</p></div>
+          <div className="border-t border-ink/10 pt-4"><h3 className="text-base font-semibold">第二步：生成完整视频任务</h3><p className="mt-1 text-sm text-ink/60">系统将规划首帧和镜头动态，读取已启用的平台配乐并按脚本标签自动选曲；没有可用配乐时会停止生成。智能体制作视频时铺设整片配乐，不生成旁白 TTS。</p><p className="mt-1 text-xs text-ink/50">新脚本尚未加入本周内容时，点击生成任务即确认脚本并新增笔记；已有笔记则更新其任务指令。重新生成脚本会开启该模版的新一条视频。</p></div>
         </div>}
 
-        <button type="button" disabled={loading || !canGenerate} onClick={() => {
-          const task = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask : note;
+        <button type="button" disabled={loading || !canGenerate} onClick={async () => {
+          const task = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask || await confirmAndCreateFeaturedVlogTask() : note;
           if (!task) return;
           generateVideoPrompt(task, mode, mode === "story_video" || mode === "featured_vlog" ? imageAssets : selectedAssets, storyDraft || undefined, featuredVlogDraft ? { templateId: featuredVlogTemplateId, templateVersion: featuredVlogDraft.templateVersion, script: featuredVlogDraft.script } : undefined);
         }} className="primary-button mt-4">

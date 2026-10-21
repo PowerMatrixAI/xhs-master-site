@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { validateVideoTimeline, videoTimelineV2Enabled } from "@/lib/videoTimeline";
 import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
 import { getBackendAiCredentialsFromRequest, runWithBackendAiCredentials } from "@/lib/backendAiRequestContext";
@@ -80,6 +81,8 @@ async function storyPlanContext(body: Record<string, unknown>, credentials: Back
   const story = body.story as VideoStoryDraft;
   const assets = (Array.isArray(body.assets) ? body.assets : []) as VideoSourceAsset[];
   if (!story?.title || !Array.isArray(story.shots) || story.shots.length < 3 || story.shots.length > 6) throw new Error("请先生成并确认完整故事。");
+  validateVideoTimeline(story.timingVersion, story.shots, true);
+  if (story.timingVersion === 2 && !videoTimelineV2Enabled()) throw new Error("新版时间线尚未启用，请等待执行器和接口验收完成。");
   if (story.character) story.character = await resolveStoryCharacter(story.character.templateId, story.character.id, credentials);
   if (assets.some((asset) => !String(asset.fileUrl || "").startsWith("http"))) throw new Error("故事视频候选素材中存在不可访问的图片。");
   return { ...context, story, assets };
@@ -133,6 +136,8 @@ async function featuredVlogContext(body: Record<string, unknown>, credentials: B
   if (!script?.title || !Array.isArray(script.shots) || script.shots.length < 3 || script.shots.length > 6) {
     throw new Error("请先生成并确认完整的精选vlog脚本。");
   }
+  validateVideoTimeline(script.timingVersion, script.shots);
+  if (script.timingVersion === 2 && !videoTimelineV2Enabled()) throw new Error("新版时间线尚未启用，请等待执行器和接口验收完成。");
   const templates = await fetchFeaturedVlogTemplatesFromBackend(credentials);
   const template = templates.find((item) => item.id === templateId);
   if (!template) throw new Error("精选vlog模板不存在或已被停用。");
@@ -176,7 +181,7 @@ async function buildFeaturedVlogTaskResult(body: Record<string, unknown>, creden
     throw new Error("缺少精选vlog首帧、动态或配乐结果。");
   }
   const candidates = await fetchMusicCandidatesFromBackend(Number(input.account.id), credentials);
-  const selectedMusic = candidates.find((candidate) => candidate.id === Number(musicId)) as MusicCandidate | undefined;
+  const selectedMusic: MusicCandidate | undefined = candidates.find((candidate) => candidate.id === Number(musicId));
   if (!selectedMusic) throw new Error("所选平台配乐已不可用，请重新生成视频任务。");
   const content = buildFeaturedVlogVideoTask({
     account: input.account,

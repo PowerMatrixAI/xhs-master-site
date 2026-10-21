@@ -132,7 +132,7 @@ export function StoryCharacterLibraryPanel({ currentUser, notify }: {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="section-title">平台素材库</h2>
+              <h2 className="section-title">故事角色与模板</h2>
               <span className="inline-flex items-center gap-1 rounded bg-teal/10 px-2 py-1 text-xs font-medium text-teal"><ShieldCheck size={14} /> 平台共享</span>
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/60">管理创意故事视频的主角形象。角色属于平台资源，不绑定客户账号；普通用户可以在故事视频中选择，只有平台管理员可以上传。</p>
