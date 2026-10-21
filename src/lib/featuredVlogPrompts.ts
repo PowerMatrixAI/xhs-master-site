@@ -1,4 +1,6 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
+import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
+import { omniEnabled, styleVideoUrl, LINCHUAN, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
 import {
   fetchMusicCandidatesFromBackend,
   isHttpsUrl,
@@ -74,7 +76,9 @@ export async function generateFeaturedVlogScript(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
-  const timed = videoTimelineV2Enabled();
+  const omni = omniEnabled();
+  if (omni) styleVideoUrl();
+  const timed = omni || videoTimelineV2Enabled();
   const response = await completeWithBackendAi({
     instructions: "你是住宿与目的地旅行纪录片、Vlog 编导。围绕所选模板主题，将民宿体验与目的地环境编排为3-6镜头脚本，室内外比重服务主题，不默认写成客房展示。只返回合法JSON。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
@@ -82,7 +86,8 @@ export async function generateFeaturedVlogScript(input: {
     input: `请为当前民宿账号生成一份待用户确认的精选vlog视频脚本。
 
 要求：
-${VLOG_SCENE_RULES}
+${omni ? VLOG_SCENE_RULES.replace("模板及用户未指定时，主角倾向为20-30岁成年女性", "人物使用本轮固定林川主体") : VLOG_SCENE_RULES}
+${omni ? OMNI_SCRIPT_RULES : ""}
 ${VIDEO_SCRIPT_BUDGET}
 ${VIDEO_SHOT_DESIGN}
 - 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VIDEO_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
@@ -137,7 +142,8 @@ ${input.extraRequirements || "无"}
 返回以下业务字段结构，必须同时增加上述 sceneVersion、characters 和每镜 startState、mainAction、endState、characterChanges、continuityNote${timed ? "，并必须在顶层增加 timingVersion:2，在每镜增加 duration 和 transitionToNext，不能省略时间线字段" : ""}：
 ${JSON.stringify({
   sceneVersion: 1, ...(timed ? { timingVersion: 2 } : {}),
-  characters: [{ id: "A", appearance: "默认20-30岁成年女性，五官、发型、服装固定；明确模版人物设定优先", props: ["按剧情安排的随身道具"] }],
+  ...(omni ? { productionVersion: 3 } : {}),
+  characters: [{ id: "A", appearance: omni ? LINCHUAN.appearance : "默认20-30岁成年女性，五官、发型、服装固定；明确模版人物设定优先", props: ["按剧情安排的随身道具"] }],
   title: "视频脚本标题", summary: "脚本概要", perspective: "叙事视角", moodTags: ["整片情绪标签"], musicTags: ["配乐标签"],
   noteTask: { topicTitle: "本周笔记主题", contentType: "精选Vlog视频", contentGoal: "用具体画面表达模版的体验主题", targetUser: "目标观众", painPoint: "观众需求", coreView: "视频核心表达", requiredMaterials: "所需场景", recommendedAssets: "素材类型", coverCopyDirection: "封面方向", commentHook: "交流切入点", expectedGoal: "预期感受", writingStyleName: "精确文风名称" },
   shots: [{ order: 1, beat: "体验环节", role: "镜头职责", description: "具体事件摘要", suggestedMaterial: "可用素材建议", subjectPresence: "traveler",
@@ -190,6 +196,7 @@ ${JSON.stringify({
     if (order !== index + 1 || !beat || !role || !description || !suggestedMaterial || !["pov", "traveler", "environment"].includes(String(subjectPresence))) return null;
     return { order, beat, role, description, suggestedMaterial, subjectPresence: subjectPresence as "pov" | "traveler" | "environment",
       startState: shot.startState as VlogShotScene["startState"], mainAction: text(shot.mainAction), endState: shot.endState as VlogShotScene["endState"], characterChanges: shot.characterChanges as VlogShotScene["characterChanges"], continuityNote: text(shot.continuityNote),
+      ...(omni ? { direction: shot.direction as ShotDirection } : {}),
       ...(timed ? { duration: shot.duration as number, transitionToNext: shot.transitionToNext as VideoTransition | null } : {}) };
   });
   const title = text(parsed?.title);
@@ -218,6 +225,7 @@ ${JSON.stringify({
   };
   if (!noteTask.topicTitle || !noteTask.contentGoal) throw new Error("后端 AI 返回的精选vlog笔记信息不完整，请重试。");
   const script: FeaturedVlogScript = {
+    ...(omni ? { productionVersion: 3 as const } : {}),
     sceneVersion: 1,
     characters: parsed.characters as VlogCharacter[],
     ...(timed ? { timingVersion: 2 as const } : {}),
@@ -229,28 +237,11 @@ ${JSON.stringify({
     noteTask,
     shots: shots as FeaturedVlogScript["shots"]
   };
+  if (omni) {
+    if (parsed.productionVersion !== 3) throw new Error("后端AI遗漏Omni脚本版本，请重试。");
+    validateOmniScript(script);
+  }
   return { script, model: response.model, calls: aiCalls };
-}
-
-type FeaturedAssetReference = {
-  assetKey: string;
-  fileUrl: string;
-  fileName: string;
-  tags: string;
-  suitableTypes: string;
-};
-
-function assetReferences(assets: VideoSourceAsset[]): FeaturedAssetReference[] {
-  return assets.filter((asset) => isHttpsUrl(asset.fileUrl)
-    && ((asset.fileType || "").toLowerCase().startsWith("image")
-      || /\.(?:avif|gif|jpe?g|png|webp)(?:$|\?)/iu.test(asset.fileUrl)))
-    .map((asset, index) => ({
-      assetKey: `A${String(index + 1).padStart(2, "0")}`,
-      fileUrl: asset.fileUrl,
-      fileName: asset.filePath.split(/[\\/]/u).pop() || `asset-${asset.id}`,
-      tags: asset.tags || "",
-      suitableTypes: asset.suitableTypes || ""
-    }));
 }
 
 export async function planFeaturedVlogFrames(input: {
@@ -260,7 +251,9 @@ export async function planFeaturedVlogFrames(input: {
   credentials: BackendAiCredentials;
 }) {
   validateVlogScenes(input.script);
-  const candidates = assetReferences(input.assets);
+  const selection = await shortlistVideoAssets(videoAssetReferences(input.assets), input.script.shots, 14000, input.credentials);
+  const candidates = selection.assets;
+  if (input.script.productionVersion === 3) return planOmniScenes(input, candidates, selection.calls);
   const skeleton = input.script.shots.map((shot) => ({
     order: shot.order,
     role: shot.role,
@@ -277,11 +270,12 @@ export async function planFeaturedVlogFrames(input: {
 规则：
 ${VIDEO_FRAME_BUDGET}
 ${VIDEO_FRAME_PHOTOGRAPHY}
-- 首帧只画起始状态的一个静态瞬间；结束状态和主要动作属于后续视频，不可同屏叠加。人物表是身份清单，不要求所有人物同时出镜；以本镜 startState.characters 为准。素材只读标签，无法确认原图人数；已有目标人物需复用，其他人物按设计调整，生成后必须读图核验，不能机械叠加游客。
+${ASSET_SELECTION_RULES}
+- 首帧只画起始状态的一个静态瞬间；结束状态和主要动作属于后续视频，不可同屏叠加。人物表是身份清单，不要求所有人物同时出镜；以本镜 startState.characters 为准。图片分析可提供原图人数线索但不能替代读图；已有目标人物需复用，其他人物按设计调整，生成后必须读图核验，不能机械叠加游客。
 - 模板画面指导只作为场景与风格参考；若它描述了整个过程，以已确认 startState 的位置、人数和姿态作为唯一首帧，不把后续状态提前画入。
 - 严格按脚本镜头数量和顺序输出，不能增删镜头。
 - 脚本如包含 transitionToNext，本镜首帧应使用前一镜 transitionToNext.incomingState，并参考前一镜 outgoingState 的主体位置、构图、运动方向；真实素材仍须保留场地事实。
-- 优先从当前账号素材库选图：依据文件名、标签和适用类型，只要素材描述的主要场景或主体能承接镜头画面，就选择 asset。无需标签写明民宿名称、拍摄地点或日期，也无需原图已经包含游客手部、行李和完整动作；这些视角和动作可在后续精修中补充。不得声称已经看过图片或核实其拍摄地点。
+- 优先从当前账号素材库选图：图片分析为主要依据，文件名、标签和适用类型补充，只要素材描述的主要场景或主体能承接镜头画面，就选择 asset。无需标签写明民宿名称、拍摄地点或日期，也无需原图已经包含游客手部、行李和完整动作；这些视角和动作可在后续精修中补充。不得声称已经看过图片或核实其拍摄地点。
 - 按已确认startState.location、镜头职责与suggestedMaterial匹配场景：室内镜头选室内素材，目的地景观镜头优先匹配山水、村落、街道、绿荫等环境素材，不能默认退回客房或窗边图。室内窗景不能代替脚本要求的独立室外画面；不要为多选风景而把已确认的室内动作改到室外。
 - 室外选图沿用宽松语义匹配，不要求标签证明是本店实拍；选中风景只代表画面适用，不证明具体景点、路线或民宿提供项目。可用环境镜头保持无人画面，不必强行添加游客。
 - 每个素材最多使用一次，只返回候选 assetKey，不返回 URL。
@@ -328,7 +322,28 @@ ${JSON.stringify(candidates.map(({ fileUrl: _url, ...item }) => item), null, 2)}
     return { order: index + 1, role: expected.role, description: expected.description, frameSource, assetUrl: "", framePrompt: vlogFrameContext(expected, input.script.characters || []) + framePrompt };
   });
   if (framePlan.some((shot) => !shot)) throw new Error("精选vlog首帧规划包含无效素材映射，请重试。");
-  return { overallDirection: text(parsed?.overallDirection) || "按脚本形成真实、连贯的民宿体验 Vlog。", framePlan: framePlan as FeaturedVlogFramePlan, model: response.model };
+  return { overallDirection: text(parsed?.overallDirection) || "按脚本形成真实、连贯的民宿体验 Vlog。", framePlan: framePlan as FeaturedVlogFramePlan, model: response.model, calls: selection.calls + 1 };
+}
+
+async function planOmniScenes(input: { script: FeaturedVlogScript; template: FeaturedVlogTemplate; credentials: BackendAiCredentials }, candidates: VideoAssetReference[], calls: number) {
+  validateOmniScript(input.script);
+  const response = await completeWithBackendAi({ credentials: input.credentials,
+    instructions: "你是精选Vlog场景参考选图师。只读取文字分析，不声称看过实际图片。只输出JSON。",
+    input: `${ASSET_SELECTION_RULES}\n图片是场景参考，不是首帧，不需要已含主角。每图最多选一次，仅返回候选assetKey，禁止虚构URL。只在没有匹配场景时generate。保留已确认镜头职责、人数、时长、转场；脚本摄影意图不能作为拒绝可用场景的苛刻条件。场景图不先加入林川，人物由Omni主体加入。generate只写无人环境生成要求。asset只写保留空间事实的参考要求，不虚构可行走区域、光向或设施；实际图由智能体查看细化。\n每镜selectionReason最多60字、sceneDescription最多180字，保留图片分析快照由程序完成，不重复输出。\n脚本：${JSON.stringify(input.script)}\n素材：${JSON.stringify(candidates.map(assetMetadata))}\n返回 {"overallDirection":"整片方向","shots":[{"order":1,"source":"asset或generate","assetKey":"选中标识或空串","selectionReason":"匹配依据","sceneDescription":"场景参考要求"}]}`
+  });
+  if (!response.ok) throw new Error(`场景参考选图失败：${response.error}`);
+  const parsed = extractJson(response.text);
+  if (!Array.isArray(parsed?.shots) || parsed.shots.length !== input.script.shots.length) throw new Error("场景参考数量与脚本不一致。");
+  const used = new Set<string>();
+  const frames: FeaturedVlogFramePlan = parsed.shots.map((raw, i) => {
+    const s = raw as Record<string, unknown>;
+    const asset = candidates.find(a => a.assetKey === s.assetKey);
+    if (s.order !== i+1 || !text(s.selectionReason) || !text(s.sceneDescription) || !["asset", "generate"].includes(String(s.source)) || (s.source === "asset" ? !asset || used.has(asset.assetKey) : !!text(s.assetKey))) throw new Error(`镜头${i+1}场景参考映射无效。`);
+    if (asset) used.add(asset.assetKey);
+    return { order: i+1, role: input.script.shots[i].role, description: input.script.shots[i].description,
+      frameSource: s.source as "asset" | "generate", assetUrl: asset?.fileUrl || "", framePrompt: text(s.sceneDescription), aiAnalysis: asset?.aiAnalysis || "", selectionReason: text(s.selectionReason) };
+  });
+  return { framePlan: frames, overallDirection: text(parsed.overallDirection), model: response.model, calls: calls + 1 };
 }
 
 export async function planFeaturedVlogMotion(input: {
@@ -339,6 +354,10 @@ export async function planFeaturedVlogMotion(input: {
 }) {
   validateVlogScenes(input.script);
   if (input.framePlan.length !== input.script.shots.length) throw new Error("精选vlog首帧计划与脚本镜头数量不匹配。");
+  if (input.script.productionVersion === 3) {
+    validateOmniScript(input.script);
+    return { motionPlan: [], model: "confirmed-script", calls: 0 };
+  }
   const response = await completeWithBackendAi({
     credentials: input.credentials,
     instructions: "你是民宿体验 Vlog 导演。为每个已锁定首帧设计自然的主体动态、镜头运动及镜头间转场。只返回 JSON，不写旁白。",
@@ -379,7 +398,7 @@ ${input.expertRules || "暂无。"}
       : null;
   });
   if (motionPlan.some((shot) => !shot)) throw new Error("精选vlog动态规划结果不完整，请重试。");
-  return { motionPlan: motionPlan as FeaturedVlogMotionPlan, model: response.model };
+  return { motionPlan: motionPlan as FeaturedVlogMotionPlan, model: response.model, calls: 1 };
 }
 
 export async function selectFeaturedVlogMusic(input: {
@@ -437,6 +456,7 @@ export function buildFeaturedVlogVideoTask(input: {
   music: MusicCandidate;
   overallDirection: string;
 }) {
+  if (input.script.productionVersion === 3) return buildOmniTask(input);
   validateVlogScenes(input.script);
   validateVideoTimeline(input.script.timingVersion, input.script.shots);
   const timed = input.script.timingVersion === 2;

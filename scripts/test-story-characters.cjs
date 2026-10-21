@@ -28,6 +28,7 @@ const library = loadTs('src/lib/storyCharacters.ts', {
   '@/lib/backendAiClient': {}
 });
 const video = loadTs('src/lib/videoPrompts.ts', {
+  '@/lib/videoAssetSelection': loadTs('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': {} }),
   '@/lib/videoPhotography': loadTs('src/lib/videoPhotography.ts'),
   '@/lib/videoPromptBudget': loadTs('src/lib/videoPromptBudget.ts'),
   '@/lib/videoDelivery': loadTs('src/lib/videoDelivery.ts'),

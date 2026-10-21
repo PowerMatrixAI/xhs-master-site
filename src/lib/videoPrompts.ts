@@ -1,5 +1,6 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import { createHash } from "node:crypto";
+import { videoAssetReferences, shortlistVideoAssets, ASSET_SELECTION_RULES } from "@/lib/videoAssetSelection";
 import { characterDownloadUrl, type StoryCharacter } from "@/lib/storyCharacters";
 import { videoDeliveryRequirements } from "@/lib/videoDelivery";
 import { VIDEO_SCRIPT_BUDGET, VIDEO_FRAME_BUDGET, VIDEO_MOTION_BUDGET } from "@/lib/videoPromptBudget";
@@ -13,6 +14,8 @@ export type VideoSourceAsset = {
   fileType: string;
   tags?: string;
   suitableTypes?: string;
+  aiAnalysis?: string;
+  aiAnalysisStatus?: string;
 };
 
 export type VideoStorySourceType = "template";
@@ -253,18 +256,9 @@ type StoryFrameAssetReference = {
   fileType: string;
   tags: string;
   suitableTypes: string;
+  aiAnalysis?: string;
+  aiAnalysisStatus?: string;
 };
-
-function buildStoryFrameAssetReferences(assets: VideoSourceAsset[]): StoryFrameAssetReference[] {
-  return assets.map((asset, index) => ({
-    assetKey: `A${String(index + 1).padStart(2, "0")}`,
-    fileUrl: asset.fileUrl,
-    fileName: asset.filePath.split(/[\\/]/u).pop() || `asset-${asset.id}`,
-    fileType: asset.fileType,
-    tags: asset.tags || "",
-    suitableTypes: asset.suitableTypes || ""
-  }));
-}
 
 function parseStoryVideoFramePlan(value: unknown, assetReferences: StoryFrameAssetReference[], expectedShotCount: number): StoryVideoFramePlan | null {
   if (!Array.isArray(value) || value.length !== expectedShotCount || value.length < 3 || value.length > 6) return null;
@@ -634,7 +628,8 @@ export async function planStoryVideoFrames(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
-  const assetReferences = buildStoryFrameAssetReferences(input.assets);
+  const selection = await shortlistVideoAssets(videoAssetReferences(input.assets), input.story.shots);
+  const assetReferences = selection.assets;
   const responseSkeleton = {
     overallDirection: "整片方向",
     shots: input.story.shots.map((shot, index) => ({
@@ -654,10 +649,11 @@ export async function planStoryVideoFrames(input: {
 - 必须严格输出 ${input.story.shots.length} 个镜头，且顺序与已确认故事节点一一对应；只规划首帧，不要输出视频动态或转场。
 ${VIDEO_FRAME_BUDGET}
 ${VIDEO_FRAME_PHOTOGRAPHY}
+${ASSET_SELECTION_RULES}
 - 已确认故事包含 transitionToNext 时，构图与主体位置须承接前镜结束状态和本镜开始状态，不修改时间线或场地事实。
-- 优先从候选素材库图片中选择与镜头职责匹配的真实图片；只能根据文件名、标签、适用类型等文字元数据判断。
+- 优先从候选素材库图片中选择与镜头职责匹配的真实图片；图片分析为主要依据，文件名、标签、适用类型补充。
 - 候选素材无法匹配当前镜头时，使用 frameSource=generate 生成 AI 首帧；不得勉强套用不相关真实图片。
-- 只能根据文件名、标签、适用类型等文字元数据判断素材，不得声称看过图片。
+- 依据图片分析、文件名、标签、适用类型等文字元数据判断素材，不得声称看过图片。
 - 同一 assetKey 只能使用一次。使用真实素材时必须从候选列表原样返回 assetKey；不得返回素材 URL、文件路径或素材 ID。
 - frameSource=generate 时 assetKey 必须为空字符串。没有明确匹配素材时使用 generate，不得勉强套用不相关图片。
 - 使用真实素材时，framePrompt 是 edit-image 精修提示词，要保留真实主体和空间，仅调整 3:4 构图、光线、色彩和必要背景。
@@ -690,7 +686,7 @@ ${JSON.stringify(responseSkeleton, null, 2)}`
   const parsed = extractJson(response.text);
   const framePlan = parseStoryVideoFramePlan(parsed?.shots, assetReferences, input.story.shots.length);
   if (!framePlan) throw new Error("后端 AI 返回的故事视频首帧规划 JSON 不完整或素材对应关系无效，请重试。");
-  return { overallDirection: String(parsed?.overallDirection || "按已确认故事形成连贯的竖屏短视频。"), framePlan };
+  return { overallDirection: String(parsed?.overallDirection || "按已确认故事形成连贯的竖屏短视频。"), framePlan, calls: selection.calls + 1 };
 }
 
 export async function planStoryVideoMotion(input: {

@@ -309,6 +309,7 @@ type ImagePromptResult = {
 };
 
 type VideoPromptResult = {
+  sceneReferences?: FeaturedVlogFramePlan;
   openclawTask: { content: string; title: string };
   videoPrompt: { content: string; title: string };
   ai?: { used: boolean; calls: number; stage?: string; totalCalls?: number };
@@ -2917,9 +2918,9 @@ export function XhsMasterApp() {
       } else if (mode === "featured_vlog") {
         if (!featuredVlog) throw new Error("请先生成并确认精选vlog脚本。");
         setLoadingAction("generateFeaturedVlogFrames");
-        const frameResult = await requestVideoAction<{ overallDirection: string; framePlan: FeaturedVlogFramePlan }>("plan_featured_vlog_frames", {}, "规划精选vlog首帧失败");
+        const frameResult = await requestVideoAction<{ overallDirection: string; framePlan: FeaturedVlogFramePlan; ai?: { calls: number } }>("plan_featured_vlog_frames", {}, "规划精选vlog场景参考失败");
         setLoadingAction("generateFeaturedVlogMotion");
-        const motionResult = await requestVideoAction<{ motionPlan: FeaturedVlogMotionPlan }>("plan_featured_vlog_motion", { framePlan: frameResult.framePlan }, "规划精选vlog动态与转场失败");
+        const motionResult = featuredVlog.script.productionVersion === 3 ? { motionPlan: [] } : await requestVideoAction<{ motionPlan: FeaturedVlogMotionPlan }>("plan_featured_vlog_motion", { framePlan: frameResult.framePlan }, "规划精选vlog动态与转场失败");
         setLoadingAction("selectFeaturedVlogMusic");
         const musicResult = await requestVideoAction<{ music: MusicCandidate }>("select_featured_vlog_music", {}, "为精选vlog自动选择配乐失败");
         setLoadingAction("buildFeaturedVlogTask");
@@ -2929,6 +2930,8 @@ export function XhsMasterApp() {
           selectedMusic: musicResult.music,
           overallDirection: frameResult.overallDirection
         }, "组装精选vlog视频任务失败");
+        const calls = (frameResult.ai?.calls ?? 1) + (featuredVlog.script.productionVersion === 3 ? 0 : 1) + 1;
+        resolved.ai = { used: true, calls, totalCalls: calls, stage: "featured_vlog_complete" };
       } else {
         resolved = await requestVideoAction<VideoPromptResult>("", {}, "创建视频方案任务失败");
       }
@@ -5977,7 +5980,7 @@ function VideosPanel(props: {
     generateStoryVideoFrames: "1/ 正在规划首帧与素材......",
     generateStoryVideoMotion: "2/ 正在规划视频动态、转场与旁白......",
     buildStoryVideoTask: "正在组装视频任务...",
-    generateFeaturedVlogFrames: "1/ 正在规划精选vlog首帧......",
+    generateFeaturedVlogFrames: "1/ 正在分析素材并规划场景参考......",
     generateFeaturedVlogMotion: "2/ 正在规划精选vlog动态与转场......",
     selectFeaturedVlogMusic: "3/ 正在自动匹配平台配乐......",
     buildFeaturedVlogTask: "正在组装精选vlog制作任务......"
@@ -6151,7 +6154,7 @@ function VideosPanel(props: {
             {storyTemplate.requiredScenes.length ? <div className="mt-2"><span className="font-medium text-ink">强制场景：</span>{storyTemplate.requiredScenes.join("；")}</div> : null}
           </div>}
           <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">
-            首帧由 AI 自动规划：优先依据当前素材库图片的标签、文件名和适用类型选择真实图片；没有合适素材时生成 AI 首帧。
+            首帧由 AI 自动规划：优先依据图片分析选择真实场景，标签、文件名和适用类型作为补充；没有合适素材时生成 AI 首帧。
           </div>
           <label className="field"><span>补充要求（可选）</span><textarea disabled={Boolean(storyTask)} value={storyExtraRequirements} onChange={(event) => { setStoryExtraRequirements(event.target.value); setStoryInputsDirty(Boolean(storyDraft)); }} placeholder="例如：重点突出窗景和早餐；通过人物表情呈现情绪变化。" /></label>
           <button type="button" disabled={loading || !storySourceContent || !canGenerateStory || Boolean(storyTask)} onClick={() => void createStory()} className="secondary-button">
@@ -6199,7 +6202,7 @@ function VideosPanel(props: {
             {featuredVlogTemplate.perspectiveGuidance && <div className="mt-2"><span className="font-medium text-ink">叙事视角：</span>{featuredVlogTemplate.perspectiveGuidance}</div>}
             {featuredVlogTemplate.musicTags.length > 0 && <div className="mt-2"><span className="font-medium text-ink">建议配乐氛围：</span>{featuredVlogTemplate.musicTags.join("、")}</div>}
           </div>}
-          <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">首帧优先依据当前账号素材图片的标签和文件名选用真实场景；AI 补图会参考首个实际使用的素材图保持摄影风格。配乐由系统自动匹配，不提供手动选择。</div>
+          <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/70">场景优先依据当前账号素材的图片分析选择，标签和文件名作为补充；没有合适素材时使用 AI 场景补图。配乐由系统自动匹配。</div>
           <label className="field"><span>补充要求（可选）</span><textarea disabled={loading} value={featuredVlogExtraRequirements} onChange={(event) => { setFeaturedVlogExtraRequirements(event.target.value); setFeaturedVlogInputsDirty(Boolean(featuredVlogDraft)); }} placeholder="例如：重点呈现窗景和早餐；通过游客的自然表情和动作表现放松。" /></label>
           <button type="button" disabled={loading || !featuredVlogTemplate || featuredVlogTemplatesLoading} onClick={() => void createFeaturedVlog()} className="secondary-button"><ActionButtonContent loading={loadingAction === "generateFeaturedVlogScript"} icon={<Wand2 size={17} />} idleText={featuredVlogDraft ? "重新生成脚本" : "生成Vlog脚本"} loadingText="正在生成脚本..." /></button>
           {featuredVlogDraft && <div className={clsx("rounded border p-4", featuredVlogTask ? "border-teal bg-teal/5" : "border-ink/10 bg-white")}>
@@ -6222,11 +6225,12 @@ function VideosPanel(props: {
               </div>)}
             </details>}
             {featuredVlogDraft.script.timingVersion === 2 && <div className="mt-3 rounded border border-teal/15 p-3">{featuredVlogDraft.script.shots.map(shot => <div key={shot.order} className="mb-3"><span className="text-xs font-semibold">镜头 {shot.order} 时间线</span><VideoTimingDetails shot={shot} /></div>)}</div>}
+            {featuredVlogDraft.script.productionVersion === 3 && <div className="mt-3 space-y-3 rounded border border-teal/15 p-3"><p className="text-sm font-semibold">Omni 场景参考与镜头设计 · 林川 · 9:16</p>{featuredVlogDraft.script.shots.map(s => s.direction && <div key={s.order} className="text-sm"><p>镜头 {s.order} · {s.direction.focus}</p><p>摄影：{s.direction.photography.scale} / {s.direction.photography.height} / {s.direction.photography.angle}；{s.direction.photography.composition}；{s.direction.photography.depth}</p><p>动作：{s.direction.action}</p><p>运镜：{s.direction.camera.type}；{s.direction.camera.direction}；{s.direction.camera.speed}；{s.direction.camera.extent}</p><p>安排：{s.direction.timing.map(p => `${p.start}–${p.end}秒 ${p.action}`).join("；")}</p><p>结束：{s.direction.ending}</p></div>)}</div>}
             <div className="mt-4 divide-y divide-ink/10 border-y border-ink/10">{featuredVlogDraft.script.shots.map((shot) => <div key={shot.order} className="grid gap-1 py-3 text-sm sm:grid-cols-[74px_1fr]"><div className="font-semibold text-teal">镜头 {shot.order}</div><div><div className="font-medium">{shot.beat}｜{shot.role}</div><div className="mt-1 text-ink/70">{shot.description}</div><div className="mt-1 text-xs text-ink/50">建议素材：{shot.suggestedMaterial} · {shot.subjectPresence === "pov" ? "主观镜头" : shot.subjectPresence === "traveler" ? "游客入镜" : "环境镜头"}</div></div></div>)}</div>
             <div className="mt-4 text-sm text-ink/70"><span className="font-medium">将创建周计划视频笔记：</span>{featuredVlogDraft.script.noteTask.topicTitle}｜{featuredVlogDraft.script.noteTask.contentGoal}</div>
             {!featuredVlogTask && <button type="button" disabled={loading || featuredVlogInputsDirty} onClick={() => void confirmAndCreateFeaturedVlogTask()} className="primary-button mt-4"><CircleCheck size={17} />确认并加入本周内容</button>}
           </div>}
-          <div className="border-t border-ink/10 pt-4"><h3 className="text-base font-semibold">第二步：生成完整视频任务</h3><p className="mt-1 text-sm text-ink/60">系统将规划首帧和镜头动态，读取已启用的平台配乐并按脚本标签自动选曲；没有可用配乐时会停止生成。智能体制作视频时铺设整片配乐，不生成旁白 TTS。</p><p className="mt-1 text-xs text-ink/50">新脚本尚未加入本周内容时，点击生成任务即确认脚本并新增笔记；已有笔记则更新其任务指令。重新生成脚本会开启该模版的新一条视频。</p></div>
+          <div className="border-t border-ink/10 pt-4"><h3 className="text-base font-semibold">第二步：生成完整视频任务</h3><p className="mt-1 text-sm text-ink/60">{featuredVlogDraft?.script.productionVersion === 3 ? "系统依据图片分析选择场景参考和配乐。智能体查看实际图片后细化动作、光线与运镜，使用 Omni 全能参考制作视频，再完成转场和整片配乐。" : "系统将规划首帧和镜头动态，并自动选择平台配乐。"}没有可用配乐时会停止生成，不生成旁白 TTS。</p><p className="mt-1 text-xs text-ink/50">新脚本尚未加入本周内容时，点击生成任务即确认脚本并新增笔记；已有笔记则更新其任务指令。重新生成脚本会开启该模版的新一条视频。</p></div>
         </div>}
 
         <button type="button" disabled={loading || !canGenerate} onClick={async () => {
@@ -6244,6 +6248,7 @@ function VideosPanel(props: {
       </div>
       <div className="panel">
         <div className="mb-3 flex items-center justify-between"><div><h2 className="section-title">智能体视频任务</h2><p className="mt-1 text-sm text-ink/60">复制后交给智能体准备最终视频和 video-path.txt。</p></div><IconButton title="复制视频任务" onClick={() => copy(videoTaskContent)} icon={<Clipboard size={17} />} /></div>
+        {mode === "featured_vlog" && featuredVlogTask && results[featuredVlogTask.id]?.sceneReferences && <details className="mb-4 rounded border border-ink/10 p-3"><summary className="cursor-pointer text-sm font-semibold">场景参考与选图依据</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">{results[featuredVlogTask.id].sceneReferences!.map(s => <div key={s.order} className="text-xs leading-5">{s.assetUrl && <img src={s.assetUrl} alt={`镜头${s.order}场景参考`} className="mb-2 h-36 w-full rounded object-contain" />}<p>镜头{s.order} · {s.frameSource === "asset" ? "素材库场景参考" : "AI场景补图"}</p><p>{s.selectionReason}</p>{s.aiAnalysis && <p className="text-ink/60">图片分析：{s.aiAnalysis}</p>}</div>)}</div></details>}
         <textarea className="code-textarea min-h-[560px]" value={videoTaskContent || "生成后显示视频执行任务。"} readOnly />
       </div>
     </div>

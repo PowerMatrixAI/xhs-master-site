@@ -50,6 +50,7 @@ export type PlatformMusic = {
 export type MusicCandidate = Pick<PlatformMusic, "id" | "name" | "tags" | "durationSeconds" | "mimeType" | "audioUrl">;
 
 export type FeaturedVlogScript = {
+  productionVersion?: 3;
   sceneVersion?: 1;
   characters?: import("./vlogScene").VlogCharacter[];
   timingVersion?: 1 | 2;
@@ -82,6 +83,7 @@ export type FeaturedVlogScript = {
     suggestedMaterial: string;
     subjectPresence: "pov" | "traveler" | "environment";
     duration?: number;
+    direction?: import("./featuredVlogOmni").ShotDirection;
     transitionToNext?: import("./videoTimeline").VideoTransition | null;
   }>;
 };
@@ -93,6 +95,8 @@ export type FeaturedVlogFramePlan = Array<{
   frameSource: "asset" | "generate";
   assetUrl: string;
   framePrompt: string;
+  aiAnalysis?: string;
+  selectionReason?: string;
 }>;
 
 export type FeaturedVlogMotionPlan = Array<{

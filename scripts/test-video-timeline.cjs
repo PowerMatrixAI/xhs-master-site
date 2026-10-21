@@ -15,6 +15,8 @@ const scenes = load('src/lib/vlogScene.ts');
 const overrides = { '@/lib/videoTimeline': timing, '@/lib/vlogScene': scenes, '@/lib/videoDelivery': load('src/lib/videoDelivery.ts'), '@/lib/backendAiServerClient': ai };
 overrides['@/lib/videoPromptBudget'] = load('src/lib/videoPromptBudget.ts');
 overrides['@/lib/videoPhotography'] = load('src/lib/videoPhotography.ts');
+overrides['@/lib/videoAssetSelection'] = load('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': ai });
+overrides['@/lib/featuredVlogOmni'] = load('src/lib/featuredVlogOmni.ts', { './videoTimeline': timing, './vlogScene': scenes });
 const storyLib = load('src/lib/videoPrompts.ts', { ...overrides, '@/lib/storyCharacters': { characterDownloadUrl: () => '' } });
 const vlogLib = load('src/lib/featuredVlogPrompts.ts', { ...overrides, '@/lib/featuredVlog': { isHttpsUrl: url => url.startsWith('https://') } });
 const shots = [2, 3.5, 2.5].map((duration, i) => ({ order: i+1, beat: '抵达', role: '体验', description: '沿路看窗景', suggestedMaterial: '窗景', subjectPresence: 'pov', narrationText: '我们终于来到这里', duration, transitionToNext: i === 2 ? null : { type: i === 0 ? 'dissolve' : 'cut', duration: i === 0 ? .5 : 0, reason: '构图衔接', outgoingState: '向右移动', incomingState: '向右延续' } }));
