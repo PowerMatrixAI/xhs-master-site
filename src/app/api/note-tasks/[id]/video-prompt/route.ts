@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { omniEnabled, styleVideoUrl, validateOmniScript } from "@/lib/featuredVlogOmni";
+import { omniEnabled, styleVideoForTemplate, validateOmniScript } from "@/lib/featuredVlogOmni";
 import { validateVideoTimeline, videoTimelineV2Enabled } from "@/lib/videoTimeline";
 import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
@@ -141,7 +141,6 @@ async function featuredVlogContext(body: Record<string, unknown>, credentials: B
   if (script.productionVersion !== undefined && script.productionVersion !== 3) throw new Error("不支持的Vlog制作版本。");
   if (script.productionVersion === 3) {
     if (!omniEnabled()) throw new Error("Omni尚未启用，请完成资源和执行器验证。");
-    styleVideoUrl();
     validateOmniScript(script);
   }
   if (script.productionVersion !== 3 && script.timingVersion === 2 && !videoTimelineV2Enabled()) throw new Error("新版时间线尚未启用，请等待执行器和接口验收完成。");
@@ -152,6 +151,7 @@ async function featuredVlogContext(body: Record<string, unknown>, credentials: B
   if (submittedVersion && template.version && submittedVersion !== template.version) {
     throw new Error("精选vlog模板在脚本生成后发生了修改，请重新生成脚本。");
   }
+  if (script.productionVersion === 3) styleVideoForTemplate(template);
   if (assets.some((asset) => !String(asset.fileUrl || "").startsWith("https://"))) {
     throw new Error("精选vlog候选素材中存在不可公开访问的图片地址。");
   }

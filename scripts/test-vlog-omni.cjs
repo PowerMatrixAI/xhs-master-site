@@ -37,15 +37,21 @@ const script = { productionVersion: 3, timingVersion: 2, sceneVersion: 1, title:
 
 async function main() {
   process.env.FEATURED_VLOG_OMNI_ENABLED = 'true';
-  assert.throws(() => omni.styleVideoUrl(), /HTTPS/);
-  process.env.VIDEO_REFERENCE_PUBLIC_ORIGIN = 'https://vlog.example.com';
+  const template = { id: 't', name: '测试', version: 2, beats: [], referenceVideoId: 8, referenceVideo: { id: 8, name: '后端参考', version: 3, videoUrl: 'https://cdn.example.com/backend-reference.mp4', description: '自然节奏' } };
+  assert.throws(() => omni.styleVideoForTemplate({}), /未关联/);
+  assert.throws(() => omni.styleVideoForTemplate({ ...template, referenceVideo: null }), /失效/);
+  assert.throws(() => omni.styleVideoForTemplate({ ...template, referenceVideoId: 9 }), /失效/);
+  for (const videoUrl of ['file:///tmp/ref.mp4', 'javascript:bad', 'https://user:pass@example.com/ref.mp4']) assert.throws(() => omni.styleVideoForTemplate({ ...template, referenceVideo: { ...template.referenceVideo, videoUrl } }), /地址无效/);
+  // Obsolete static-host configuration must have no influence on selected backend URLs.
+  process.env.VIDEO_REFERENCE_PUBLIC_ORIGIN = 'https://obsolete.example.com';
+  assert.equal(omni.styleVideoForTemplate(template).url, template.referenceVideo.videoUrl);
   omni.validateOmniScript(script);
   const invalid = clone(script); invalid.shots[0].direction.timing[0].end = 3;
   assert.throws(() => omni.validateOmniScript(invalid), /时长/);
   invalid.shots[0].direction = undefined;
   assert.throws(() => omni.validateOmniScript(invalid), /摄影/);
   reply = () => script;
-  const generated = await prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template: { beats: [] }, availableWritingStyles: ['测试'] });
+  const generated = await prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template, availableWritingStyles: ['测试'] });
   assert.equal(generated.script.productionVersion, 3);
   assert.ok(calls.at(-1).input.includes('林川'));
   assert.ok(!calls.at(-1).input.includes('主角倾向为20-30岁成年女性'));
@@ -59,10 +65,27 @@ async function main() {
   const count = calls.length;
   assert.equal((await prompts.planFeaturedVlogMotion({ script, framePlan: frames.framePlan })).motionPlan.length, 0);
   assert.equal(calls.length, count, 'v3 must not replan confirmed motion');
-  const task = prompts.buildFeaturedVlogVideoTask({ account: { name: '账号', accountParam: 'test' }, noteTask: { id: 1, topicTitle: '测试' }, template: { id: 't', name: '测试' }, script, framePlan: frames.framePlan, motionPlan: [], music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' });
+  const task = prompts.buildFeaturedVlogVideoTask({ account: { name: '账号', accountParam: 'test' }, noteTask: { id: 1, topicTitle: '测试' }, template, script, framePlan: frames.framePlan, motionPlan: [], music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' });
   const plan = JSON.parse(task.match(/```json\n([\s\S]*?)\n```/)[1]);
   assert.equal(plan.version, 3); assert.equal(plan.generation.aspect_ratio, '9:16');
+  assert.equal(plan.generation.provider, 'kling_cli');
+  assert.equal(plan.generation.tool, 'omni_ref_video');
+  assert.ok(task.includes('kling omni_ref_video --model kling-video-v3_0_omni'));
+  assert.ok(task.includes('kling query_tasks'));
+  assert.ok(task.includes('submitResponse'));
+  assert.ok(!task.includes('通过MCP上传'));
   assert.equal(plan.character.id, '324475410205532');
+  assert.equal(plan.styleVideo.url, template.referenceVideo.videoUrl);
+  assert.equal(plan.styleVideo.id, 8);
+  assert.equal(plan.styleVideo.version, 3);
+  assert.equal(plan.styleVideo.source, 'template');
+  assert.equal(plan.template.referenceVideoId, 8);
+  assert.ok(!task.includes('/video-references/'));
+  assert.ok(!task.includes('obsolete.example.com'));
+  assert.ok(task.includes('--video传styleVideoPath'));
+  const changedTemplate = { ...template, referenceVideo: { ...template.referenceVideo, version: 4, videoUrl: 'https://cdn.example.com/new-reference.mp4' } };
+  const changedTask = omni.buildOmniTask({ account: {}, noteTask: { id: 2 }, template: changedTemplate, script, framePlan: frames.framePlan, music: { audioUrl: 'https://example.com/music.mp3' } });
+  assert.ok(changedTask.includes(changedTemplate.referenceVideo.videoUrl) && !changedTask.includes(template.referenceVideo.videoUrl));
   assert.equal(plan.shots[0].sceneReference.analysis, assets[0].aiAnalysis);
   assert.ok(!JSON.stringify(plan).includes('endingTransitionPrompt'));
   assert.ok(!JSON.stringify(plan).includes('framePrompt'));
@@ -78,7 +101,7 @@ async function main() {
     if (s.transitionToNext) for (const k of ['reason','incomingState','outgoingState']) s.transitionToNext[k] = '接'.repeat(40);
   });
   const longUrl = 'https://example.com/image.jpg?sig=' + 'a'.repeat(400);
-  const stressTask = omni.buildOmniTask({ account: { name: '账号', accountParam: 'test' }, noteTask: { id: 1, topicTitle: '测试' }, template: { id: 't', name: '测试' }, script: stressScript, framePlan: frames.framePlan.map((f,i) => ({ ...f, frameSource: 'asset', assetUrl: longUrl + i, framePrompt: '图'.repeat(180), aiAnalysis: '析'.repeat(100), selectionReason: '因'.repeat(60) })), music: { id: 1, name: '配乐', tags: [], audioUrl: longUrl }, overallDirection: '整'.repeat(90) });
+  const stressTask = omni.buildOmniTask({ account: { name: '账号', accountParam: 'test' }, noteTask: { id: 1, topicTitle: '测试' }, template, script: stressScript, framePlan: frames.framePlan.map((f,i) => ({ ...f, frameSource: 'asset', assetUrl: longUrl + i, framePrompt: '图'.repeat(180), aiAnalysis: '析'.repeat(100), selectionReason: '因'.repeat(60) })), music: { id: 1, name: '配乐', tags: [], audioUrl: longUrl }, overallDirection: '整'.repeat(90) });
   assert.ok(stressTask.length <= 18000, `stress task ${stressTask.length}`);
   console.log(`Omni six-shot long-field/signed-URL budget: ${stressTask.length} chars`);
   fs.mkdirSync('tmp', { recursive: true });

@@ -1,6 +1,6 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
-import { omniEnabled, styleVideoUrl, LINCHUAN, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
+import { omniEnabled, styleVideoForTemplate, LINCHUAN, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
 import {
   fetchMusicCandidatesFromBackend,
   isHttpsUrl,
@@ -77,7 +77,7 @@ export async function generateFeaturedVlogScript(input: {
   knowledgeSourceKeys?: string[];
 }) {
   const omni = omniEnabled();
-  if (omni) styleVideoUrl();
+  if (omni) styleVideoForTemplate(input.template);
   const timed = omni || videoTimelineV2Enabled();
   const response = await completeWithBackendAi({
     instructions: "你是住宿与目的地旅行纪录片、Vlog 编导。围绕所选模板主题，将民宿体验与目的地环境编排为3-6镜头脚本，室内外比重服务主题，不默认写成客房展示。只返回合法JSON。",
