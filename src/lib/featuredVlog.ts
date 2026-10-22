@@ -9,6 +9,7 @@ import {
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
 import { buildBackendSignedHeaders } from "@/lib/xhs-signature";
 import type { BackendAiCredentials } from "@/lib/backendAiClient";
+import { normalizeReferenceVideo, type ReferenceVideo } from "@/lib/referenceVideos";
 
 export type FeaturedVlogBeat = {
   name: string;
@@ -26,6 +27,8 @@ export type FeaturedVlogTemplate = {
   perspectiveGuidance: string;
   visualGuidance: string;
   musicTags: string[];
+  referenceVideoId?: number | null;
+  referenceVideo?: ReferenceVideo | null;
   version: number;
   createdBy: number;
   createdAt: string;
@@ -142,6 +145,8 @@ export function isHttpsUrl(value: string) {
 export function normalizeFeaturedVlogTemplate(value: unknown): FeaturedVlogTemplate | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Record<string, unknown>;
+  const referenceVideoId = numberValue(item.referenceVideoId) > 0 ? numberValue(item.referenceVideoId) : null;
+  const referenceVideo = normalizeReferenceVideo(item.referenceVideo);
   const beats = Array.isArray(item.beats)
     ? item.beats.map((beat) => {
         if (!beat || typeof beat !== "object") return null;
@@ -163,6 +168,8 @@ export function normalizeFeaturedVlogTemplate(value: unknown): FeaturedVlogTempl
     perspectiveGuidance: stringValue(item.perspectiveGuidance),
     visualGuidance: stringValue(item.visualGuidance),
     musicTags: stringList(item.musicTags),
+    referenceVideoId,
+    referenceVideo: referenceVideo?.id === referenceVideoId ? referenceVideo : null,
     version: numberValue(item.version),
     createdBy: numberValue(item.createdBy),
     createdAt: stringValue(item.createdAt),
@@ -235,7 +242,8 @@ export async function updateFeaturedVlogTemplate(input: Omit<FeaturedVlogTemplat
       requiredScenes: input.requiredScenes,
       perspectiveGuidance: input.perspectiveGuidance,
       visualGuidance: input.visualGuidance,
-      musicTags: input.musicTags
+      musicTags: input.musicTags,
+      referenceVideoId: input.referenceVideoId === null ? 0 : input.referenceVideoId
     }
   });
   if (!response.status) throw new Error(response.message || "保存精选 Vlog 模板失败。");

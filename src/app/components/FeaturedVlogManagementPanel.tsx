@@ -12,6 +12,8 @@ import {
   updateFeaturedVlogTemplate
 } from "@/lib/featuredVlog";
 import { isPlatformAdmin, type LoginResponse } from "@/lib/api";
+import { fetchReferenceVideos, type ReferenceVideo } from "@/lib/referenceVideos";
+import { ReferenceVideoPreview } from "@/app/components/ReferenceVideoPreview";
 
 type FeedbackTone = "success" | "error";
 type PageMode = "list" | "create" | "edit";
@@ -40,10 +42,25 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
   const [perspectiveGuidance, setPerspectiveGuidance] = useState("");
   const [visualGuidance, setVisualGuidance] = useState("");
   const [musicTags, setMusicTags] = useState("");
+  const [referenceVideos, setReferenceVideos] = useState<ReferenceVideo[]>([]);
+  const [referenceVideoId, setReferenceVideoId] = useState("");
+  const [referenceVideosLoading, setReferenceVideosLoading] = useState(false);
+  const [referenceVideosError, setReferenceVideosError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const admin = isPlatformAdmin(currentUser);
+
+  const loadReferenceVideos = useCallback(async () => {
+    if (!admin) return;
+    setReferenceVideosLoading(true);
+    setReferenceVideosError("");
+    try { setReferenceVideos(await fetchReferenceVideos()); }
+    catch (cause) { setReferenceVideosError(cause instanceof Error ? cause.message : "获取参考视频失败。"); }
+    finally { setReferenceVideosLoading(false); }
+  }, [admin]);
+
+  useEffect(() => { void loadReferenceVideos(); }, [loadReferenceVideos]);
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -71,6 +88,8 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
     setPerspectiveGuidance("");
     setVisualGuidance("");
     setMusicTags("");
+    setReferenceVideoId("");
+    void loadReferenceVideos();
     setPage("create");
   }
 
@@ -83,6 +102,8 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
     setPerspectiveGuidance(template.perspectiveGuidance);
     setVisualGuidance(template.visualGuidance);
     setMusicTags(template.musicTags.join(", "));
+    setReferenceVideoId(template.referenceVideoId ? String(template.referenceVideoId) : "");
+    void loadReferenceVideos();
     setPage("edit");
   }
 
@@ -115,7 +136,8 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
         requiredScenes: splitLines(requiredScenes),
         perspectiveGuidance: perspectiveGuidance.trim(),
         visualGuidance: visualGuidance.trim(),
-        musicTags: splitTags(musicTags)
+        musicTags: splitTags(musicTags),
+        referenceVideoId: referenceVideoId ? Number(referenceVideoId) : 0
       };
       const saved = page === "create"
         ? await createFeaturedVlogTemplate(input)
@@ -161,6 +183,12 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
             {page === "edit" && <label className="field"><span>模板标识 / 版本</span><input value={`${selected?.id || ""} / v${selected?.version || 0}`} readOnly className="bg-ink/5" /></label>}
             <label className="field"><span>模板名称</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} placeholder="例如：民宿精选 Vlog" /></label>
             <label className="field"><span>故事梗概</span><textarea value={outline} onChange={(event) => setOutline(event.target.value)} maxLength={5000} rows={5} placeholder="描述视频的主题、节奏和不能虚构的边界。" /></label>
+            <div className="space-y-3 rounded-lg border border-ink/10 p-4">
+              <label className="field"><span>参考视频（可选）</span><select value={referenceVideoId} onChange={(event) => setReferenceVideoId(event.target.value)} disabled={saving || referenceVideosLoading}><option value="">不使用参考视频</option>{referenceVideos.map((video) => <option key={video.id} value={video.id}>{video.name}</option>)}{referenceVideoId && !referenceVideos.some((video) => String(video.id) === referenceVideoId) && <option value={referenceVideoId}>{selected?.referenceVideo?.name || "原关联视频暂不可用，请刷新或取消关联"}</option>}</select></label>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink/55"><span>{referenceVideosLoading ? "正在读取参考视频..." : "视频由“平台管理 → 参考视频”统一维护，可留空。"}</span><button type="button" disabled={saving || referenceVideosLoading} onClick={() => void loadReferenceVideos()} className="inline-flex items-center gap-1 text-teal hover:underline"><RefreshCw size={12} /> 刷新列表</button></div>
+              {referenceVideosError && <p role="alert" className="text-xs text-coral">{referenceVideosError}</p>}
+              {(() => { const video = referenceVideos.find((item) => String(item.id) === referenceVideoId) || (String(selected?.referenceVideo?.id) === referenceVideoId ? selected?.referenceVideo : null); return video ? <ReferenceVideoPreview video={video} /> : null; })()}
+            </div>
             <div className="rounded-lg border border-ink/10 bg-white/60 p-4">
               <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="font-medium">体验环节与节拍</h3><p className="mt-1 text-xs text-ink/55">按顺序说明体验目的。重要环节可拆为镜头；画面指导应区分起始瞬间与后续动作，不要求同屏呈现全部过程。</p></div><button type="button" onClick={() => setBeats((current) => [...current, emptyBeat()])} className="secondary-button"><Plus size={15} /> 增加环节</button></div>
               <div className="grid gap-3">
