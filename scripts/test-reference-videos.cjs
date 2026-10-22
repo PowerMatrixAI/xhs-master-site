@@ -17,7 +17,7 @@ function load(file, overrides = {}, globals = {}) {
 
 async function main() {
   const video = { id: 8, name: "林间参考", description: "参考长镜头与慢节奏", videoUrl: "https://cdn.example.com/ref.mp4", sourceType: "url", version: 3 };
-  const template = { id: "vlog", name: "慢生活", outline: "体验林间生活", beats: [{ name: "到达", shotDuty: "建立环境", required: true }], musicTags: [], version: 1, referenceVideoId: 8, referenceVideo: video };
+  const template = { id: "vlog", name: "慢生活", outline: "体验林间生活", beats: [{ name: "到达", shotDuty: "看清住宿与自然的关系", visualGuidance: "旧版写死的穿门推进", required: true }], requiredScenes: ["旧版特定设施"], perspectiveGuidance: "第三人称为主", visualGuidance: "自然摄影", musicTags: [], version: 1, referenceVideoId: 8, referenceVideo: video };
   let admin = true;
   let response = { status: true, data: video };
   const calls = [];
@@ -51,12 +51,25 @@ async function main() {
   response = { status: true, data: { videos: [video] } };
   assert.equal((await library.fetchReferenceVideos())[0].id, 8);
   response = { status: true, data: template };
+  await vlog.createFeaturedVlogTemplate(template);
+  assert.equal(calls.at(-1).path, "/featuredVlog/v1/template/create");
+  const created = calls.at(-1).options.body;
+  assert.deepEqual(JSON.parse(JSON.stringify(created.requiredScenes)), []);
+  assert.equal(created.beats[0].visualGuidance, "");
+  assert.equal(created.beats[0].shotDuty, template.beats[0].shotDuty);
+  assert.equal(created.beats[0].required, true);
+  assert.equal(created.visualGuidance, "自然摄影", "whole-film guidance remains active");
+  assert.equal(created.referenceVideoId, 8);
+  assert.ok(!("id" in created) && !("referenceVideo" in created));
   await vlog.updateFeaturedVlogTemplate({ ...template, referenceVideoId: 0 });
   assert.equal(calls.at(-1).options.body.referenceVideoId, 0, "an explicit zero must remove the association");
   await vlog.updateFeaturedVlogTemplate({ ...template, referenceVideoId: null });
   assert.equal(calls.at(-1).options.body.referenceVideoId, 0, "a cleared UI value must remove the association");
   await vlog.updateFeaturedVlogTemplate(template);
   assert.equal(calls.at(-1).options.body.referenceVideoId, 8);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1).options.body.requiredScenes)), []);
+  assert.equal(calls.at(-1).options.body.beats[0].visualGuidance, "");
+  assert.equal(template.beats[0].visualGuidance, "旧版写死的穿门推进", "editor writes must not mutate an unsaved template");
   response = { status: true, data: video };
   await library.uploadReferenceVideo({ id: 8, version: 3, name: video.name, description: "", file: new File(["video"], "ref.mp4", { type: "video/mp4" }) });
   assert.equal(calls.at(-1).path, "/api/reference-videos/upload");

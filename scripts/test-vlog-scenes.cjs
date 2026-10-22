@@ -14,8 +14,9 @@ let response, request;
 let responseQueue = [];
 let requestCount = 0;
 const prompts = load('src/lib/featuredVlogPrompts.ts', {
+  '@/lib/featuredVlogTemplateRules': load('src/lib/featuredVlogTemplateRules.ts'),
   '@/lib/videoAssetSelection': load('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': {} }),
-  '@/lib/featuredVlogOmni': load('src/lib/featuredVlogOmni.ts', { './videoTimeline': timing, './vlogScene': scene }),
+  '@/lib/featuredVlogOmni': load('src/lib/featuredVlogOmni.ts', { './videoTimeline': timing, './vlogScene': scene, './featuredVlogTemplateRules': load('src/lib/featuredVlogTemplateRules.ts') }),
   '@/lib/videoPhotography': load('src/lib/videoPhotography.ts'),
   '@/lib/videoPromptBudget': load('src/lib/videoPromptBudget.ts'),
   '@/lib/videoDelivery': load('src/lib/videoDelivery.ts'),

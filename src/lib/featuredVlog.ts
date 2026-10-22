@@ -14,6 +14,7 @@ import { normalizeReferenceVideo, type ReferenceVideo } from "@/lib/referenceVid
 export type FeaturedVlogBeat = {
   name: string;
   shotDuty: string;
+  /** Legacy backend field; retired from the editor and new script planning. */
   visualGuidance: string;
   required: boolean;
 };
@@ -23,6 +24,7 @@ export type FeaturedVlogTemplate = {
   name: string;
   outline: string;
   beats: FeaturedVlogBeat[];
+  /** Legacy backend field; retired from the editor and new script planning. */
   requiredScenes: string[];
   perspectiveGuidance: string;
   visualGuidance: string;
@@ -222,28 +224,35 @@ export async function fetchFeaturedVlogTemplates() {
   return response.data.templates.map(readTemplateResponse);
 }
 
-export async function createFeaturedVlogTemplate(input: Omit<FeaturedVlogTemplate, "id" | "version" | "createdBy" | "createdAt" | "updatedAt">) {
+export type FeaturedVlogTemplateInput = Pick<FeaturedVlogTemplate, "name" | "outline" | "perspectiveGuidance" | "visualGuidance" | "musicTags" | "referenceVideoId"> & {
+  beats: Array<Pick<FeaturedVlogBeat, "name" | "shotDuty" | "required">>;
+};
+
+function templateWriteFields(input: FeaturedVlogTemplateInput) {
+  return {
+    name: input.name, outline: input.outline,
+    beats: input.beats.map(b => ({ name: b.name, shotDuty: b.shotDuty, required: b.required, visualGuidance: "" })),
+    requiredScenes: [], // Keep the existing backend schema, clear retired requirements on save.
+    perspectiveGuidance: input.perspectiveGuidance, visualGuidance: input.visualGuidance,
+    musicTags: input.musicTags, referenceVideoId: input.referenceVideoId === null ? 0 : input.referenceVideoId
+  };
+}
+
+export async function createFeaturedVlogTemplate(input: FeaturedVlogTemplateInput) {
   requireAdmin();
-  const response = await authRequest<unknown>("/featuredVlog/v1/template/create", { method: "POST", body: input });
+  const response = await authRequest<unknown>("/featuredVlog/v1/template/create", { method: "POST", body: templateWriteFields(input) });
   if (!response.status) throw new Error(response.message || "创建精选 Vlog 模板失败。");
   return readTemplateResponse(response.data);
 }
 
-export async function updateFeaturedVlogTemplate(input: Omit<FeaturedVlogTemplate, "createdBy" | "createdAt" | "updatedAt">) {
+export async function updateFeaturedVlogTemplate(input: FeaturedVlogTemplateInput & Pick<FeaturedVlogTemplate, "id" | "version">) {
   requireAdmin();
   const response = await authRequest<unknown>("/featuredVlog/v1/template/update", {
     method: "POST",
     body: {
+      ...templateWriteFields(input),
       templateId: input.id,
-      version: input.version,
-      name: input.name,
-      outline: input.outline,
-      beats: input.beats,
-      requiredScenes: input.requiredScenes,
-      perspectiveGuidance: input.perspectiveGuidance,
-      visualGuidance: input.visualGuidance,
-      musicTags: input.musicTags,
-      referenceVideoId: input.referenceVideoId === null ? 0 : input.referenceVideoId
+      version: input.version
     }
   });
   if (!response.status) throw new Error(response.message || "保存精选 Vlog 模板失败。");

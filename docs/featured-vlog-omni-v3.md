@@ -18,9 +18,17 @@ FEATURED_VLOG_OMNI_ENABLED=true
 
 ## 协议
 
-`plan.json version=3 kind=featured_vlog`：generation.provider=kling_cli、tool=omni_ref_video，显式指定kling-video-v3_0_omni、9:16、720p、单条静音；output为1080x1920/24fps。每镜sceneReference含source、imageUrl或生成描述、选中分析快照和选图依据；direction含摄影、运镜、动作、分段秒数及结束画面。transitionToNext继续cut/dissolve，最后为null。旧provider=kling_mcp计划及已完成片段仍兼容后期；需要新生成时重新组装CLI任务，不静默换通道或自动重提旧任务。
+`plan.json version=3 kind=featured_vlog`：generation.provider=kling_cli、tool=omni_ref_video，显式指定kling-video-v3_0_omni、9:16、720p、单条静音；output为1080x1920/24fps。每镜sceneReference含source、imageUrl或生成描述和选中分析快照；direction含摄影、运镜、动作、分段秒数及结束画面。transitionToNext继续cut/dissolve，最后为null。旧provider=kling_mcp计划及已完成片段仍兼容后期；需要新生成时重新组装CLI任务，不静默换通道或自动重提旧任务。
 
-保留角色A、林川外观和主体ID，允许无人/POV/手部/正面/侧面/背面。风格视频只提供摄影、色彩和节奏参考，不能复制内容或切镜。真实素材不先重绘为含人物首帧；无匹配素材时先制作AI场景参考。
+最终指令采用显式字段白名单（含嵌套状态、摄影与时间线），完全不输出account/noteTask对象；任务编号仅用于工作目录与交付追踪。只携带已确认制作概要、选中场景参考及简短分析、主角、模板参考视频、选定配乐、镜头设计和执行要求。账号策划、爆款研究、全量素材、周计划、专家规则和上一版任务正文仅用于控制台内部，不进入最终执行JSON。选图理由保留在控制台预览，不写入执行计划。
+
+保留角色A、林川外观和主体ID，允许无人/POV/手部/正面/侧面/背面。参考视频purpose=style_and_texture：只参考摄影质感、色彩、明暗和材质，不复制内容或照搬运镜、切镜、时间安排；当前场景图决定空间事实、时间和主要光线。真实素材不先重绘为含人物首帧；无匹配素材时先制作AI场景参考。
+
+## 模板编辑
+
+管理员填写模板名称、视频主题与整体主线、镜头名称/主要内容/是否必须保留、视角指导、画面总指导、参考视频和音乐标签。主要内容说明观看重点及主题关系，具体机位、路径、运镜方式和幅度在读图时调整；核心内容不可支持时报告。新增镜头默认不勾选必需，已有必需设置保留。
+
+原逐镜画面指导和必须出现场景从编辑表单移除，旧记录未保存前仍保存在后端，但新脚本通过字段白名单不再读取它们。保存模板时旧API的beats[].visualGuidance写空字符串、requiredScenes写空数组；主要内容仍通过shotDuty字段传输，整片visualGuidance继续有效。无需修改后端接口或自动批量迁移；管理员编辑旧模板时会看到清空提示。
 
 控制台按全部有效图片的aiAnalysis优先筛选，标签/文件名补充；无分析不排除，deleted分析不发送。超过14,000字符候选预算时分批最多每镜选2张、递归汇总；无效返回或不能收敛明确报错，不静默丢弃尾部素材。每轮均在现有后端用户凭据上下文中执行。
 

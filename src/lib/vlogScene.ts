@@ -22,7 +22,7 @@ startState.characters和endState.characters只记录本镜画面实际可见的�
 characterChanges只比较本镜startState与endState，不与上一镜比较。“进入其中”可以是剪辑切换到室内或住客视点，不强制表现人物走入画面。上一镜无人、下一镜首帧已有A，仅在continuityNote说明视角变化，下一镜起止都有A则characterChanges=[]。
 正确示例：起始[A]结束[A]，A由门口走到窗边或从背影变手部特写，characterChanges=[]；起始[]结束[A]且A在本镜内走入画面，填A enter并说明依据；起始[A]结束[]且A在本镜内走出画面，填A exit。不得因为换地点、坐下、转身或上一镜未出镜而给本镜添加enter。
 continuityNote说明与上一镜的人物、道具、时间和空间承接，首镜写起点；有意跳时或换地点须说明原因。外观、服装和道具统一，不能上一镜放在椅上、下一镜无解释转到桌上。
-模板的shotDuty是叙事目的，visualGuidance是实现指导，不要求将全部环节同时画进一张首帧；重要环节可以拆镜，必需剧情仍保留，总镜头数量仍为3-6。复杂动作简化或拆分。`;
+模板的主要内容mainContent（存储字段shotDuty）表达观看重点和希望呈现的内容，不是固定拍法；required只要求保留核心内容，不把全部过程同时画进一张图。重要内容可拆镜，必需剧情仍保留，总镜头数量仍为3-6；复杂动作简化或拆分，具体摄影依据实际图片细化。`;
 
 const nonempty = (value: unknown): value is string => typeof value === "string" && Boolean(value.trim());
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(nonempty);

@@ -7,22 +7,20 @@ import {
   createFeaturedVlogTemplate,
   deleteFeaturedVlogTemplate,
   fetchFeaturedVlogTemplates,
-  type FeaturedVlogBeat,
+  type FeaturedVlogTemplateInput,
   type FeaturedVlogTemplate,
   updateFeaturedVlogTemplate
 } from "@/lib/featuredVlog";
 import { isPlatformAdmin, type LoginResponse } from "@/lib/api";
 import { fetchReferenceVideos, type ReferenceVideo } from "@/lib/referenceVideos";
 import { ReferenceVideoPreview } from "@/app/components/ReferenceVideoPreview";
+import { VLOG_REFERENCE_STYLE_RULE } from "@/lib/featuredVlogTemplateRules";
 
 type FeedbackTone = "success" | "error";
 type PageMode = "list" | "create" | "edit";
 
-const emptyBeat = (): FeaturedVlogBeat => ({ name: "", shotDuty: "", visualGuidance: "", required: true });
-
-function splitLines(value: string) {
-  return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
-}
+type TemplateBeat = FeaturedVlogTemplateInput["beats"][number];
+const emptyBeat = (): TemplateBeat => ({ name: "", shotDuty: "", required: false });
 
 function splitTags(value: string) {
   return value.split(/[，,]/).map((item) => item.trim()).filter(Boolean);
@@ -37,8 +35,7 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
   const [selected, setSelected] = useState<FeaturedVlogTemplate | null>(null);
   const [name, setName] = useState("");
   const [outline, setOutline] = useState("");
-  const [beats, setBeats] = useState<FeaturedVlogBeat[]>([emptyBeat()]);
-  const [requiredScenes, setRequiredScenes] = useState("");
+  const [beats, setBeats] = useState<TemplateBeat[]>([emptyBeat()]);
   const [perspectiveGuidance, setPerspectiveGuidance] = useState("");
   const [visualGuidance, setVisualGuidance] = useState("");
   const [musicTags, setMusicTags] = useState("");
@@ -84,7 +81,6 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
     setName("");
     setOutline("");
     setBeats([emptyBeat()]);
-    setRequiredScenes("");
     setPerspectiveGuidance("");
     setVisualGuidance("");
     setMusicTags("");
@@ -97,8 +93,7 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
     setSelected(template);
     setName(template.name);
     setOutline(template.outline);
-    setBeats(template.beats.length ? template.beats : [emptyBeat()]);
-    setRequiredScenes(template.requiredScenes.join("\n"));
+    setBeats(template.beats.length ? template.beats.map(b => ({ name: b.name, shotDuty: b.shotDuty, required: b.required })) : [emptyBeat()]);
     setPerspectiveGuidance(template.perspectiveGuidance);
     setVisualGuidance(template.visualGuidance);
     setMusicTags(template.musicTags.join(", "));
@@ -107,7 +102,7 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
     setPage("edit");
   }
 
-  function updateBeat(index: number, patch: Partial<FeaturedVlogBeat>) {
+  function updateBeat(index: number, patch: Partial<TemplateBeat>) {
     setBeats((current) => current.map((beat, beatIndex) => beatIndex === index ? { ...beat, ...patch } : beat));
   }
 
@@ -120,11 +115,10 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
     const normalizedBeats = beats.map((beat) => ({
       name: beat.name.trim(),
       shotDuty: beat.shotDuty.trim(),
-      visualGuidance: beat.visualGuidance.trim(),
       required: beat.required
     }));
     if (!name.trim() || !outline.trim() || normalizedBeats.some((beat) => !beat.name || !beat.shotDuty)) {
-      notify("请填写模板名称、故事梗概，以及每个镜头的名称和职责。", "error");
+      notify("请填写模板名称、视频主题与整体主线，以及每个镜头的名称和主要内容。", "error");
       return;
     }
     setSaving(true);
@@ -133,7 +127,6 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
         name: name.trim(),
         outline: outline.trim(),
         beats: normalizedBeats,
-        requiredScenes: splitLines(requiredScenes),
         perspectiveGuidance: perspectiveGuidance.trim(),
         visualGuidance: visualGuidance.trim(),
         musicTags: splitTags(musicTags),
@@ -182,27 +175,29 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
           <form onSubmit={submit} className="grid gap-4">
             {page === "edit" && <label className="field"><span>模板标识 / 版本</span><input value={`${selected?.id || ""} / v${selected?.version || 0}`} readOnly className="bg-ink/5" /></label>}
             <label className="field"><span>模板名称</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} placeholder="例如：民宿精选 Vlog" /></label>
-            <label className="field"><span>故事梗概</span><textarea value={outline} onChange={(event) => setOutline(event.target.value)} maxLength={5000} rows={5} placeholder="描述视频的主题、节奏和不能虚构的边界。" /></label>
+            <label className="field"><span>视频主题与整体主线</span><textarea value={outline} onChange={(event) => setOutline(event.target.value)} maxLength={5000} rows={5} placeholder="观众看完应该理解什么？说明内容如何推进、情绪如何变化，以及结尾回应什么。" /></label>
+            {selected && (selected.requiredScenes.length > 0 || selected.beats.some(b => b.visualGuidance.trim())) && <p className="rounded border border-ink/10 bg-ink/5 p-3 text-xs leading-5 text-ink/60">旧版逐镜画面指导和必须出现场景已停用，不参与新脚本生成。保存时会清空这些旧字段；重要叙事要求请补充到“主要内容”或整体主线中。</p>}
             <div className="space-y-3 rounded-lg border border-ink/10 p-4">
-              <label className="field"><span>参考视频（可选）</span><select value={referenceVideoId} onChange={(event) => setReferenceVideoId(event.target.value)} disabled={saving || referenceVideosLoading}><option value="">不使用参考视频</option>{referenceVideos.map((video) => <option key={video.id} value={video.id}>{video.name}</option>)}{referenceVideoId && !referenceVideos.some((video) => String(video.id) === referenceVideoId) && <option value={referenceVideoId}>{selected?.referenceVideo?.name || "原关联视频暂不可用，请刷新或取消关联"}</option>}</select></label>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink/55"><span>{referenceVideosLoading ? "正在读取参考视频..." : "视频由“平台管理 → 参考视频”统一维护，可留空。"}</span><button type="button" disabled={saving || referenceVideosLoading} onClick={() => void loadReferenceVideos()} className="inline-flex items-center gap-1 text-teal hover:underline"><RefreshCw size={12} /> 刷新列表</button></div>
+              <label className="field"><span>参考视频（Omni 制作需关联）</span><select value={referenceVideoId} onChange={(event) => setReferenceVideoId(event.target.value)} disabled={saving || referenceVideosLoading}><option value="">暂不关联（制作前需补充）</option>{referenceVideos.map((video) => <option key={video.id} value={video.id}>{video.name}</option>)}{referenceVideoId && !referenceVideos.some((video) => String(video.id) === referenceVideoId) && <option value={referenceVideoId}>{selected?.referenceVideo?.name || "原关联视频暂不可用，请刷新或取消关联"}</option>}</select></label>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink/55"><span>{referenceVideosLoading ? "正在读取参考视频..." : "由“平台管理 → 参考视频”维护，模板可先保存，Omni 制作前须完成关联。"}</span><button type="button" disabled={saving || referenceVideosLoading} onClick={() => void loadReferenceVideos()} className="inline-flex items-center gap-1 text-teal hover:underline"><RefreshCw size={12} /> 刷新列表</button></div>
+              <p className="text-xs leading-5 text-ink/60">{VLOG_REFERENCE_STYLE_RULE} 制作时最多使用前 10 秒，请确保该片段能体现目标风格。</p>
               {referenceVideosError && <p role="alert" className="text-xs text-coral">{referenceVideosError}</p>}
               {(() => { const video = referenceVideos.find((item) => String(item.id) === referenceVideoId) || (String(selected?.referenceVideo?.id) === referenceVideoId ? selected?.referenceVideo : null); return video ? <ReferenceVideoPreview video={video} /> : null; })()}
             </div>
             <div className="rounded-lg border border-ink/10 bg-white/60 p-4">
-              <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="font-medium">体验环节与节拍</h3><p className="mt-1 text-xs text-ink/55">按顺序说明体验目的。重要环节可拆为镜头；画面指导应区分起始瞬间与后续动作，不要求同屏呈现全部过程。</p></div><button type="button" onClick={() => setBeats((current) => [...current, emptyBeat()])} className="secondary-button"><Plus size={15} /> 增加环节</button></div>
+              <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="font-medium">镜头内容</h3><p className="mt-1 text-xs leading-5 text-ink/55">按顺序写观看重点、希望呈现的内容及其与主题的关系，不只列素材名称。具体机位、路径和运动幅度由实际图片决定；仅勾选必须保留的核心内容。</p></div><button type="button" onClick={() => setBeats((current) => [...current, emptyBeat()])} className="secondary-button"><Plus size={15} /> 增加镜头</button></div>
               <div className="grid gap-3">
-                {beats.map((beat, index) => <div key={`${index}-${beat.name}`} className="rounded border border-ink/10 bg-white p-3">
+                {beats.map((beat, index) => <div key={index} className="rounded border border-ink/10 bg-white p-3">
                   <div className="mb-3 flex items-center justify-between"><span className="text-xs font-medium text-ink/55">镜头 {index + 1}</span>{beats.length > 1 && <button type="button" onClick={() => setBeats((current) => current.filter((_, beatIndex) => beatIndex !== index))} className="icon-button h-8 w-8 text-coral" title="删除镜头"><Trash2 size={14} /></button>}</div>
-                  <div className="grid gap-3 md:grid-cols-2"><label className="field"><span>名称</span><input value={beat.name} onChange={(event) => updateBeat(index, { name: event.target.value })} maxLength={100} placeholder="抵达与入口" /></label><label className="field"><span>镜头职责</span><input value={beat.shotDuty} onChange={(event) => updateBeat(index, { shotDuty: event.target.value })} maxLength={500} placeholder="建立到达后的第一印象" /></label></div>
-                  <label className="field mt-3"><span>画面指导</span><textarea value={beat.visualGuidance} onChange={(event) => updateBeat(index, { visualGuidance: event.target.value })} maxLength={2000} rows={3} placeholder="镜头应该拍什么，哪些信息不能补写。" /></label>
-                  <label className="mt-3 inline-flex items-center gap-2 text-sm text-ink/70"><input type="checkbox" checked={beat.required} onChange={(event) => updateBeat(index, { required: event.target.checked })} /> 必须出现</label>
+                  <label className="field"><span>名称</span><input value={beat.name} onChange={(event) => updateBeat(index, { name: event.target.value })} maxLength={100} placeholder="抵达与发现" /></label>
+                  <label className="field mt-3"><span>主要内容</span><textarea value={beat.shotDuty} onChange={(event) => updateBeat(index, { shotDuty: event.target.value })} maxLength={500} rows={3} placeholder="例如：展现民宿与自然环境的关系，让观众理解住在这里可以获得什么体验。" /></label>
+                  <label className="mt-3 inline-flex items-center gap-2 text-sm text-ink/70"><input type="checkbox" checked={beat.required} onChange={(event) => updateBeat(index, { required: event.target.checked })} /> 必须保留这一主要内容</label>
                 </div>)}
               </div>
             </div>
-            <div className="grid gap-4 md:grid-cols-2"><label className="field"><span>必须出现的场景（每行一条）</span><textarea value={requiredScenes} onChange={(event) => setRequiredScenes(event.target.value)} maxLength={10000} rows={5} placeholder="门头或入口\n入住空间" /></label><label className="field"><span>音乐标签（逗号分隔）</span><textarea value={musicTags} onChange={(event) => setMusicTags(event.target.value)} maxLength={1000} rows={5} placeholder="轻松，旅行，生活感" /></label></div>
-            <label className="field"><span>视角指导</span><textarea value={perspectiveGuidance} onChange={(event) => setPerspectiveGuidance(event.target.value)} maxLength={2000} rows={3} placeholder="例如：游客第一视角，不使用旁白。" /></label>
-            <label className="field"><span>画面总指导</span><textarea value={visualGuidance} onChange={(event) => setVisualGuidance(event.target.value)} maxLength={2000} rows={3} placeholder="强调真实素材、空间关系和节奏。" /></label>
+            <label className="field"><span>音乐标签（逗号分隔）</span><textarea value={musicTags} onChange={(event) => setMusicTags(event.target.value)} maxLength={1000} rows={3} placeholder="轻松，旅行，生活感" /></label>
+            <label className="field"><span>视角指导</span><textarea value={perspectiveGuidance} onChange={(event) => setPerspectiveGuidance(event.target.value)} maxLength={2000} rows={3} placeholder="说明主要叙事视角，如以第三人称观察为主，必要时结合主观体验。" /><span className="text-xs text-ink/50">描述叙事方式，不预设每镜机位，也不默认所有镜头只能背影或同一景别。</span></label>
+            <label className="field"><span>画面总指导</span><textarea value={visualGuidance} onChange={(event) => setVisualGuidance(event.target.value)} maxLength={2000} rows={3} placeholder="说明整片的摄影质感、景别变化和情绪节奏，具体运镜依据实际场景设计。" /><span className="text-xs text-ink/50">不预设每镜的机位、路径或运动幅度；模板表达主要内容，实际图片决定可执行的拍摄方式。</span></label>
             <div className="flex flex-wrap justify-end gap-3 border-t border-ink/10 pt-4"><button type="button" onClick={() => setPage("list")} disabled={saving} className="secondary-button">取消</button><button type="submit" disabled={saving} className="primary-button">{saving ? <LoaderCircle size={17} className="animate-spin" /> : <Save size={17} />} {saving ? "正在保存..." : page === "create" ? "创建模板" : "保存模板修改"}</button></div>
           </form>
         </div>

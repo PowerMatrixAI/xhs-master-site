@@ -37,7 +37,9 @@ const script = { productionVersion: 3, timingVersion: 2, sceneVersion: 1, title:
 
 async function main() {
   process.env.FEATURED_VLOG_OMNI_ENABLED = 'true';
-  const template = { id: 't', name: '测试', version: 2, beats: [], referenceVideoId: 8, referenceVideo: { id: 8, name: '后端参考', version: 3, videoUrl: 'https://cdn.example.com/backend-reference.mp4', description: '自然节奏' } };
+  const template = { id: 't', name: '测试', version: 2, outline: '从空间到自然', perspectiveGuidance: '第三人称观察', visualGuidance: '自然摄影质感', musicTags: ['舒缓'],
+    beats: [{ name: '发现', shotDuty: '展现住宿与自然的关系', visualGuidance: 'RETIRED_SHOT_CAMERA_INSTRUCTION', required: true }], requiredScenes: ['RETIRED_REQUIRED_SCENE'],
+    referenceVideoId: 8, referenceVideo: { id: 8, name: '后端参考', version: 3, videoUrl: 'https://cdn.example.com/backend-reference.mp4', description: 'REFERENCE_CONTENT_NOT_FOR_SCRIPT' } };
   assert.throws(() => omni.styleVideoForTemplate({}), /未关联/);
   assert.throws(() => omni.styleVideoForTemplate({ ...template, referenceVideo: null }), /失效/);
   assert.throws(() => omni.styleVideoForTemplate({ ...template, referenceVideoId: 9 }), /失效/);
@@ -55,6 +57,13 @@ async function main() {
   assert.equal(generated.script.productionVersion, 3);
   assert.ok(calls.at(-1).input.includes('林川'));
   assert.ok(!calls.at(-1).input.includes('主角倾向为20-30岁成年女性'));
+  const planningTemplate = JSON.parse(calls.at(-1).input.split('平台模板：\n')[1].split('\n\n用户补充要求：')[0]);
+  assert.equal(planningTemplate.beats[0].mainContent, template.beats[0].shotDuty);
+  assert.equal(planningTemplate.beats[0].required, true);
+  assert.equal(planningTemplate.visualGuidance, '自然摄影质感');
+  assert.ok(!calls.at(-1).input.includes('RETIRED_SHOT_CAMERA_INSTRUCTION'));
+  assert.ok(!calls.at(-1).input.includes('RETIRED_REQUIRED_SCENE'));
+  assert.ok(!calls.at(-1).input.includes('REFERENCE_CONTENT_NOT_FOR_SCRIPT'));
   const assets = [0,1,2].map(i => ({ id: i+1, filePath: `${i}.png`, fileUrl: `https://example.com/${i}.png`, fileType: 'image', tags: '庭院', aiAnalysis: `分析${i}：左侧树木右侧通道`, aiAnalysisStatus: i === 2 ? 'deleted' : 'completed' }));
   reply = () => ({ overallDirection: '自然', shots: script.shots.map((s,i) => ({ order: s.order, source: i < 3 ? 'asset' : 'generate', assetKey: i < 3 ? `A0${i+1}` : '', sceneDescription: '保留场景结构', selectionReason: '通道与观察主题匹配' })) });
   const frames = await prompts.planFeaturedVlogFrames({ script, assets, template: {}, credentials: {} });
@@ -79,6 +88,7 @@ async function main() {
   assert.equal(plan.styleVideo.id, 8);
   assert.equal(plan.styleVideo.version, 3);
   assert.equal(plan.styleVideo.source, 'template');
+  assert.equal(plan.styleVideo.purpose, 'style_and_texture');
   assert.equal(plan.template.referenceVideoId, 8);
   assert.ok(!task.includes('/video-references/'));
   assert.ok(!task.includes('obsolete.example.com'));
@@ -90,6 +100,35 @@ async function main() {
   assert.ok(!JSON.stringify(plan).includes('endingTransitionPrompt'));
   assert.ok(!JSON.stringify(plan).includes('framePrompt'));
   assert.ok(task.length < 18000, task.length);
+  // Reproduce the production call shape: the route passes a full Account and
+  // NoteTask, not the minimal objects used by the original fixtures.
+  const internal = 'INTERNAL_STRATEGY_RESEARCH_LIBRARY_ONLY_'.repeat(3000);
+  const richScript = clone(script);
+  richScript.noteTask.writingStyleReference = internal;
+  richScript.shots.forEach(s => {
+    s.direction.internalContext = internal;
+    s.direction.photography.assetCatalog = internal;
+    s.direction.camera.research = internal;
+    s.direction.timing[0].weeklyPlan = internal;
+    s.startState.internalContext = internal;
+    s.endState.assetCatalog = internal;
+    s.startState.characters.forEach(c => { c.research = internal; });
+    if (s.transitionToNext) s.transitionToNext.internalContext = internal;
+  });
+  const richTask = prompts.buildFeaturedVlogVideoTask({
+    account: { id: 5, name: '账号', accountParam: 'test', strategy: { markdown: internal }, referenceAccounts: internal, assets: assets.map(a => ({ ...a, aiAnalysis: internal })), weeklyPlans: [{ markdown: internal }], expertRules: [{ rule: internal }] },
+    noteTask: { id: 1, topicTitle: '测试', plan: task, writingStyleReference: internal, knowledgeSourceKeys: [internal] },
+    template: { ...template, internalContext: internal }, script: richScript,
+    framePlan: frames.framePlan.map(f => ({ ...f, fullAssetLibrary: internal })), motionPlan: [],
+    music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3', library: internal }, overallDirection: '自然'
+  });
+  assert.equal(richTask, task, 'full runtime objects must produce the same minimal execution task');
+  assert.ok(!richTask.includes('INTERNAL_STRATEGY_RESEARCH_LIBRARY_ONLY_'));
+  assert.ok(!('account' in plan), 'execution plan must not contain any account object');
+  assert.ok(!('noteTask' in plan), 'execution plan must not contain any noteTask object');
+  assert.ok(!task.includes('账号：'));
+  assert.ok(!JSON.stringify(plan).includes('selectionReason'), 'selection rationale stays in console, not execution instructions');
+  console.log('Full-account and previous-task regression: execution payload contains no planning/research/library context.');
   const stressScript = clone(script);
   stressScript.summary = '概'.repeat(160); stressScript.perspective = '视'.repeat(80);
   stressScript.shots.forEach(s => {

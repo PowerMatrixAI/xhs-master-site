@@ -1,6 +1,8 @@
 import type { FeaturedVlogScript, FeaturedVlogFramePlan, FeaturedVlogTemplate, MusicCandidate } from "./featuredVlog";
 import { validateVideoTimeline, videoTimelineDuration } from "./videoTimeline";
 import { validateVlogScenes } from "./vlogScene";
+import type { VlogSceneState } from "./vlogScene";
+import { VLOG_REFERENCE_STYLE_RULE } from "./featuredVlogTemplateRules";
 
 export const LINCHUAN = {
   id: "324475410205532", bindName: "林川", type: "image", characterId: "A", version: 1,
@@ -24,7 +26,7 @@ export function styleVideoForTemplate(template: Pick<FeaturedVlogTemplate, "refe
     const url = new URL(video.videoUrl);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error();
   } catch { throw new Error("模板参考视频地址无效，需提供可下载的HTTP/HTTPS视频地址。"); }
-  return { source: "template" as const, id: video.id, name: video.name, version: video.version, url: video.videoUrl, maxDuration: 10 };
+  return { source: "template" as const, id: video.id, name: video.name, version: video.version, url: video.videoUrl, purpose: "style_and_texture" as const, maxDuration: 10 };
 }
 export const OMNI_SCRIPT_RULES = `本脚本使用productionVersion:3、timingVersion:2、sceneVersion:1。人物仅允许A，固定为${LINCHUAN.appearance}。不另造身份或改变服装；环境镜头可无人，不强制所有镜头出人，不因提供主体就加人。characters为空或只含A，按实际剧情决定。模板、用户要求若需要不兼容的固定人物，不擅自替换为林川，应明确指出不支持。
 每镜增加direction，结构为 {"focus":"观看重点","photography":{"scale":"景别","height":"机位高度","angle":"观察角度","composition":"主体位置/构图","depth":"前中远景意图"},"camera":{"type":"fixed|pan|track|push|pull|follow","direction":"运动方向或固定朝向","speed":"速度","extent":"运动范围"},"action":"人物动作或纯环境变化","timing":[{"start":0,"end":2,"action":"开始到完成的动作"}],"ending":"结束画面"}。
@@ -51,8 +53,21 @@ export function validateOmniScript(script: FeaturedVlogScript) {
   });
 }
 
+// TypeScript shapes do not remove runtime fields. Serialize only execution data,
+// including nested structures received from AI/client state.
+function executionState(state: VlogSceneState) {
+  return { location: state.location, characters: state.characters.map(c => ({ id: c.id, position: c.position, pose: c.pose, view: c.view })), props: [...state.props] };
+}
+
+function executionDirection(d: ShotDirection) {
+  return { focus: d.focus,
+    photography: { scale: d.photography.scale, height: d.photography.height, angle: d.photography.angle, composition: d.photography.composition, depth: d.photography.depth },
+    camera: { type: d.camera.type, direction: d.camera.direction, speed: d.camera.speed, extent: d.camera.extent },
+    action: d.action, timing: d.timing.map(p => ({ start: p.start, end: p.end, action: p.action })), ending: d.ending };
+}
+
 export function buildOmniTask(input: {
-  account: { name: string; accountParam: string }; noteTask: { id: number; topicTitle: string };
+  noteTask: { id: number };
   script: FeaturedVlogScript; framePlan: FeaturedVlogFramePlan; music: MusicCandidate;
   template: Pick<FeaturedVlogTemplate, "id" | "name" | "version" | "referenceVideoId" | "referenceVideo">; overallDirection: string;
 }) {
@@ -64,21 +79,23 @@ export function buildOmniTask(input: {
     const frame = input.framePlan[i];
     if (frame.order !== shot.order || !frame.framePrompt || !frame.selectionReason || !["asset", "generate"].includes(frame.frameSource) || (frame.frameSource === "asset" ? !frame.assetUrl.startsWith("https://") : !!frame.assetUrl)) throw new Error(`镜头 ${i+1} 场景参考无效。`);
     return { order: shot.order, role: shot.role, description: shot.description, duration: shot.duration,
-      sceneReference: { source: frame.frameSource, imageUrl: frame.assetUrl || undefined, description: frame.framePrompt, analysis: frame.aiAnalysis || "", selectionReason: frame.selectionReason },
-      direction: shot.direction, startState: shot.startState, mainAction: shot.mainAction, endState: shot.endState,
-      characterChanges: shot.characterChanges, continuityNote: shot.continuityNote, transitionToNext: shot.transitionToNext };
+      sceneReference: { source: frame.frameSource, imageUrl: frame.assetUrl || undefined, description: frame.framePrompt, analysis: frame.aiAnalysis || "" },
+      direction: executionDirection(shot.direction!), startState: executionState(shot.startState!), mainAction: shot.mainAction, endState: executionState(shot.endState!),
+      characterChanges: shot.characterChanges!.map(c => ({ id: c.id, type: c.type, reason: c.reason })), continuityNote: shot.continuityNote,
+      transitionToNext: shot.transitionToNext ? { type: shot.transitionToNext.type, duration: shot.transitionToNext.duration, reason: shot.transitionToNext.reason, outgoingState: shot.transitionToNext.outgoingState, incomingState: shot.transitionToNext.incomingState } : null };
   });
   const anchor = input.framePlan.find(f => f.frameSource === "asset");
-  const plan = { version: 3, kind: "featured_vlog", account: input.account, noteTask: input.noteTask, template: { id: input.template.id, name: input.template.name, version: input.template.version, referenceVideoId: styleVideo.id },
+  const plan = { version: 3, kind: "featured_vlog",
+    template: { id: input.template.id, name: input.template.name, version: input.template.version, referenceVideoId: styleVideo.id },
     generation: { provider: "kling_cli", tool: "omni_ref_video", model: "kling-video-v3_0_omni", resolution: "720p", aspect_ratio: "9:16", imageCount: "1", prefer_multi_shots: "false", enable_audio: "false", keepOriginalSound: "false" },
     output: { width: 1080, height: 1920, fps: 24 },
     character: LINCHUAN, styleVideo,
     sceneStyleReference: anchor ? { imageUrl: anchor.assetUrl } : undefined,
     script: { title: input.script.title, summary: input.script.summary, perspective: input.script.perspective },
-    music: input.music, shots };
+    music: { id: input.music.id, name: input.music.name, tags: input.music.tags, durationSeconds: input.music.durationSeconds, audioUrl: input.music.audioUrl }, shots };
   const dir = `.tasks/xhs-featured-vlog-${input.noteTask.id}`;
   return `# 精选Vlog Omni全能参考制作任务
-账号：${input.account.name} / ${input.account.accountParam}；任务：${input.noteTask.id} ${input.noteTask.topicTitle}
+任务：${input.noteTask.id} · ${input.script.title}
 ${shots.length}镜，预计${videoTimelineDuration(input.script.shots, 2)}秒，9:16，720p生成；输出1080×1920/24fps（非原生1080p），仅整片配乐。
 参考：「${styleVideo.name}」，地址见plan.styleVideo.url；--video使用prepare返回路径。
 在xiaohongshu_auto_op工作区执行，任务目录 $PWD/${dir}。只制作，不发布。
@@ -93,11 +110,11 @@ ${JSON.stringify(plan)}
 1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载模板参考视频及场景/配乐，参考视频3–10秒直接使用，超过10秒截前10秒，不足3秒报错；不回退静态视频，不生成首帧或调用Turbo。
 2. generate镜头先用generate-image制作无主角场景参考图（9:16），保存到骨架scenePath；有sceneStyleReference时可用edit-image以背景和返回的sceneStylePath锚点统一摄影质感，不复制建筑或人物。asset镜头保留原图，不先加人或重绘。
 3. 逐张查看实际图，核对已有人员、通行区域、障碍、光向、画幅，不能只读分析。细化落点/尺度/透视、接触承重/遮挡、光向/光比/色温/环境反光/投影、景深/运动模糊；不带入棚拍背景/光线。有玻璃才检查反射，无人不加人物约束，hands不要求露脸，朝向按本镜；不得叠加第二个林川。
-4. 分写人物动作、运镜、分段时间、结束状态、适用约束和prompt，检查相邻景别、方向、时空及切点。保留确认主题、职责、顺序、时长、身份和转场；图片不支持动作则停止报告，不擅自换图或改剧情。
+4. 分写人物动作、运镜、分段时间、结束状态、适用约束和prompt。机位、路径、运动方式/幅度按实际图调整并记录理由，仍需实现主要内容；保留确认主题、顺序、时长、身份和转场，核心动作不支持则停止报告，不擅自换图或改剧情。
 
 ## Kling CLI生成与记录
 执行 kling --version（>=0.2.3）、kling who_am_i、kling account、kling omni_ref_video --help、kling element_get ${LINCHUAN.id}，核对账号/image主体/能力。只用官方kling，缺失或失败报告，不改通道。参数映射按实时帮助，不靠默认值。
-每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath、--video传styleVideoPath，本地自动上传。A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${LINCHUAN.id}>>>，无人省略。场景约束空间、主体约束身份服装，视频只参考摄影/节奏/色彩，不复制内容或切镜。补齐720p、9:16、单条、关闭音频/原声/智能分镜；时长max(3,ceil(duration))<=10，动作在目标时长内完成。实际内部切镜不通过。
+每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath、--video传styleVideoPath，本地自动上传。A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${LINCHUAN.id}>>>，无人省略。主体约束身份服装；${VLOG_REFERENCE_STYLE_RULE} 补齐720p、9:16、单条、关闭音频/原声/智能分镜；时长max(3,ceil(duration))<=10，动作在目标时长内完成。实际内部切镜不通过。
 --poll 0单次提交，保存CLI回执；ok=true后立即记录body.generationId及creditsConsumed，再用 kling query_tasks 实际ID查询，从成功works取视频地址。失败/超时续查原ID，不重投、不改模型；报价以当前入口为准。
 按Skill v3规范填写resolved-plan.json，保留sourceHash；refinement记录实际读图、动作、运镜、分段时间、光学和prompt。request记录model、规范化arguments/inputs、完整argv及原始submitResponse；elements落盘为数组，prompt等于细化prompt。输入记录实际CLI路径，argv从kling、omni_ref_video开始，凭据不得记录。
 下载片段到骨架clipPath；分别计算实际scenePath和clipPath文件的SHA256填入sceneSha256、clipSha256，防止改图/换片后误用旧验收。查看并填visualReview={passed:true,notes:"身份/光学/动作/无内部切镜检查结果"}。只通过技术检查不能标记视觉通过。每镜抽取实际起始画面，经飞书发送给请求用户，标明任务/镜号及“视频起始画面预览”，不是预先制作的首帧。

@@ -1,4 +1,5 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
+import { featuredVlogTemplateForPlanning, VLOG_REFERENCE_STYLE_RULE } from "@/lib/featuredVlogTemplateRules";
 import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
 import { omniEnabled, styleVideoForTemplate, LINCHUAN, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
 import {
@@ -91,6 +92,7 @@ ${omni ? OMNI_SCRIPT_RULES : ""}
 ${VIDEO_SCRIPT_BUDGET}
 ${VIDEO_SHOT_DESIGN}
 - 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VIDEO_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
+- 模板每镜mainContent是观看重点、希望呈现的内容及其主题作用，不是固定摄影指令。具体机位、路径、运动方式和幅度在制作时依据实际图片调整，但仍需实现已确认镜头的主要内容；不把模板建议固化为不可能的拍摄动作。
 - 先在内部规划整片场景分布，再展开镜头：民宿室内、民宿外部和目的地环境均可承担叙事，不固定室内外比例。保留模板必需内容；在资料支持且不违背主题时，安排有独立叙事职责的室外景观镜头，不能全部默认在客房、窗边、桌面完成。
 - 室内承担入住、使用、休息或空间特色；室外可承担地点建立、环境发现、体验推进及情绪收束。每次换场景须推动同一主题并在continuityNote说明承接，不为凑比例插无关风景。室内窗边看景不等同于独立的室外景观镜头。
 - 山水、村落、街道、绿荫与季节景观可以单独呈现，不必以登山、玩水、徒步等活动为前提，也不必每镜安排人物。避免多个客房、窗边、桌面镜头反复表达同一信息；建筑/布局主题可由室内主导，选址/景观主题可由室外主导，尊重模板差异。
@@ -98,7 +100,7 @@ ${VIDEO_SHOT_DESIGN}
 - suggestedMaterial 只描述镜头需要的画面类型（如入口、客房、林间步道），不要把“素材必须能证明属于本民宿或拍摄当日现场”写成选图前提。画面素材可以承接氛围和体验叙事，但不能据此宣称未核实的房型、设施或服务是本店事实。
 - 如模板需要户外活动但账号资料没有已核实的具体活动，可从“登山、玩水、徒步”中选择一种作为游客视角的通用体验画面；不要称其为民宿提供的项目、已举办的活动或附近真实可达的路线/水域，不添加地点、距离、价格或开放信息。
 - 遵循模板的叙事视角与视觉方向。允许采用主观镜头，或按照模板安排虚构游客角色；人物入镜时保持场景描述连贯。正面、侧面、背面均可按动作与情绪需要使用，没有统一禁止正脸的限制，不将所有人物镜头默认设计为背影。
-- 模板如关联参考视频，可采用其参考说明中的节奏、构图或叙事方向；视频链接仅供人工查看，未实际读取视频画面时不得声称已观看或编造其内容。参考视频中的场景与人物不能作为当前账号的业务事实，也不能直接作为本片成片素材。
+- ${VLOG_REFERENCE_STYLE_RULE} 脚本阶段未读取实际视频，不声称已观看；制作阶段由Omni接收参考视频。参考内容不能作为当前账号的业务事实。
 - 每镜描述需可视化，给出体验阶段、镜头职责、事件动作和适合使用的素材，不写生成图片或视频的技术操作步骤。
 - 输出整片情绪标签和配乐氛围标签，供后续从平台曲库匹配；不得指定、编造曲名或 URL。
 - noteTask 是现有周计划笔记字段，主题应描述这条视频的体验内容；writingStyleName 必须从可选文风中选一个精确名称。
@@ -125,15 +127,7 @@ ${JSON.stringify({
 ${JSON.stringify({ topicTitle: input.noteTask.topicTitle, contentGoal: input.noteTask.contentGoal, requiredMaterials: input.noteTask.requiredMaterials }, null, 2)}
 
 平台模板：
-${JSON.stringify({
-  ...input.template,
-  beats: input.template.beats.map((beat) => ({
-    name: beat.name,
-    shotDuty: beat.shotDuty,
-    visualGuidance: beat.visualGuidance,
-    required: beat.required
-  }))
-}, null, 2)}
+${JSON.stringify(featuredVlogTemplateForPlanning(input.template), null, 2)}
 
 用户补充要求：
 ${input.extraRequirements || "无"}
