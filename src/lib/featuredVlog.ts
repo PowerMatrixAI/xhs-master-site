@@ -10,6 +10,7 @@ import { getBackendApiBaseUrl } from "@/lib/backendApi";
 import { buildBackendSignedHeaders } from "@/lib/xhs-signature";
 import type { BackendAiCredentials } from "@/lib/backendAiClient";
 import { normalizeReferenceVideo, type ReferenceVideo } from "@/lib/referenceVideos";
+import { normalizeTemplateTags } from "@/lib/featuredVlogTags";
 
 export type FeaturedVlogBeat = {
   name: string;
@@ -21,6 +22,7 @@ export type FeaturedVlogBeat = {
 export type FeaturedVlogTemplate = {
   id: string;
   name: string;
+  tags?: string[];
   outline: string;
   beats: FeaturedVlogBeat[];
   requiredScenes: string[];
@@ -158,6 +160,7 @@ export function normalizeFeaturedVlogTemplate(value: unknown): FeaturedVlogTempl
   const template = {
     id: stringValue(item.id),
     name: stringValue(item.name),
+    tags: normalizeTemplateTags(item.tags),
     outline: stringValue(item.outline),
     beats,
     requiredScenes: stringList(item.requiredScenes),
@@ -212,10 +215,18 @@ function readTemplateResponse(value: unknown) {
   return template;
 }
 
-export async function fetchFeaturedVlogTemplates() {
-  const response = await authRequest<{ templates?: unknown[] }>("/featuredVlog/v1/template/list", { method: "POST" });
+export async function fetchFeaturedVlogTemplates(tags?: string[]) {
+  const response = await authRequest<{ templates?: unknown[] }>("/featuredVlog/v1/template/list", {
+    method: "POST", ...(tags?.length ? { body: { tags: normalizeTemplateTags(tags) } } : {})
+  });
   if (!response.status || !Array.isArray(response.data?.templates)) throw new Error(response.message || "获取精选 Vlog 模板失败。");
   return response.data.templates.map(readTemplateResponse);
+}
+
+export async function fetchFeaturedVlogTemplateTags() {
+  const response = await authRequest<{ tags?: unknown[] }>("/featuredVlog/v1/template/tags", { method: "POST" });
+  if (!response.status || !Array.isArray(response.data?.tags)) throw new Error(response.message || "读取模板标签失败。");
+  return normalizeTemplateTags(response.data.tags);
 }
 
 export async function createFeaturedVlogTemplate(input: Omit<FeaturedVlogTemplate, "id" | "version" | "createdBy" | "createdAt" | "updatedAt">) {
@@ -233,6 +244,7 @@ export async function updateFeaturedVlogTemplate(input: Omit<FeaturedVlogTemplat
       templateId: input.id,
       version: input.version,
       name: input.name,
+      ...(input.tags !== undefined ? { tags: normalizeTemplateTags(input.tags) } : {}),
       outline: input.outline,
       beats: input.beats,
       requiredScenes: input.requiredScenes,

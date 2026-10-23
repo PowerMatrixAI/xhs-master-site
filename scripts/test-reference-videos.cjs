@@ -23,13 +23,14 @@ async function main() {
   const calls = [];
   const api = {
     isPlatformAdmin: () => admin,
-    authRequest: async (path, options) => { calls.push({ path, options }); return response; },
+    authRequest: async (path, options) => { calls.push({ path, options }); if (response instanceof Error) throw response; return response; },
     authenticatedFetch: async (path, options) => { calls.push({ path, options }); return new Response(JSON.stringify(response)); },
     buildProxyHeaders: () => ({ "Xhs-Sign": "signed" })
   };
   const library = load("src/lib/referenceVideos.ts", { "@/lib/api": api });
   const vlog = load("src/lib/featuredVlog.ts", {
     "@/lib/api": api, "@/lib/referenceVideos": library,
+    "@/lib/featuredVlogTags": load("src/lib/featuredVlogTags.ts"),
     "@/lib/backendApi": { getBackendApiBaseUrl: () => "https://backend.example.com/client" },
     "@/lib/xhs-signature": {}
   });
@@ -50,6 +51,12 @@ async function main() {
   assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1).options.body)), { videoId: 8, version: 3 });
   response = { status: true, data: { videos: [video] } };
   assert.equal((await library.fetchReferenceVideos())[0].id, 8);
+  for (const data of [{ videos: [] }, { videos: null }, {}, null]) {
+    response = { status: true, data };
+    assert.equal((await library.fetchReferenceVideos()).length, 0, "an empty optional library must not fail");
+  }
+  response = new SyntaxError("Unexpected non-whitespace character after JSON at position 4");
+  await assert.rejects(library.fetchReferenceVideos(), /参考视频服务暂不可用/);
   response = { status: true, data: template };
   await vlog.updateFeaturedVlogTemplate({ ...template, referenceVideoId: 0 });
   assert.equal(calls.at(-1).options.body.referenceVideoId, 0, "an explicit zero must remove the association");

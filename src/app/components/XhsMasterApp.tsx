@@ -94,6 +94,7 @@ import { PlatformAssetLibraryPanel } from "@/app/components/PlatformAssetLibrary
 import { PlatformMusicLibraryPanel } from "@/app/components/PlatformMusicLibraryPanel";
 import { ReferenceVideoManagementPanel } from "@/app/components/ReferenceVideoManagementPanel";
 import { ReferenceVideoPreview } from "@/app/components/ReferenceVideoPreview";
+import { FeaturedVlogTemplatePicker } from "@/app/components/FeaturedVlogTemplatePicker";
 import {
   fetchFeaturedVlogTemplates,
   type FeaturedVlogFramePlan,
@@ -6193,9 +6194,7 @@ function VideosPanel(props: {
 
         {mode === "featured_vlog" && <div className="mt-5 space-y-4 border-t border-ink/10 pt-5">
           <div><h3 className="text-base font-semibold">第一步：生成并确认 Vlog 脚本</h3><p className="mt-1 text-sm text-ink/60">模板提供体验环节和镜头编排。脚本会结合当前账号的民宿资料与知识库生成 3–6 个镜头；确认后新增一篇视频笔记。</p></div>
-          <label className="field"><span>选择精选 Vlog 模板</span><select disabled={loading || featuredVlogTemplatesLoading || !featuredVlogTemplates.length} value={featuredVlogTemplateId} onChange={(event) => selectFeaturedVlogTemplate(event.target.value)}>
-            {featuredVlogTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-          </select></label>
+          <FeaturedVlogTemplatePicker templates={featuredVlogTemplates} value={featuredVlogTemplateId} onChange={selectFeaturedVlogTemplate} disabled={loading || featuredVlogTemplatesLoading} />
           {featuredVlogTemplatesLoading && <p className="text-xs text-ink/55">正在读取服务端精选 Vlog 模板...</p>}
           {featuredVlogTemplatesError && <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-coral/25 bg-coral/5 p-3 text-sm text-coral"><span>{featuredVlogTemplatesError}</span><button type="button" className="secondary-button" onClick={() => setFeaturedVlogTemplatesReloadKey((current) => current + 1)}>重试</button></div>}
           {!featuredVlogTemplatesLoading && !featuredVlogTemplatesError && !featuredVlogTemplates.length && <div className="rounded border border-dashed border-ink/20 bg-white/60 p-3 text-sm text-ink/60">平台还没有精选 Vlog 模板，请联系管理员配置。</div>}

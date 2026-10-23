@@ -7,6 +7,7 @@ import {
   createFeaturedVlogTemplate,
   deleteFeaturedVlogTemplate,
   fetchFeaturedVlogTemplates,
+  fetchFeaturedVlogTemplateTags,
   type FeaturedVlogBeat,
   type FeaturedVlogTemplate,
   updateFeaturedVlogTemplate
@@ -14,6 +15,8 @@ import {
 import { isPlatformAdmin, type LoginResponse } from "@/lib/api";
 import { fetchReferenceVideos, type ReferenceVideo } from "@/lib/referenceVideos";
 import { ReferenceVideoPreview } from "@/app/components/ReferenceVideoPreview";
+import { FeaturedVlogTagEditor } from "@/app/components/FeaturedVlogTagEditor";
+import { collectTemplateTags, normalizeTemplateTags } from "@/lib/featuredVlogTags";
 
 type FeedbackTone = "success" | "error";
 type PageMode = "list" | "create" | "edit";
@@ -36,6 +39,9 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
   const [page, setPage] = useState<PageMode>("list");
   const [selected, setSelected] = useState<FeaturedVlogTemplate | null>(null);
   const [name, setName] = useState("");
+  const [templateTags, setTemplateTags] = useState<string[]>([]);
+  const [tagOptions, setTagOptions] = useState<string[]>([]);
+  const [tagsUnavailable, setTagsUnavailable] = useState(false);
   const [outline, setOutline] = useState("");
   const [beats, setBeats] = useState<FeaturedVlogBeat[]>([emptyBeat()]);
   const [requiredScenes, setRequiredScenes] = useState("");
@@ -45,7 +51,7 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
   const [referenceVideos, setReferenceVideos] = useState<ReferenceVideo[]>([]);
   const [referenceVideoId, setReferenceVideoId] = useState("");
   const [referenceVideosLoading, setReferenceVideosLoading] = useState(false);
-  const [referenceVideosError, setReferenceVideosError] = useState("");
+  const [referenceVideosUnavailable, setReferenceVideosUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -54,13 +60,22 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
   const loadReferenceVideos = useCallback(async () => {
     if (!admin) return;
     setReferenceVideosLoading(true);
-    setReferenceVideosError("");
+    setReferenceVideosUnavailable(false);
     try { setReferenceVideos(await fetchReferenceVideos()); }
-    catch (cause) { setReferenceVideosError(cause instanceof Error ? cause.message : "获取参考视频失败。"); }
+    catch { setReferenceVideosUnavailable(true); }
     finally { setReferenceVideosLoading(false); }
   }, [admin]);
 
   useEffect(() => { void loadReferenceVideos(); }, [loadReferenceVideos]);
+
+  const loadTemplateTags = useCallback(async () => {
+    if (!admin) return;
+    setTagsUnavailable(false);
+    try { setTagOptions(await fetchFeaturedVlogTemplateTags()); }
+    catch { setTagsUnavailable(true); }
+  }, [admin]);
+
+  useEffect(() => { void loadTemplateTags(); }, [loadTemplateTags]);
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -82,6 +97,8 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
   function openCreate() {
     setSelected(null);
     setName("");
+    setTemplateTags([]);
+    void loadTemplateTags();
     setOutline("");
     setBeats([emptyBeat()]);
     setRequiredScenes("");
@@ -96,6 +113,8 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
   function openEdit(template: FeaturedVlogTemplate) {
     setSelected(template);
     setName(template.name);
+    setTemplateTags(normalizeTemplateTags(template.tags));
+    void loadTemplateTags();
     setOutline(template.outline);
     setBeats(template.beats.length ? template.beats : [emptyBeat()]);
     setRequiredScenes(template.requiredScenes.join("\n"));
@@ -117,6 +136,10 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
       notify("仅平台管理员可以管理精选 Vlog 模板。", "error");
       return;
     }
+    if (!templateTags.length) {
+      notify("请至少选择或新建一个模板标签。", "error");
+      return;
+    }
     const normalizedBeats = beats.map((beat) => ({
       name: beat.name.trim(),
       shotDuty: beat.shotDuty.trim(),
@@ -131,6 +154,7 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
     try {
       const input = {
         name: name.trim(),
+        tags: normalizeTemplateTags(templateTags),
         outline: outline.trim(),
         beats: normalizedBeats,
         requiredScenes: splitLines(requiredScenes),
@@ -143,6 +167,7 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
         ? await createFeaturedVlogTemplate(input)
         : await updateFeaturedVlogTemplate({ ...input, id: selected?.id || "", version: selected?.version || 0 });
       setTemplates((current) => page === "create" ? [...current, saved] : current.map((item) => item.id === saved.id ? saved : item));
+      setTagOptions((current) => normalizeTemplateTags([...current, ...(saved.tags || templateTags)]));
       setPage("list");
       notify(page === "create" ? "精选 Vlog 模板已创建。" : "精选 Vlog 模板已保存。", "success");
     } catch (saveError) {
@@ -182,11 +207,13 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
           <form onSubmit={submit} className="grid gap-4">
             {page === "edit" && <label className="field"><span>模板标识 / 版本</span><input value={`${selected?.id || ""} / v${selected?.version || 0}`} readOnly className="bg-ink/5" /></label>}
             <label className="field"><span>模板名称</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} placeholder="例如：民宿精选 Vlog" /></label>
+            <FeaturedVlogTagEditor value={templateTags} options={normalizeTemplateTags([...tagOptions, ...collectTemplateTags(templates)])} onChange={setTemplateTags} disabled={saving} />
+            {tagsUnavailable && <p className="text-xs text-ink/50">已有标签暂未加载，可输入标签后添加，保存时会自动创建或复用。</p>}
             <label className="field"><span>故事梗概</span><textarea value={outline} onChange={(event) => setOutline(event.target.value)} maxLength={5000} rows={5} placeholder="描述视频的主题、节奏和不能虚构的边界。" /></label>
             <div className="space-y-3 rounded-lg border border-ink/10 p-4">
               <label className="field"><span>参考视频（可选）</span><select value={referenceVideoId} onChange={(event) => setReferenceVideoId(event.target.value)} disabled={saving || referenceVideosLoading}><option value="">不使用参考视频</option>{referenceVideos.map((video) => <option key={video.id} value={video.id}>{video.name}</option>)}{referenceVideoId && !referenceVideos.some((video) => String(video.id) === referenceVideoId) && <option value={referenceVideoId}>{selected?.referenceVideo?.name || "原关联视频暂不可用，请刷新或取消关联"}</option>}</select></label>
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink/55"><span>{referenceVideosLoading ? "正在读取参考视频..." : "视频由“平台管理 → 参考视频”统一维护，可留空。"}</span><button type="button" disabled={saving || referenceVideosLoading} onClick={() => void loadReferenceVideos()} className="inline-flex items-center gap-1 text-teal hover:underline"><RefreshCw size={12} /> 刷新列表</button></div>
-              {referenceVideosError && <p role="alert" className="text-xs text-coral">{referenceVideosError}</p>}
+              {referenceVideosUnavailable ? <p className="text-xs text-ink/50">参考视频暂不可用，可不选，仍可保存模板。</p> : !referenceVideosLoading && !referenceVideos.length && <p className="text-xs text-ink/50">暂无参考视频，可不选。</p>}
               {(() => { const video = referenceVideos.find((item) => String(item.id) === referenceVideoId) || (String(selected?.referenceVideo?.id) === referenceVideoId ? selected?.referenceVideo : null); return video ? <ReferenceVideoPreview video={video} /> : null; })()}
             </div>
             <div className="rounded-lg border border-ink/10 bg-white/60 p-4">
@@ -214,6 +241,14 @@ export function FeaturedVlogManagementPanel({ currentUser, notify }: {
     <div className="panel"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2"><h2 className="section-title">精选Vlog模版</h2><span className="inline-flex items-center gap-1 rounded bg-teal/10 px-2 py-1 text-xs font-medium text-teal"><ShieldCheck size={14} /> 平台管理</span></div><p className="mt-2 max-w-3xl text-sm leading-6 text-ink/60">维护平台共享的精选 Vlog 视频模版，供所有用户生成任务时选择。</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void loadTemplates()} disabled={loading} className="secondary-button">{loading ? <LoaderCircle size={16} className="animate-spin" /> : <RefreshCw size={16} />} 刷新</button><button type="button" onClick={openCreate} className="primary-button"><FilePlus2 size={17} /> 新建模板</button></div></div></div>
     {error && <div className="panel"><div className="rounded border border-coral/25 bg-coral/5 p-4 text-sm text-coral">{error}</div></div>}
     {!loading && !error && !templates.length && <div className="panel"><div className="rounded border border-dashed border-ink/20 bg-white/60 p-10 text-center text-sm text-ink/60">还没有精选 Vlog 模板，点击右上角创建第一个模板。</div></div>}
-    {templates.length > 0 && <div className="grid gap-5 lg:grid-cols-2">{templates.map((template) => <article key={template.id} className="panel flex min-h-64 flex-col"><div className="flex items-start justify-between gap-3"><div><h3 className="text-lg font-semibold">{template.name}</h3><div className="mt-1 text-xs text-ink/40">{template.id} · v{template.version}</div></div><div className="flex gap-2"><button type="button" onClick={() => openEdit(template)} disabled={saving} className="secondary-button"><Pencil size={16} /> 编辑</button><button type="button" onClick={() => void removeTemplate(template)} disabled={saving} className="secondary-button text-coral hover:border-coral/40 hover:bg-coral/5 hover:text-coral"><Trash2 size={16} /> 删除</button></div></div><p className="mt-4 flex-1 whitespace-pre-wrap text-sm leading-7 text-ink/70">{template.outline}</p><div className="mt-4 border-t border-ink/10 pt-3 text-xs text-ink/50">{template.beats.length} 个镜头节拍 · {template.musicTags.length ? `音乐：${template.musicTags.join("、")}` : "未指定音乐标签"}{template.updatedAt && <span className="ml-3">更新于 {template.updatedAt}</span>}</div></article>)}</div>}
+    {templates.length > 0 && <div className="grid gap-5 lg:grid-cols-2">{templates.map((template) => <article key={template.id} className="panel flex min-h-64 flex-col">
+      <div className="flex items-start justify-between gap-3">
+        <div><h3 className="text-lg font-semibold">{template.name}</h3><div className="mt-1 text-xs text-ink/40">{template.id} · v{template.version}</div></div>
+        <div className="flex gap-2"><button type="button" onClick={() => openEdit(template)} disabled={saving} className="secondary-button"><Pencil size={16} /> 编辑</button><button type="button" onClick={() => void removeTemplate(template)} disabled={saving} className="secondary-button text-coral hover:border-coral/40 hover:bg-coral/5 hover:text-coral"><Trash2 size={16} /> 删除</button></div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1.5">{template.tags?.length ? template.tags.map((tag) => <span key={tag} className="rounded bg-teal/10 px-2 py-1 text-xs text-teal">{tag}</span>) : <span className="text-xs text-ink/45">未设置标签</span>}</div>
+      <p className="mt-4 flex-1 whitespace-pre-wrap text-sm leading-7 text-ink/70">{template.outline}</p>
+      <div className="mt-4 border-t border-ink/10 pt-3 text-xs text-ink/50">{template.beats.length} 个镜头节拍 · {template.musicTags.length ? `音乐：${template.musicTags.join("、")}` : "未指定音乐标签"}{template.updatedAt && <span className="ml-3">更新于 {template.updatedAt}</span>}</div>
+    </article>)}</div>}
   </div>;
 }

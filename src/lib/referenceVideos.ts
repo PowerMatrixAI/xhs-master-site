@@ -45,9 +45,20 @@ function readVideo(value: unknown) {
 
 export async function fetchReferenceVideos() {
   requireAdmin();
-  const response = await authRequest<{ videos?: unknown[] }>("/referenceVideo/v1/list", { method: "POST" });
-  if (!response.status || !Array.isArray(response.data?.videos)) throw new Error(response.message || "获取参考视频失败。");
-  return response.data.videos.map(readVideo);
+  let response: ApiResponse<{ videos?: unknown[] | null } | null>;
+  try {
+    response = await authRequest<{ videos?: unknown[] | null } | null>("/referenceVideo/v1/list", { method: "POST" });
+  } catch (cause) {
+    if (cause && typeof cause === "object" && "name" in cause && cause.name === "SyntaxError") {
+      throw new Error("参考视频服务暂不可用，请稍后刷新。");
+    }
+    throw cause;
+  }
+  if (!response.status) throw new Error(response.message || "获取参考视频失败。");
+  const videos = response.data?.videos;
+  if (videos == null) return [];
+  if (!Array.isArray(videos)) throw new Error("参考视频列表暂不可用，请稍后刷新。");
+  return videos.map(readVideo);
 }
 
 export async function createReferenceVideo(input: { name: string; description: string; videoUrl: string }) {
