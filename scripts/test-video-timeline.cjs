@@ -12,7 +12,12 @@ const timing = load('src/lib/videoTimeline.ts');
 let response, lastRequest;
 const ai = { completeWithBackendAi: async request => { lastRequest = request; return { ok: true, text: JSON.stringify(response) }; } };
 const scenes = load('src/lib/vlogScene.ts');
-const overrides = { '@/lib/videoTimeline': timing, '@/lib/vlogScene': scenes, '@/lib/backendAiServerClient': ai };
+const overrides = { '@/lib/videoTimeline': timing, '@/lib/vlogScene': scenes, '@/lib/videoDelivery': load('src/lib/videoDelivery.ts'), '@/lib/backendAiServerClient': ai };
+overrides['@/lib/featuredVlogTemplateRules'] = load('src/lib/featuredVlogTemplateRules.ts');
+overrides['@/lib/videoPromptBudget'] = load('src/lib/videoPromptBudget.ts');
+overrides['@/lib/videoPhotography'] = load('src/lib/videoPhotography.ts');
+overrides['@/lib/videoAssetSelection'] = load('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': ai });
+overrides['@/lib/featuredVlogOmni'] = load('src/lib/featuredVlogOmni.ts', { './videoTimeline': timing, './vlogScene': scenes, './featuredVlogTemplateRules': overrides['@/lib/featuredVlogTemplateRules'] });
 const storyLib = load('src/lib/videoPrompts.ts', { ...overrides, '@/lib/storyCharacters': { characterDownloadUrl: () => '' } });
 const vlogLib = load('src/lib/featuredVlogPrompts.ts', { ...overrides, '@/lib/featuredVlog': { isHttpsUrl: url => url.startsWith('https://') } });
 const shots = [2, 3.5, 2.5].map((duration, i) => ({ order: i+1, beat: '抵达', role: '体验', description: '沿路看窗景', suggestedMaterial: '窗景', subjectPresence: 'pov', narrationText: '我们终于来到这里', duration, transitionToNext: i === 2 ? null : { type: i === 0 ? 'dissolve' : 'cut', duration: i === 0 ? .5 : 0, reason: '构图衔接', outgoingState: '向右移动', incomingState: '向右延续' } }));
@@ -54,6 +59,11 @@ async function main() {
   assert.equal(vlog.script.timingVersion, 2);
   const vlogInput = { ...base, script, template: { id: 't', name: '旅行' }, music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' };
   const task = vlogLib.buildFeaturedVlogVideoTask(vlogInput);
+  for (const instruction of [task, content]) {
+    assert.ok(instruction.includes('飞书文件交付（必须执行）'));
+    assert.ok(instruction.includes('发送实际图片文件'));
+    assert.ok(instruction.includes('实际成品 MP4 文件'));
+  }
   const vlogPlan = JSON.parse(task.match(/```json\n([\s\S]*?)\n```/)[1]);
   assert.equal(vlogPlan.version, 2);
   assert.equal(vlogPlan.shots[1].duration, 3.5);
@@ -66,7 +76,7 @@ async function main() {
   assert.throws(() => storyLib.buildStoryVideoTask({ ...base, story }));
   assert.throws(() => vlogLib.buildFeaturedVlogVideoTask(vlogInput));
   assert.ok(storyLib.buildStoryVideoTask({ ...base, story: { ...story, timingVersion: undefined } }).includes('"version":1'));
-  assert.ok(vlogLib.buildFeaturedVlogVideoTask({ ...vlogInput, script: { ...script, timingVersion: undefined } }).includes('"version": 1'));
+  assert.ok(vlogLib.buildFeaturedVlogVideoTask({ ...vlogInput, script: { ...script, timingVersion: undefined } }).includes('"version":1'));
   console.log('Video timeline: validation, script preservation, narration locking, v1 compatibility and rollout gate passed.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

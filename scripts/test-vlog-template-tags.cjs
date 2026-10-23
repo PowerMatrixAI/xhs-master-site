@@ -114,6 +114,7 @@ async function main() {
   for (const fail of [false, true]) {
     const manager = harness("src/app/components/FeaturedVlogManagementPanel.tsx", "FeaturedVlogManagementPanel", {
       ...dependencies, "@/lib/api": api, "@/lib/featuredVlog": { ...library, fetchFeaturedVlogTemplateTags: async () => [] },
+      "@/lib/featuredVlogTemplateRules": load("src/lib/featuredVlogTemplateRules.ts"),
       "@/lib/referenceVideos": { fetchReferenceVideos: async () => { if (fail) throw new SyntaxError("Unexpected non-whitespace character after JSON at position 4"); return []; } },
       "@/app/components/ReferenceVideoPreview": { ReferenceVideoPreview: () => null },
       "@/app/components/FeaturedVlogTagEditor": { FeaturedVlogTagEditor: () => null }

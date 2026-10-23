@@ -1,6 +1,10 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import { createHash } from "node:crypto";
+import { videoAssetReferences, shortlistVideoAssets, ASSET_SELECTION_RULES } from "@/lib/videoAssetSelection";
 import { characterDownloadUrl, type StoryCharacter } from "@/lib/storyCharacters";
+import { videoDeliveryRequirements } from "@/lib/videoDelivery";
+import { VIDEO_SCRIPT_BUDGET, VIDEO_FRAME_BUDGET, VIDEO_MOTION_BUDGET } from "@/lib/videoPromptBudget";
+import { VIDEO_SHOT_DESIGN, VIDEO_FRAME_PHOTOGRAPHY, VIDEO_MOTION_PHOTOGRAPHY } from "@/lib/videoPhotography";
 import { VIDEO_TIMELINE_PROMPT, videoTimelineV2Enabled, validateVideoTimeline, videoTimelineDuration, timedMotionPrompt, type TimedVideoShot } from "@/lib/videoTimeline";
 
 export type VideoSourceAsset = {
@@ -10,6 +14,8 @@ export type VideoSourceAsset = {
   fileType: string;
   tags?: string;
   suitableTypes?: string;
+  aiAnalysis?: string;
+  aiAnalysisStatus?: string;
 };
 
 export type VideoStorySourceType = "template";
@@ -250,18 +256,9 @@ type StoryFrameAssetReference = {
   fileType: string;
   tags: string;
   suitableTypes: string;
+  aiAnalysis?: string;
+  aiAnalysisStatus?: string;
 };
-
-function buildStoryFrameAssetReferences(assets: VideoSourceAsset[]): StoryFrameAssetReference[] {
-  return assets.map((asset, index) => ({
-    assetKey: `A${String(index + 1).padStart(2, "0")}`,
-    fileUrl: asset.fileUrl,
-    fileName: asset.filePath.split(/[\\/]/u).pop() || `asset-${asset.id}`,
-    fileType: asset.fileType,
-    tags: asset.tags || "",
-    suitableTypes: asset.suitableTypes || ""
-  }));
-}
 
 function parseStoryVideoFramePlan(value: unknown, assetReferences: StoryFrameAssetReference[], expectedShotCount: number): StoryVideoFramePlan | null {
   if (!Array.isArray(value) || value.length !== expectedShotCount || value.length < 3 || value.length > 6) return null;
@@ -334,12 +331,15 @@ export async function generateVideoStoryDraft(input: {
     input: `为当前账号新建一版待用户确认的故事型视频。
 
 硬性要求：
+${VIDEO_SCRIPT_BUDGET}
+${VIDEO_SHOT_DESIGN}
 - 必须保留故事模板指定的主角、核心冲突和反转，不得把模板改写为平铺直叙的账号介绍。
 - 模板中标记为“强制场景”的场景顺序、人物关系和指定对话必须原样保留；例如要求第 2 个场景出现的对话，不得挪到其他镜头、删减或替换。
 - 故事要像短篇漫剧：开头有悬念或目标，中段出现意外、误会或选择，结尾完成反转、和解或新的发现。
 - 账号定位、业务场景和可用素材只用于承接故事发生地、道具或环境，不得覆盖模板本身的创意剧情。
 ${timed ? VIDEO_TIMELINE_PROMPT + "\n每镜新增 narrationText：先构思一篇有开端、推进、反转和结局的连续旁白，再按镜头语义分配。每镜最多30字符，建议6-16汉字并适配本镜时长，语音要避开入场/出场叠化并留出收束停顿。模板关键对白须原样纳入对应镜头旁白；只含要朗读的正文，全部由单一旁白音色朗读。用户确认后不得改写。" : "- 输出 3-6 个镜头节点；每个节点后续固定生成 5 秒视频。"}
 - 镜头描述必须能转化为具体画面，不要写运营分析、制作说明或空泛口号。
+- 主角可根据动作和情绪自然正面、侧面或背面出镜，不统一回避正脸，不将所有镜头默认设计为背影。
 - suggestedMaterial 只描述需要什么画面，不得声称看过素材库图片。
 - 不生成标题正文，不执行视频制作。
 - noteTask 是故事的系统落点，不是另一个选题：其中 topicTitle、contentGoal、coreView 和素材要求必须直接来自该故事；writingStyleName 必须从 availableWritingStyles 中选择一项精确名称。
@@ -628,7 +628,8 @@ export async function planStoryVideoFrames(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
-  const assetReferences = buildStoryFrameAssetReferences(input.assets);
+  const selection = await shortlistVideoAssets(videoAssetReferences(input.assets), input.story.shots);
+  const assetReferences = selection.assets;
   const responseSkeleton = {
     overallDirection: "整片方向",
     shots: input.story.shots.map((shot, index) => ({
@@ -646,10 +647,13 @@ export async function planStoryVideoFrames(input: {
 
 硬性要求：
 - 必须严格输出 ${input.story.shots.length} 个镜头，且顺序与已确认故事节点一一对应；只规划首帧，不要输出视频动态或转场。
+${VIDEO_FRAME_BUDGET}
+${VIDEO_FRAME_PHOTOGRAPHY}
+${ASSET_SELECTION_RULES}
 - 已确认故事包含 transitionToNext 时，构图与主体位置须承接前镜结束状态和本镜开始状态，不修改时间线或场地事实。
-- 优先从候选素材库图片中选择与镜头职责匹配的真实图片；只能根据文件名、标签、适用类型等文字元数据判断。
+- 优先从候选素材库图片中选择与镜头职责匹配的真实图片；图片分析为主要依据，文件名、标签、适用类型补充。
 - 候选素材无法匹配当前镜头时，使用 frameSource=generate 生成 AI 首帧；不得勉强套用不相关真实图片。
-- 只能根据文件名、标签、适用类型等文字元数据判断素材，不得声称看过图片。
+- 依据图片分析、文件名、标签、适用类型等文字元数据判断素材，不得声称看过图片。
 - 同一 assetKey 只能使用一次。使用真实素材时必须从候选列表原样返回 assetKey；不得返回素材 URL、文件路径或素材 ID。
 - frameSource=generate 时 assetKey 必须为空字符串。没有明确匹配素材时使用 generate，不得勉强套用不相关图片。
 - 使用真实素材时，framePrompt 是 edit-image 精修提示词，要保留真实主体和空间，仅调整 3:4 构图、光线、色彩和必要背景。
@@ -682,7 +686,7 @@ ${JSON.stringify(responseSkeleton, null, 2)}`
   const parsed = extractJson(response.text);
   const framePlan = parseStoryVideoFramePlan(parsed?.shots, assetReferences, input.story.shots.length);
   if (!framePlan) throw new Error("后端 AI 返回的故事视频首帧规划 JSON 不完整或素材对应关系无效，请重试。");
-  return { overallDirection: String(parsed?.overallDirection || "按已确认故事形成连贯的竖屏短视频。"), framePlan };
+  return { overallDirection: String(parsed?.overallDirection || "按已确认故事形成连贯的竖屏短视频。"), framePlan, calls: selection.calls + 1 };
 }
 
 export async function planStoryVideoMotion(input: {
@@ -702,6 +706,8 @@ export async function planStoryVideoMotion(input: {
 
 硬性要求：
 - 严格按 framePlan 中的 order 输出，数量必须完全一致；不得更换素材、首帧来源、镜头顺序、角色或画面职责。
+${VIDEO_MOTION_BUDGET}
+${VIDEO_MOTION_PHOTOGRAPHY}
 ${timed ? "- 必须按脚本每镜 duration 安排运动，关键动作在目标时间内完整完成。endingTransitionPrompt 只描述已确认 outgoingState 的自然收束，不切换或变形成下一场景；叠化由后期完成。narrationText 原样复制脚本，禁止重新创作。" : `- mainVideoPrompt 只描述前约4秒的主体运动、镜头运动、环境微动和情绪变化。
 - endingTransitionPrompt 描述最后约1秒的自然转场动作、遮挡、光影、推拉或运动趋势，为下一镜头建立衔接；最后一个镜头必须写自然收束，不得跳转到未出现的画面。
 - narrationText 是单一旁白音色朗读的成品台词，每个镜头必须有且只有一条，建议 6-16 个汉字，最多 30 个字符，正常语速下必须能在前 4.5 秒内说完。旁白可自然延续到片尾转场开头，但必须在 5 秒镜头结束前留出收束余量。
@@ -819,7 +825,7 @@ ${character && !characterUrl ? `将本任务附带的 \`${character.id}.png\` �
 
 \`uv run python scripts/cli.py story-video prepare --plan-file "$TASK_ROOT/plan.json" --work-dir "$TASK_ROOT"\`
 
-卡完成后，主会话必须查看返回的全部 \`frame-NN.png\`，核对 3:4 构图、角色外观一致、主体和场地事实正确；不通过则停止。
+卡完成后，主会话必须查看全部 \`frame-NN.png\`，核对 3:4 构图、角色身份及场地事实；检查视觉重点、前后景、合理阴影和材质，避免连续居中摆拍或过度磨皮，保持模板原有画风。不通过则停止。
 
 ## 3. 渲染、配音和拼接
 
@@ -831,7 +837,10 @@ Kling 超时先查任务状态；仅明确失败后执行 \`story-video reset --
 
 ## 最终回复
 
-回复中提供全部首帧图和最终 \`video-note-${input.noteTask.id}.mp4\`。`;
+回复中提供全部首帧图和最终 \`video-note-${input.noteTask.id}.mp4\`。
+观看成片核对动作完整性、镜头节奏与衔接，不以时长合格代替观感验收；避免反复走停转头、统一慢推和假抖动。
+
+${videoDeliveryRequirements(input.noteTask.id)}`;
 
   /* 旧版内嵌执行脚本保留在源码中作为迁移期参考，但不会进入生成任务。 */
   const fingerprint = createHash("sha256").update(JSON.stringify({ character, frames: input.framePlan, motion: input.motionPlan })).digest("hex").slice(0, 16);

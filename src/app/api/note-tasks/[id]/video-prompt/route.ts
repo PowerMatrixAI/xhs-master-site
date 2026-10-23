@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { omniEnabled, styleVideoForTemplate, validateOmniScript } from "@/lib/featuredVlogOmni";
 import { validateVideoTimeline, videoTimelineV2Enabled } from "@/lib/videoTimeline";
 import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
@@ -91,7 +92,7 @@ async function storyPlanContext(body: Record<string, unknown>, credentials: Back
 async function buildStoryFrameResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
   const input = await storyPlanContext(body, credentials);
   const result = await planStoryVideoFrames(input);
-  return { ...result, ai: { used: true, calls: 1, stage: "frames" } };
+  return { ...result, ai: { used: true, calls: result.calls, stage: "frames" } };
 }
 
 async function buildStoryMotionResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
@@ -137,7 +138,12 @@ async function featuredVlogContext(body: Record<string, unknown>, credentials: B
     throw new Error("请先生成并确认完整的精选vlog脚本。");
   }
   validateVideoTimeline(script.timingVersion, script.shots);
-  if (script.timingVersion === 2 && !videoTimelineV2Enabled()) throw new Error("新版时间线尚未启用，请等待执行器和接口验收完成。");
+  if (script.productionVersion !== undefined && script.productionVersion !== 3) throw new Error("不支持的Vlog制作版本。");
+  if (script.productionVersion === 3) {
+    if (!omniEnabled()) throw new Error("Omni尚未启用，请完成资源和执行器验证。");
+    validateOmniScript(script);
+  }
+  if (script.productionVersion !== 3 && script.timingVersion === 2 && !videoTimelineV2Enabled()) throw new Error("新版时间线尚未启用，请等待执行器和接口验收完成。");
   const templates = await fetchFeaturedVlogTemplatesFromBackend(credentials);
   const template = templates.find((item) => item.id === templateId);
   if (!template) throw new Error("精选vlog模板不存在或已被停用。");
@@ -145,6 +151,7 @@ async function featuredVlogContext(body: Record<string, unknown>, credentials: B
   if (submittedVersion && template.version && submittedVersion !== template.version) {
     throw new Error("精选vlog模板在脚本生成后发生了修改，请重新生成脚本。");
   }
+  if (script.productionVersion === 3) styleVideoForTemplate(template);
   if (assets.some((asset) => !String(asset.fileUrl || "").startsWith("https://"))) {
     throw new Error("精选vlog候选素材中存在不可公开访问的图片地址。");
   }
@@ -154,7 +161,7 @@ async function featuredVlogContext(body: Record<string, unknown>, credentials: B
 async function buildFeaturedVlogFrameResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
   const input = await featuredVlogContext(body, credentials);
   const result = await planFeaturedVlogFrames({ script: input.script, template: input.template, assets: input.assets, credentials });
-  return { ...result, ai: { used: true, calls: 1, stage: "featured_vlog_frames" } };
+  return { ...result, ai: { used: true, calls: result.calls, stage: "featured_vlog_frames" } };
 }
 
 async function buildFeaturedVlogMotionResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
@@ -162,7 +169,7 @@ async function buildFeaturedVlogMotionResult(body: Record<string, unknown>, cred
   const framePlan = body.framePlan;
   if (!Array.isArray(framePlan) || framePlan.length !== input.script.shots.length) throw new Error("缺少有效的精选vlog首帧规划结果。");
   const result = await planFeaturedVlogMotion({ script: input.script, framePlan: framePlan as FeaturedVlogFramePlan, expertRules: input.expertRules, credentials });
-  return { ...result, ai: { used: true, calls: 1, stage: "featured_vlog_motion" } };
+  return { ...result, ai: { used: result.calls > 0, calls: result.calls, stage: "featured_vlog_motion" } };
 }
 
 async function buildFeaturedVlogMusicResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
@@ -196,7 +203,8 @@ async function buildFeaturedVlogTaskResult(body: Record<string, unknown>, creden
   return {
     videoPrompt: { title: `${input.noteTask.topicTitle} 视频方案`, content },
     openclawTask: { title: `${input.noteTask.topicTitle} Agent 视频任务`, content },
-    ai: { used: true, calls: 3, stage: "featured_vlog_complete", totalCalls: 3 }
+    sceneReferences: input.script.productionVersion === 3 ? framePlan : undefined,
+    ai: { used: false, calls: 0, stage: "featured_vlog_complete" }
   };
 }
 

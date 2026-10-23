@@ -1,4 +1,7 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
+import { featuredVlogTemplateForPlanning, VLOG_REFERENCE_STYLE_RULE } from "@/lib/featuredVlogTemplateRules";
+import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
+import { omniEnabled, styleVideoForTemplate, LINCHUAN, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
 import {
   fetchMusicCandidatesFromBackend,
   isHttpsUrl,
@@ -10,8 +13,11 @@ import {
 } from "@/lib/featuredVlog";
 import type { BackendAiCredentials } from "@/lib/backendAiClient";
 import type { VideoSourceAsset } from "@/lib/videoPrompts";
+import { videoDeliveryRequirements } from "@/lib/videoDelivery";
+import { VIDEO_SCRIPT_BUDGET, VIDEO_FRAME_BUDGET, VIDEO_MOTION_BUDGET } from "@/lib/videoPromptBudget";
+import { VIDEO_SHOT_DESIGN, VIDEO_FRAME_PHOTOGRAPHY, VIDEO_MOTION_PHOTOGRAPHY } from "@/lib/videoPhotography";
 import { VIDEO_TIMELINE_PROMPT, videoTimelineV2Enabled, validateVideoTimeline, videoTimelineDuration, timedMotionPrompt, type VideoTransition } from "@/lib/videoTimeline";
-import { VLOG_SCENE_RULES, validateVlogScenes, vlogFrameContext, vlogMotionPrompt, type VlogCharacter, type VlogShotScene } from "@/lib/vlogScene";
+import { VLOG_SCENE_RULES, VlogCharacterChangeError, validateVlogScenes, vlogFrameContext, vlogMotionPrompt, type VlogCharacter, type VlogShotScene } from "@/lib/vlogScene";
 
 function extractJson(text: string): Record<string, unknown> | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/iu)?.[1];
@@ -35,6 +41,33 @@ function stringArray(value: unknown) {
   return Array.isArray(value) ? Array.from(new Set(value.map((item) => String(item).trim()).filter(Boolean))) : [];
 }
 
+function requireScriptFields(parsed: Record<string, unknown> | null) {
+  if (!parsed) throw new Error("后端 AI 未返回可解析的脚本 JSON 对象。");
+  const issues: string[] = [];
+  for (const key of ["title", "summary", "perspective"]) {
+    if (!text(parsed[key])) issues.push(`缺少 ${key}`);
+  }
+  const note = parsed.noteTask && typeof parsed.noteTask === "object" ? parsed.noteTask as Record<string, unknown> : {};
+  for (const key of ["topicTitle", "contentGoal", "writingStyleName"]) {
+    if (!text(note[key])) issues.push(`缺少 noteTask.${key}`);
+  }
+  if (!Array.isArray(parsed.shots) || parsed.shots.length < 3 || parsed.shots.length > 6) {
+    issues.push("shots 必须为 3–6 个镜头的数组");
+  } else {
+    parsed.shots.forEach((raw, index) => {
+      const shot = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      if (Number(shot.order) !== index + 1) issues.push(`镜头 ${index+1} 的 order 应为 ${index+1}`);
+      for (const key of ["beat", "role", "description", "suggestedMaterial"]) {
+        if (!text(shot[key])) issues.push(`镜头 ${index+1} 缺少 ${key}`);
+      }
+      if (!["pov", "traveler", "environment"].includes(text(shot.subjectPresence).toLowerCase())) {
+        issues.push(`镜头 ${index+1} 的 subjectPresence 无效（仅允许 pov / traveler / environment）`);
+      }
+    });
+  }
+  if (issues.length) throw new Error(`后端 AI 脚本字段校验失败：${issues.join("；")}。请重试生成。`);
+}
+
 export async function generateFeaturedVlogScript(input: {
   account: Record<string, unknown>;
   noteTask: Record<string, unknown>;
@@ -44,24 +77,37 @@ export async function generateFeaturedVlogScript(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
-  const timed = videoTimelineV2Enabled();
+  const omni = omniEnabled();
+  if (omni) styleVideoForTemplate(input.template);
+  const timed = omni || videoTimelineV2Enabled();
   const response = await completeWithBackendAi({
-    instructions: "你是民宿旅行纪录片与 Vlog 编导。将体验编排模板改写成适合当前民宿的 3-6 镜头短视频脚本。只返回合法 JSON。",
+    instructions: "你是住宿与目的地旅行纪录片、Vlog 编导。围绕所选模板主题，将民宿体验与目的地环境编排为3-6镜头脚本，室内外比重服务主题，不默认写成客房展示。只返回合法JSON。",
     knowledgeSnapshotId: input.knowledgeSnapshotId,
     knowledgeSourceKeys: input.knowledgeSourceKeys,
     input: `请为当前民宿账号生成一份待用户确认的精选vlog视频脚本。
 
 要求：
-${VLOG_SCENE_RULES}
+${omni ? VLOG_SCENE_RULES.replace("模板及用户未指定时，主角倾向为20-30岁成年女性", "人物使用本轮固定林川主体") : VLOG_SCENE_RULES}
+${omni ? OMNI_SCRIPT_RULES : ""}
+${VIDEO_SCRIPT_BUDGET}
+${VIDEO_SHOT_DESIGN}
 - 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VIDEO_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
-- 将账号真实业务资料用于确定地点、房型、设施、服务与活动。资料未提及的信息不得补造；不声称虚构游客是实际顾客，不生成真实顾客评价。
+- 模板每镜mainContent是观看重点、希望呈现的内容及其主题作用，不是固定摄影指令。具体机位、路径、运动方式和幅度在制作时依据实际图片调整，但仍需实现已确认镜头的主要内容；不把模板建议固化为不可能的拍摄动作。
+- 先在内部规划整片场景分布，再展开镜头：民宿室内、民宿外部和目的地环境均可承担叙事，不固定室内外比例。保留模板必需内容；在资料支持且不违背主题时，安排有独立叙事职责的室外景观镜头，不能全部默认在客房、窗边、桌面完成。
+- 室内承担入住、使用、休息或空间特色；室外可承担地点建立、环境发现、体验推进及情绪收束。每次换场景须推动同一主题并在continuityNote说明承接，不为凑比例插无关风景。室内窗边看景不等同于独立的室外景观镜头。
+- 山水、村落、街道、绿荫与季节景观可以单独呈现，不必以登山、玩水、徒步等活动为前提，也不必每镜安排人物。避免多个客房、窗边、桌面镜头反复表达同一信息；建筑/布局主题可由室内主导，选址/景观主题可由室外主导，尊重模板差异。
+- 将账号及知识库真实资料用于确定地点、房型、设施、服务、目的地景观与已有体验。没有明确室外事实时可安排不指向具体地点的通用环境氛围，不强行编造景点、距民宿距离、路线、季节状态或活动项目；不声称虚构游客是实际顾客，不生成真实顾客评价。
 - suggestedMaterial 只描述镜头需要的画面类型（如入口、客房、林间步道），不要把“素材必须能证明属于本民宿或拍摄当日现场”写成选图前提。画面素材可以承接氛围和体验叙事，但不能据此宣称未核实的房型、设施或服务是本店事实。
 - 如模板需要户外活动但账号资料没有已核实的具体活动，可从“登山、玩水、徒步”中选择一种作为游客视角的通用体验画面；不要称其为民宿提供的项目、已举办的活动或附近真实可达的路线/水域，不添加地点、距离、价格或开放信息。
-- 遵循模板的叙事视角与视觉方向。允许采用主观镜头，或按照模板安排虚构游客角色；人物入镜时保持场景描述连贯。
-- 模板如关联参考视频，可采用其参考说明中的节奏、构图或叙事方向；视频链接仅供人工查看，未实际读取视频画面时不得声称已观看或编造其内容。参考视频中的场景与人物不能作为当前账号的业务事实，也不能直接作为本片成片素材。
+- 遵循模板的叙事视角与视觉方向。允许采用主观镜头，或按照模板安排虚构游客角色；人物入镜时保持场景描述连贯。正面、侧面、背面均可按动作与情绪需要使用，没有统一禁止正脸的限制，不将所有人物镜头默认设计为背影。
+- ${VLOG_REFERENCE_STYLE_RULE} 脚本阶段未读取实际视频，不声称已观看；制作阶段由Omni接收参考视频。参考内容不能作为当前账号的业务事实。
 - 每镜描述需可视化，给出体验阶段、镜头职责、事件动作和适合使用的素材，不写生成图片或视频的技术操作步骤。
 - 输出整片情绪标签和配乐氛围标签，供后续从平台曲库匹配；不得指定、编造曲名或 URL。
 - noteTask 是现有周计划笔记字段，主题应描述这条视频的体验内容；writingStyleName 必须从可选文风中选一个精确名称。
+- JSON完整性优先于篇幅目标：不能为满足字数省略字段、镜头或返回半截JSON。title、summary、perspective及noteTask.topicTitle/contentGoal/writingStyleName必须为非空字符串。
+- 每镜order必须为连续数字1至N；beat、role、description、suggestedMaterial必须分别返回非空字符串，不能只返回mainAction或起止状态来替代这些字段。
+- subjectPresence仅允许三个英文值：pov（第一人称，包含主观手部特写）、traveler（第三人称人物入镜，包含人物局部）、environment（纯环境）。不得返回hands、front、profile或中文视角；这些人物朝向/局部信息只填在状态characters[].view中。
+- 回复前自检3-6镜头、必填字段和枚举，以及人物/时间线结构；只输出一个完整JSON对象，不省略为“同上”、省略号或Markdown说明。
 
 账号资料：
 ${JSON.stringify({
@@ -81,15 +127,7 @@ ${JSON.stringify({
 ${JSON.stringify({ topicTitle: input.noteTask.topicTitle, contentGoal: input.noteTask.contentGoal, requiredMaterials: input.noteTask.requiredMaterials }, null, 2)}
 
 平台模板：
-${JSON.stringify({
-  ...input.template,
-  beats: input.template.beats.map((beat) => ({
-    name: beat.name,
-    shotDuty: beat.shotDuty,
-    visualGuidance: beat.visualGuidance,
-    required: beat.required
-  }))
-}, null, 2)}
+${JSON.stringify(featuredVlogTemplateForPlanning(input.template), null, 2)}
 
 用户补充要求：
 ${input.extraRequirements || "无"}
@@ -99,13 +137,14 @@ ${input.extraRequirements || "无"}
 返回以下业务字段结构，必须同时增加上述 sceneVersion、characters 和每镜 startState、mainAction、endState、characterChanges、continuityNote${timed ? "，并必须在顶层增加 timingVersion:2，在每镜增加 duration 和 transitionToNext，不能省略时间线字段" : ""}：
 ${JSON.stringify({
   sceneVersion: 1, ...(timed ? { timingVersion: 2 } : {}),
-  characters: [{ id: "A", appearance: "按剧情设计并全片保持一致的外观和服装", props: ["按剧情安排的随身道具"] }],
+  ...(omni ? { productionVersion: 3 } : {}),
+  characters: [{ id: "A", appearance: omni ? LINCHUAN.appearance : "默认20-30岁成年女性，五官、发型、服装固定；明确模版人物设定优先", props: ["按剧情安排的随身道具"] }],
   title: "视频脚本标题", summary: "脚本概要", perspective: "叙事视角", moodTags: ["整片情绪标签"], musicTags: ["配乐标签"],
-  noteTask: { topicTitle: "本周笔记主题", contentType: "精选Vlog视频", contentGoal: "", targetUser: "", painPoint: "", coreView: "", requiredMaterials: "", recommendedAssets: "", coverCopyDirection: "", commentHook: "", expectedGoal: "", writingStyleName: "精确文风名称" },
+  noteTask: { topicTitle: "本周笔记主题", contentType: "精选Vlog视频", contentGoal: "用具体画面表达模版的体验主题", targetUser: "目标观众", painPoint: "观众需求", coreView: "视频核心表达", requiredMaterials: "所需场景", recommendedAssets: "素材类型", coverCopyDirection: "封面方向", commentHook: "交流切入点", expectedGoal: "预期感受", writingStyleName: "精确文风名称" },
   shots: [{ order: 1, beat: "体验环节", role: "镜头职责", description: "具体事件摘要", suggestedMaterial: "可用素材建议", subjectPresence: "traveler",
-    startState: { location: "客房", characters: [{ id: "A", position: "门口", pose: "刚入室", view: "back" }], props: ["背包在游客身上"] },
+    startState: { location: "客房", characters: [{ id: "A", position: "门口", pose: "刚入室，目光观察环境", view: "front" }], props: ["背包在游客身上"] },
     mainAction: "同一游客从门口走到窗边停步",
-    endState: { location: "客房", characters: [{ id: "A", position: "窗边", pose: "停步望向窗外", view: "profile" }], props: ["背包仍在游客身上"] },
+    endState: { location: "客房", characters: [{ id: "A", position: "窗边", pose: "自然停留观察环境，未看摄影机", view: "front" }], props: ["背包仍在游客身上"] },
     characterChanges: [], continuityNote: "首镜建立场景；后续镜头说明与上一镜的状态关系",
     ...(timed ? { duration: 4, transitionToNext: { type: "cut", duration: 0, reason: "按剧情安排相邻镜头衔接", outgoingState: "窗边停步", incomingState: "下一镜的起始状态" } } : {})
   }]
@@ -114,10 +153,29 @@ ${JSON.stringify({
   });
   if (!response.ok) throw new Error(`后端 AI 未能生成精选vlog脚本：${response.error}`);
   const parsed = extractJson(response.text);
+  requireScriptFields(parsed);
   const rawTask = parsed?.noteTask && typeof parsed.noteTask === "object" ? parsed.noteTask as Record<string, unknown> : {};
   const rawShots = Array.isArray(parsed?.shots) ? parsed.shots : [];
   if (parsed?.sceneVersion !== 1) throw new Error("Vlog 脚本缺少人物与镜头状态，请重新生成。");
-  validateVlogScenes({ sceneVersion: 1, characters: parsed.characters as VlogCharacter[], shots: rawShots });
+  let aiCalls = 1;
+  const validateScenes = () => validateVlogScenes({ sceneVersion: 1, characters: parsed.characters as VlogCharacter[], shots: rawShots });
+  try {
+    validateScenes();
+  } catch (error) {
+    if (!(error instanceof VlogCharacterChangeError)) throw error;
+    // Repair only a completed-but-inconsistent result, never retry a failed POST.
+    aiCalls += 1;
+    const repair = await completeWithBackendAi({
+      instructions: "你是视频脚本结构校对员。只修正指定镜头的 characterChanges 和 continuityNote，不改变人物、起止画面、动作、时间线或其他镜头。只返回JSON。",
+      input: `${VLOG_SCENE_RULES}\n校验反馈：${error.message}\n按起止身份集合必须使用以下变化项（补充合理reason，不得增删id或type）：${JSON.stringify(error.expectedChanges)}\n上一镜承接参考：${JSON.stringify(rawShots[error.shotIndex - 1] || null)}\n当前镜头：${JSON.stringify(rawShots[error.shotIndex])}\n只返回 {"characterChanges":[],"continuityNote":"解释本镜与上一镜的剪辑承接，不能虚构新动作"}`
+    });
+    if (!repair.ok) throw new Error(`${error.message} 自动校对失败：${repair.error}`);
+    const patch = extractJson(repair.text);
+    if (!Array.isArray(patch?.characterChanges)) throw new Error(`${error.message} 自动校对未返回有效变化记录。`);
+    const original = rawShots[error.shotIndex];
+    rawShots[error.shotIndex] = { ...original, characterChanges: patch.characterChanges, continuityNote: text(patch.continuityNote) || original.continuityNote };
+    validateScenes(); // One repair maximum; retain strict duplicate/unknown identity checks.
+  }
   if (timed) {
     if (parsed?.timingVersion !== 2) throw new Error("脚本缺少新版时间线，请重新生成。");
     validateVideoTimeline(2, rawShots);
@@ -129,10 +187,11 @@ ${JSON.stringify({
     const role = text(shot.role);
     const description = text(shot.description);
     const suggestedMaterial = text(shot.suggestedMaterial);
-    const subjectPresence = shot.subjectPresence;
+    const subjectPresence = text(shot.subjectPresence).toLowerCase();
     if (order !== index + 1 || !beat || !role || !description || !suggestedMaterial || !["pov", "traveler", "environment"].includes(String(subjectPresence))) return null;
     return { order, beat, role, description, suggestedMaterial, subjectPresence: subjectPresence as "pov" | "traveler" | "environment",
       startState: shot.startState as VlogShotScene["startState"], mainAction: text(shot.mainAction), endState: shot.endState as VlogShotScene["endState"], characterChanges: shot.characterChanges as VlogShotScene["characterChanges"], continuityNote: text(shot.continuityNote),
+      ...(omni ? { direction: shot.direction as ShotDirection } : {}),
       ...(timed ? { duration: shot.duration as number, transitionToNext: shot.transitionToNext as VideoTransition | null } : {}) };
   });
   const title = text(parsed?.title);
@@ -161,6 +220,7 @@ ${JSON.stringify({
   };
   if (!noteTask.topicTitle || !noteTask.contentGoal) throw new Error("后端 AI 返回的精选vlog笔记信息不完整，请重试。");
   const script: FeaturedVlogScript = {
+    ...(omni ? { productionVersion: 3 as const } : {}),
     sceneVersion: 1,
     characters: parsed.characters as VlogCharacter[],
     ...(timed ? { timingVersion: 2 as const } : {}),
@@ -172,28 +232,11 @@ ${JSON.stringify({
     noteTask,
     shots: shots as FeaturedVlogScript["shots"]
   };
-  return { script, model: response.model };
-}
-
-type FeaturedAssetReference = {
-  assetKey: string;
-  fileUrl: string;
-  fileName: string;
-  tags: string;
-  suitableTypes: string;
-};
-
-function assetReferences(assets: VideoSourceAsset[]): FeaturedAssetReference[] {
-  return assets.filter((asset) => isHttpsUrl(asset.fileUrl)
-    && ((asset.fileType || "").toLowerCase().startsWith("image")
-      || /\.(?:avif|gif|jpe?g|png|webp)(?:$|\?)/iu.test(asset.fileUrl)))
-    .map((asset, index) => ({
-      assetKey: `A${String(index + 1).padStart(2, "0")}`,
-      fileUrl: asset.fileUrl,
-      fileName: asset.filePath.split(/[\\/]/u).pop() || `asset-${asset.id}`,
-      tags: asset.tags || "",
-      suitableTypes: asset.suitableTypes || ""
-    }));
+  if (omni) {
+    if (parsed.productionVersion !== 3) throw new Error("后端AI遗漏Omni脚本版本，请重试。");
+    validateOmniScript(script);
+  }
+  return { script, model: response.model, calls: aiCalls };
 }
 
 export async function planFeaturedVlogFrames(input: {
@@ -203,7 +246,9 @@ export async function planFeaturedVlogFrames(input: {
   credentials: BackendAiCredentials;
 }) {
   validateVlogScenes(input.script);
-  const candidates = assetReferences(input.assets);
+  const selection = await shortlistVideoAssets(videoAssetReferences(input.assets), input.script.shots, 14000, input.credentials);
+  const candidates = selection.assets;
+  if (input.script.productionVersion === 3) return planOmniScenes(input, candidates, selection.calls);
   const skeleton = input.script.shots.map((shot) => ({
     order: shot.order,
     role: shot.role,
@@ -218,18 +263,24 @@ export async function planFeaturedVlogFrames(input: {
     input: `规划精选vlog每个镜头的首帧来源。
 
 规则：
-- 首帧只画起始状态的一个静态瞬间；结束状态和主要动作属于后续视频，不可同屏叠加。人物表是身份清单，不要求所有人物同时出镜；以本镜 startState.characters 为准。素材只读标签，无法确认原图人数；已有目标人物需复用，其他人物按设计调整，生成后必须读图核验，不能机械叠加游客。
+${VIDEO_FRAME_BUDGET}
+${VIDEO_FRAME_PHOTOGRAPHY}
+${ASSET_SELECTION_RULES}
+- 首帧只画起始状态的一个静态瞬间；结束状态和主要动作属于后续视频，不可同屏叠加。人物表是身份清单，不要求所有人物同时出镜；以本镜 startState.characters 为准。图片分析可提供原图人数线索但不能替代读图；已有目标人物需复用，其他人物按设计调整，生成后必须读图核验，不能机械叠加游客。
 - 模板画面指导只作为场景与风格参考；若它描述了整个过程，以已确认 startState 的位置、人数和姿态作为唯一首帧，不把后续状态提前画入。
 - 严格按脚本镜头数量和顺序输出，不能增删镜头。
 - 脚本如包含 transitionToNext，本镜首帧应使用前一镜 transitionToNext.incomingState，并参考前一镜 outgoingState 的主体位置、构图、运动方向；真实素材仍须保留场地事实。
-- 优先从当前账号素材库选图：依据文件名、标签和适用类型，只要素材描述的主要场景或主体能承接镜头画面，就选择 asset。无需标签写明民宿名称、拍摄地点或日期，也无需原图已经包含游客手部、行李和完整动作；这些视角和动作可在后续精修中补充。不得声称已经看过图片或核实其拍摄地点。
+- 优先从当前账号素材库选图：图片分析为主要依据，文件名、标签和适用类型补充，只要素材描述的主要场景或主体能承接镜头画面，就选择 asset。无需标签写明民宿名称、拍摄地点或日期，也无需原图已经包含游客手部、行李和完整动作；这些视角和动作可在后续精修中补充。不得声称已经看过图片或核实其拍摄地点。
+- 按已确认startState.location、镜头职责与suggestedMaterial匹配场景：室内镜头选室内素材，目的地景观镜头优先匹配山水、村落、街道、绿荫等环境素材，不能默认退回客房或窗边图。室内窗景不能代替脚本要求的独立室外画面；不要为多选风景而把已确认的室内动作改到室外。
+- 室外选图沿用宽松语义匹配，不要求标签证明是本店实拍；选中风景只代表画面适用，不证明具体景点、路线或民宿提供项目。可用环境镜头保持无人画面，不必强行添加游客。
 - 每个素材最多使用一次，只返回候选 assetKey，不返回 URL。
 - 仅在候选素材没有能承接镜头主要场景或主体的图片时选择 generate；不要因为脚本提及“真实现场”“已核验”，或素材标签只是通用场景描述，就拒绝画面匹配的素材。也不得勉强使用场景不相关的图片。
 - 输出骨架中的 generate 只是待填写的默认值；有画面匹配素材时须改为 asset 并填写对应 assetKey。选用素材只代表画面匹配，不等于确认它是该民宿实拍；不得在 framePrompt 中据此补造本店招牌、房型、设施或具体地点。
 - 若素材标签无法证明场地归属，在 overallDirection 中提示发布前人工核验素材与民宿的关系；不要把通用素材描述成已核验的本店现场。
 - 脚本涉及尚未核实的活动时，允许从“登山、玩水、徒步”中选一种拍成不指向具体地点或民宿服务的通用体验画面；不要因缺少已核实活动而留空、暂停镜头，也不得把 AI 画面表述为真实活动记录。
 - asset 的 framePrompt 保留原图空间，只补充本镜起始瞬间的游客姿态；generate 同样只描述一个起始瞬间的主体、构图、光线和摄影质感。完整动作不能写成同屏多个状态。
-- POV 镜头优先通过镜头位置和手部/行走视角呈现，不必额外制造游客正脸。
+- 按已确认的摄影视角安排人物朝向，正面、侧面、背面均可；第三人称画面可以自然呈现虚构游客正脸与表情。POV保持第一人称视点，不为展示脸而凭空新增人物；人物数量与身份始终遵循脚本。
+- 使用全片人物表中的固定外观，同id不能在不同首帧换脸、换性别或年龄。startState.view=front时应能清晰看到正脸和五官，不因空间场景默认改为侧影。人物与场地构图兼顾，不以增加室内镜头来凑正脸。
 
 脚本：
 ${JSON.stringify(input.script.sceneVersion === 1 ? { title: input.script.title, perspective: input.script.perspective, characters: input.script.characters, shots: input.script.shots.map(s => ({ order: s.order, role: s.role, startState: s.startState, suggestedMaterial: s.suggestedMaterial })) } : input.script, null, 2)}
@@ -266,7 +317,28 @@ ${JSON.stringify(candidates.map(({ fileUrl: _url, ...item }) => item), null, 2)}
     return { order: index + 1, role: expected.role, description: expected.description, frameSource, assetUrl: "", framePrompt: vlogFrameContext(expected, input.script.characters || []) + framePrompt };
   });
   if (framePlan.some((shot) => !shot)) throw new Error("精选vlog首帧规划包含无效素材映射，请重试。");
-  return { overallDirection: text(parsed?.overallDirection) || "按脚本形成真实、连贯的民宿体验 Vlog。", framePlan: framePlan as FeaturedVlogFramePlan, model: response.model };
+  return { overallDirection: text(parsed?.overallDirection) || "按脚本形成真实、连贯的民宿体验 Vlog。", framePlan: framePlan as FeaturedVlogFramePlan, model: response.model, calls: selection.calls + 1 };
+}
+
+async function planOmniScenes(input: { script: FeaturedVlogScript; template: FeaturedVlogTemplate; credentials: BackendAiCredentials }, candidates: VideoAssetReference[], calls: number) {
+  validateOmniScript(input.script);
+  const response = await completeWithBackendAi({ credentials: input.credentials,
+    instructions: "你是精选Vlog场景参考选图师。只读取文字分析，不声称看过实际图片。只输出JSON。",
+    input: `${ASSET_SELECTION_RULES}\n图片是场景参考，不是首帧，不需要已含主角。每图最多选一次，仅返回候选assetKey，禁止虚构URL。只在没有匹配场景时generate。保留已确认镜头职责、人数、时长、转场；脚本摄影意图不能作为拒绝可用场景的苛刻条件。场景图不先加入林川，人物由Omni主体加入。generate只写无人环境生成要求。asset只写保留空间事实的参考要求，不虚构可行走区域、光向或设施；实际图由智能体查看细化。\n每镜selectionReason最多60字、sceneDescription最多180字，保留图片分析快照由程序完成，不重复输出。\n脚本：${JSON.stringify(input.script)}\n素材：${JSON.stringify(candidates.map(assetMetadata))}\n返回 {"overallDirection":"整片方向","shots":[{"order":1,"source":"asset或generate","assetKey":"选中标识或空串","selectionReason":"匹配依据","sceneDescription":"场景参考要求"}]}`
+  });
+  if (!response.ok) throw new Error(`场景参考选图失败：${response.error}`);
+  const parsed = extractJson(response.text);
+  if (!Array.isArray(parsed?.shots) || parsed.shots.length !== input.script.shots.length) throw new Error("场景参考数量与脚本不一致。");
+  const used = new Set<string>();
+  const frames: FeaturedVlogFramePlan = parsed.shots.map((raw, i) => {
+    const s = raw as Record<string, unknown>;
+    const asset = candidates.find(a => a.assetKey === s.assetKey);
+    if (s.order !== i+1 || !text(s.selectionReason) || !text(s.sceneDescription) || !["asset", "generate"].includes(String(s.source)) || (s.source === "asset" ? !asset || used.has(asset.assetKey) : !!text(s.assetKey))) throw new Error(`镜头${i+1}场景参考映射无效。`);
+    if (asset) used.add(asset.assetKey);
+    return { order: i+1, role: input.script.shots[i].role, description: input.script.shots[i].description,
+      frameSource: s.source as "asset" | "generate", assetUrl: asset?.fileUrl || "", framePrompt: text(s.sceneDescription), aiAnalysis: asset?.aiAnalysis || "", selectionReason: text(s.selectionReason) };
+  });
+  return { framePlan: frames, overallDirection: text(parsed.overallDirection), model: response.model, calls: calls + 1 };
 }
 
 export async function planFeaturedVlogMotion(input: {
@@ -277,12 +349,18 @@ export async function planFeaturedVlogMotion(input: {
 }) {
   validateVlogScenes(input.script);
   if (input.framePlan.length !== input.script.shots.length) throw new Error("精选vlog首帧计划与脚本镜头数量不匹配。");
+  if (input.script.productionVersion === 3) {
+    validateOmniScript(input.script);
+    return { motionPlan: [], model: "confirmed-script", calls: 0 };
+  }
   const response = await completeWithBackendAi({
     credentials: input.credentials,
     instructions: "你是民宿体验 Vlog 导演。为每个已锁定首帧设计自然的主体动态、镜头运动及镜头间转场。只返回 JSON，不写旁白。",
     input: `根据已确认脚本和首帧规划视频动态。
 
 硬性要求：
+${VIDEO_MOTION_BUDGET}
+${VIDEO_MOTION_PHOTOGRAPHY}
 - 每镜只执行本镜 startState→mainAction→endState，移动首帧中已有的同一人物。入场/离场仅按 characterChanges；手部与背影沿用同一身份。mainVideoPrompt与endingTransitionPrompt不得含下一镜的事件或人物位置，不把结束状态添加为第二个人物，不在单镜内切场景。
 - 与首帧规划镜头数量、顺序完全一致，不得更换场景和镜头职责。
 ${input.script.sceneVersion === 1 ? "- 按本镜 duration（旧时间线为5秒）完成唯一主要动作，结尾只呈现本镜 endState。相邻镜头的衔接和叠化由后期处理，本请求不生成后续镜头的事件。" : input.script.timingVersion === 2 ? "- 严格沿用脚本 duration。关键动作在目标时长内完成，结尾自然收束，不变形成下一场景。" : "- 每个片段总长 5 秒；主体动态约前 4 秒，最后约 1 秒自然收束。"}
@@ -315,7 +393,7 @@ ${input.expertRules || "暂无。"}
       : null;
   });
   if (motionPlan.some((shot) => !shot)) throw new Error("精选vlog动态规划结果不完整，请重试。");
-  return { motionPlan: motionPlan as FeaturedVlogMotionPlan, model: response.model };
+  return { motionPlan: motionPlan as FeaturedVlogMotionPlan, model: response.model, calls: 1 };
 }
 
 export async function selectFeaturedVlogMusic(input: {
@@ -373,6 +451,7 @@ export function buildFeaturedVlogVideoTask(input: {
   music: MusicCandidate;
   overallDirection: string;
 }) {
+  if (input.script.productionVersion === 3) return buildOmniTask(input);
   validateVlogScenes(input.script);
   validateVideoTimeline(input.script.timingVersion, input.script.shots);
   const timed = input.script.timingVersion === 2;
@@ -450,7 +529,7 @@ export function buildFeaturedVlogVideoTask(input: {
 将下方 JSON 原样保存到 \`$PWD/${taskDir}/plan.json\`。计划类型为 \`featured_vlog\`，包含唯一的整片配乐、不含旁白 TTS；\`styleReference\` 存在时，首个已选素材图只作为 AI 补图的风格参考。
 
 \`\`\`json
-${JSON.stringify(plan, null, 2)}
+${JSON.stringify(plan)}
 \`\`\`
 
 ## 执行要求
@@ -459,7 +538,11 @@ ${JSON.stringify(plan, null, 2)}
 
 ${executionSteps}
 
-人物与动作验收：首帧须核对本镜起始位置、人物数量与身份；同一人物不得同时出现在起始和结束位置。原图已有人的情况须查看原图和处理后首帧，不能仅依据标签判断。人数不符先修首帧，首帧正确但视频出现复制则重试该镜头的动态生成。末帧核对本镜结束状态、道具位置、下一镜是否能合理承接；纯手部特写仍属于同一人物。未通过不能仅凭媒体时长校验认定完成。
+${videoDeliveryRequirements(input.noteTask.id)}
+
+跨镜头人物锁定：同id保持同一五官、发型、服装。已有清晰正脸首帧时用作参考；无正脸则说明参考局限，不为凑参考改变视角或加人。后续人物不一致时用 edit-image，输入“当前首帧＋人物参考首帧”，前者约束场地、人数和姿态，后者只约束外观。更新对应 frame-NN.png，验收后render并通过飞书发最终首帧；不复制人物。
+
+视觉验收：核对起止人数、身份、道具与动作完整性；人数不符先修首帧，视频复制则重试动态。查看原图及首帧，不能仅凭标签认定。检查观看重点、前后景及合理阴影，避免全片居中摆拍、重复走停转头、过度磨皮或假抖动；正脸不要求看镜头。检查切点与衔接，不只验时长。
 
 整片方向：${input.overallDirection || "按脚本形成真实、连贯的民宿体验 Vlog。"}
 `;
