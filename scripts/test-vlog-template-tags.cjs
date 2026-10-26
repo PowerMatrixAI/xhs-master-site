@@ -26,7 +26,7 @@ function text(tree) {
 function harness(file, name, dependencies) {
   const state = [];
   let index = 0;
-  const react = { ...require("react"), useEffect() {}, useCallback: (fn) => fn, useRef: () => ({ current: null }),
+  const react = { ...require("react"), useEffect() {}, useLayoutEffect() {}, useCallback: (fn) => fn, useRef: (initial) => ({ current: initial }),
     useState(initial) {
       const slot = index++;
       if (!(slot in state)) state[slot] = typeof initial === "function" ? initial() : initial;
@@ -60,23 +60,44 @@ async function main() {
   let chosen = [];
   const editorProps = () => ({ value: chosen, dimensions, disabled: false, onChange: (tags) => { chosen = tags; } });
   let tree = editor(editorProps());
-  assert.equal(nodes(tree).filter((node) => node.type === "select").length, 5);
-  assert.equal(nodes(tree).filter((node) => node.type === "input").length, 0, "the template editor cannot create free-text tags");
-  nodes(tree).find((node) => node.props?.["aria-label"] === "选择展示对象标签").props.onChange({ target: { value: "1" } });
+  assert.equal(nodes(tree).filter((node) => node.type === "select").length, 0, "the inline editor must not add a dropdown per dimension");
+  assert.equal(nodes(tree).filter((node) => node.type === "dialog" || node.type === "form").length, 0, "the selector stays in the parent form without a modal or nested form");
+  assert.ok(!button(tree, "添加标签"), "the template editor only selects existing tags");
+  nodes(tree).find((node) => node.props?.["aria-label"] === "展示对象：民宿").props.onChange();
   tree = editor(editorProps());
-  nodes(tree).find((node) => node.props?.["aria-label"] === "选择场景与环境标签").props.onChange({ target: { value: "11" } });
+  assert.equal(nodes(tree).find((node) => node.props?.["aria-label"] === "展示对象：民宿").props.checked, true);
+  nodes(tree).find((node) => node.props?.["aria-label"] === "选择模板标签维度 场景与环境").props.onClick();
+  tree = editor(editorProps());
+  nodes(tree).find((node) => node.props?.["aria-label"] === "场景与环境：森林").props.onChange();
   tree = editor(editorProps());
   assert.deepEqual(plain(chosen), [1, 11]);
   chosen = Array.from({ length: 20 }, (_, i) => i + 100);
   tree = editor(editorProps());
-  nodes(tree).find((node) => node.props?.["aria-label"] === "选择场景与环境标签").props.onChange({ target: { value: "11" } });
+  nodes(tree).find((node) => node.props?.["aria-label"] === "场景与环境：森林").props.onChange();
   tree = editor(editorProps());
   assert.ok(text(tree).includes("每个模板最多选择20个标签"));
   assert.equal(chosen.length, 20);
   chosen = [1, 11];
   tree = editor(editorProps());
-  nodes(tree).find((node) => node.props?.["aria-label"] === "移除标签 森林").props.onClick();
+  nodes(tree).find((node) => node.props?.["aria-label"] === "移除模板标签 场景与环境：森林").props.onClick();
   assert.deepEqual(plain(chosen), [1]);
+  tree = editor(editorProps());
+  nodes(tree).find((node) => node.props?.["aria-label"] === "搜索已有模板标签").props.onChange({ target: { value: "静谧" } });
+  tree = editor(editorProps());
+  assert.ok(text(tree).includes("搜索结果 · 全部维度") && text(tree).includes("视觉调性"));
+  nodes(tree).find((node) => node.props?.["aria-label"] === "视觉调性：静谧").props.onChange();
+  assert.deepEqual(plain(chosen), [1, 41]);
+  tree = editor(editorProps());
+  let preventedSearchSubmit = 0;
+  for (const label of ["搜索已有模板标签", "查找模板标签维度"]) nodes(tree).find((node) => node.props?.["aria-label"] === label).props.onKeyDown({ key: "Enter", preventDefault() { preventedSearchSubmit++; } });
+  assert.equal(preventedSearchSubmit, 2, "searching must not accidentally submit the template");
+  tree = editor({ ...editorProps(), disabled: true });
+  nodes(tree).find((node) => node.props?.["aria-label"] === "视觉调性：静谧").props.onChange();
+  assert.deepEqual(plain(chosen), [1, 41], "saving disables selection changes");
+  chosen = [9001];
+  tree = editor({ ...editorProps(), dimensions: [], previousTags: [{ id: 9001, name: "旧标签", dimensionId: 0, dimensionName: "" }] });
+  assert.ok(text(tree).includes("未分类：旧标签") && text(tree).includes("旧标签尚未分类"));
+  assert.deepEqual(plain(chosen), [9001], "legacy associations must survive an empty catalogue");
 
   function FilterDrawerStub() { return null; }
   const pickerDependencies = { ...dependencies, "@/app/components/FeaturedVlogFilterDrawer": { FeaturedVlogFilterDrawer: FilterDrawerStub } };
@@ -117,6 +138,10 @@ async function main() {
   assert.ok(text(tree).includes("没有符合条件的模板"));
   drawerTree = drawer(drawerProps());
   button(drawerTree, "查看 0 个模板").props.onClick();
+  drawerTree = drawer(drawerProps());
+  const closingDialog = nodes(drawerTree).find((node) => node.type === "dialog");
+  assert.equal(closingDialog.props["data-closing"], "true", "keep the drawer mounted until its exit animation finishes");
+  closingDialog.props.onAnimationEnd({ target: closingDialog, currentTarget: closingDialog, animationName: "vlog-filter-drawer-exit" });
   tree = picker(pickerProps());
   assert.ok(!nodes(tree).some((node) => node.type === FilterDrawerStub));
   assert.ok(text(tree).includes("已选 2"), "closing the drawer must keep the applied chips");
@@ -146,6 +171,15 @@ async function main() {
   drawerTree = largeDrawer(largeDrawerProps);
   assert.ok(text(drawerTree).includes("维度50") && text(drawerTree).includes("标签50"));
   assert.equal(nodes(drawerTree).filter((node) => node.type === "input" && node.props.type === "checkbox").length, 1);
+  const largeInlineEditor = harness("src/app/components/FeaturedVlogTagEditor.tsx", "FeaturedVlogTagEditor", dependencies);
+  const largeInlineProps = { value: [], dimensions: manyDimensions, disabled: false, onChange() {} };
+  let inlineTree = largeInlineEditor(largeInlineProps);
+  nodes(inlineTree).find((node) => node.props?.["aria-label"] === "查找模板标签维度").props.onChange({ target: { value: "维度50" } });
+  inlineTree = largeInlineEditor(largeInlineProps);
+  assert.equal(nodes(inlineTree).filter((node) => node.props?.["aria-label"]?.startsWith("选择模板标签维度 ")).length, 1);
+  nodes(inlineTree).find((node) => node.props?.["aria-label"] === "搜索已有模板标签").props.onChange({ target: { value: "标签50" } });
+  inlineTree = largeInlineEditor(largeInlineProps);
+  assert.equal(nodes(inlineTree).filter((node) => node.type === "input" && node.props.type === "checkbox").length, 1);
 
   let response;
   const calls = [];

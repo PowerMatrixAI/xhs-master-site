@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, Layers3, Search, X } from "lucide-react";
 import type { VlogTagDimension } from "@/lib/featuredVlogTags";
 
@@ -13,22 +13,41 @@ export function FeaturedVlogFilterDrawer({ dimensions, selectedIds, onChange, ma
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const onCloseRef = useRef(onClose);
+  const [closing, setClosing] = useState(false);
   const [dimensionId, setDimensionId] = useState<number | "all">(() => dimensions.find((dimension) => dimension.tags.some((tag) => selectedIds.includes(tag.id)))?.id || dimensions[0]?.id || "all");
   const [dimensionQuery, setDimensionQuery] = useState("");
   const [tagQuery, setTagQuery] = useState("");
 
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   useEffect(() => {
+    if (!closing) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onCloseRef.current();
+      return;
+    }
+    // Keep a fallback for interrupted animations or unavailable styles.
+    const timeout = window.setTimeout(() => onCloseRef.current(), 240);
+    return () => window.clearTimeout(timeout);
+  }, [closing]);
+
+  useLayoutEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousOverflow = document.body.style.overflow;
-    dialog.showModal();
+    const scrollPosition = { left: window.scrollX, top: window.scrollY, behavior: "instant" as const };
     document.body.style.overflow = "hidden";
-    dialog.querySelector<HTMLInputElement>("[data-vlog-tag-search]")?.focus();
+    dialog.showModal();
+    dialog.querySelector<HTMLInputElement>("[data-vlog-tag-search]")?.focus({ preventScroll: true });
+    // Native dialog autofocus may scroll its containing document; restore before paint.
+    window.scrollTo(scrollPosition);
     return () => {
       dialog.close();
       document.body.style.overflow = previousOverflow;
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+      window.scrollTo(scrollPosition);
     };
   }, []);
 
@@ -48,21 +67,29 @@ export function FeaturedVlogFilterDrawer({ dimensions, selectedIds, onChange, ma
   }
 
   function toggleTag(id: number) {
-    if (disabled) return;
+    if (disabled || closing) return;
     onChange(selectedIds.includes(id) ? selectedIds.filter((value) => value !== id) : [...selectedIds, id]);
   }
 
+  function requestClose() {
+    if (!closing) setClosing(true);
+  }
+
   return <dialog ref={ref} aria-modal="true" aria-labelledby="vlog-filter-drawer-title" aria-describedby="vlog-filter-drawer-description"
-    className="fixed inset-y-0 left-auto right-0 !m-0 h-[100dvh] max-h-none w-full max-w-2xl overflow-hidden border-0 bg-white p-0 text-ink shadow-2xl backdrop:bg-ink/45"
-    onCancel={(event) => { event.preventDefault(); onClose(); }}
+    data-closing={closing ? "true" : "false"}
+    className="vlog-filter-drawer fixed inset-y-0 left-auto right-0 !m-0 h-[100dvh] max-h-none w-full max-w-2xl overflow-hidden border-0 bg-white p-0 text-ink shadow-2xl backdrop:bg-ink/45"
+    onAnimationEnd={(event) => {
+      if (event.target === event.currentTarget && event.animationName === "vlog-filter-drawer-exit" && closing) onCloseRef.current();
+    }}
+    onCancel={(event) => { event.preventDefault(); requestClose(); }}
     onClick={(event) => {
       if (event.target !== event.currentTarget) return;
       const rect = event.currentTarget.getBoundingClientRect();
-      if (event.clientX < rect.left || event.clientX > rect.right) onClose();
+      if (event.clientX < rect.left || event.clientX > rect.right) requestClose();
     }}>
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 space-y-4 border-b border-ink/10 p-5">
-        <div className="flex items-start justify-between gap-4"><div><h3 id="vlog-filter-drawer-title" className="text-lg font-semibold">标签筛选</h3><p id="vlog-filter-drawer-description" className="mt-1 text-xs leading-5 text-ink/50">按维度选择标签，需同时包含所有已选标签。</p></div><button type="button" aria-label="关闭标签筛选" onClick={onClose} className="icon-button shrink-0"><X size={17} /></button></div>
+        <div className="flex items-start justify-between gap-4"><div><h3 id="vlog-filter-drawer-title" className="text-lg font-semibold">标签筛选</h3><p id="vlog-filter-drawer-description" className="mt-1 text-xs leading-5 text-ink/50">按维度选择标签，需同时包含所有已选标签。</p></div><button type="button" aria-label="关闭标签筛选" disabled={closing} onClick={requestClose} className="icon-button shrink-0"><X size={17} /></button></div>
         <label className="flex items-center gap-2 rounded-lg border border-ink/15 bg-white px-3 focus-within:border-teal/50"><Search size={16} className="shrink-0 text-ink/40" /><input data-vlog-tag-search aria-label="搜索所有维度的标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="搜索所有维度的标签" className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none" />{tagQuery && <button type="button" aria-label="清除标签关键词" onClick={() => setTagQuery("")} className="text-ink/45"><X size={14} /></button>}</label>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[128px_minmax(0,1fr)] sm:grid-cols-[180px_minmax(0,1fr)]">
@@ -91,7 +118,7 @@ export function FeaturedVlogFilterDrawer({ dimensions, selectedIds, onChange, ma
       <div className="shrink-0 space-y-3 border-t border-ink/10 bg-white p-4 sm:p-5">
         <div className="flex items-center justify-between text-xs"><span className="font-medium text-ink/60">已选标签 {selectedTags.length}</span><button type="button" disabled={disabled || !selectedTags.length} onClick={() => onChange([])} className="text-teal hover:underline disabled:text-ink/30">清空标签</button></div>
         <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto" aria-label="抽屉已选标签">{selectedTags.length ? selectedTags.map((tag) => <span key={tag.id} className="inline-flex items-center gap-1 rounded bg-teal/10 px-2 py-1 text-xs text-teal">{tag.dimensionName}：{tag.name}<button type="button" disabled={disabled} aria-label={`移除抽屉标签 ${tag.dimensionName}：${tag.name}`} onClick={() => toggleTag(tag.id)}><X size={12} /></button></span>) : <p className="text-xs text-ink/40">不限标签，展示全部匹配模板。</p>}</div>
-        <button type="button" onClick={onClose} className="primary-button w-full">查看 {matchCount} 个模板</button>
+        <button type="button" disabled={closing} onClick={requestClose} className="primary-button w-full">查看 {matchCount} 个模板</button>
       </div>
     </div>
   </dialog>;

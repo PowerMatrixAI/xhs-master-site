@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: light;
+  /* Preserve page width when a modal temporarily hides the scrollbar. */
+  scrollbar-gutter: stable;
   --mountain-ink: #17343a;
   --mountain-teal: #168c82;
   --mountain-mist: #dcefeb;
@@ -311,4 +313,48 @@ textarea {
 .landscape-motto {
   color: rgba(23, 52, 58, 0.48);
   letter-spacing: 0.28em;
+}
+
+.vlog-filter-drawer[open] {
+  animation: vlog-filter-drawer-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.vlog-filter-drawer[open]::backdrop {
+  animation: vlog-filter-backdrop-enter 240ms ease-out both;
+}
+
+.vlog-filter-drawer[open][data-closing="true"] {
+  animation: vlog-filter-drawer-exit 180ms ease-in both;
+  pointer-events: none;
+}
+
+.vlog-filter-drawer[open][data-closing="true"]::backdrop {
+  animation: vlog-filter-backdrop-exit 180ms ease-in both;
+}
+
+@keyframes vlog-filter-drawer-enter {
+  from { opacity: 0; transform: translateX(32px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes vlog-filter-drawer-exit {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(24px); }
+}
+
+@keyframes vlog-filter-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes vlog-filter-backdrop-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vlog-filter-drawer[open],
+  .vlog-filter-drawer[open]::backdrop {
+    animation: none !important;
+  }
 }
