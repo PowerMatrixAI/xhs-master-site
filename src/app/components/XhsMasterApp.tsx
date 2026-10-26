@@ -29,6 +29,7 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  Tags,
   ExternalLink,
   Expand,
   ImageOff,
@@ -95,6 +96,9 @@ import { PlatformMusicLibraryPanel } from "@/app/components/PlatformMusicLibrary
 import { ReferenceVideoManagementPanel } from "@/app/components/ReferenceVideoManagementPanel";
 import { ReferenceVideoPreview } from "@/app/components/ReferenceVideoPreview";
 import { FeaturedVlogTemplatePicker } from "@/app/components/FeaturedVlogTemplatePicker";
+import { VlogTagManagementPanel } from "@/app/components/VlogTagManagementPanel";
+import { fetchVlogTagCatalog } from "@/lib/vlogTagCatalog";
+import type { VlogTagDimension } from "@/lib/featuredVlogTags";
 import {
   fetchFeaturedVlogTemplates,
   type FeaturedVlogFramePlan,
@@ -470,6 +474,7 @@ const advancedTabs = [
 ] as const;
 
 const platformManagementTabs = [
+  ["platformVlogTags", "标签管理", Tags],
   ["platformFeaturedVlog", "精选Vlog模版", Sparkles],
   ["platformAssets", "故事角色与模板", ImageIcon],
   ["platformMusic", "平台配乐", Music2],
@@ -3574,6 +3579,9 @@ export function XhsMasterApp() {
           {activeTab === "platformFeaturedVlog" && isPlatformAdmin(currentUser) && (
             <FeaturedVlogManagementPanel currentUser={currentUser} notify={showToast} />
           )}
+          {activeTab === "platformVlogTags" && isPlatformAdmin(currentUser) && (
+            <VlogTagManagementPanel currentUser={currentUser} notify={showToast} />
+          )}
           {activeTab === "platformAssets" && isPlatformAdmin(currentUser) && (
             <PlatformAssetLibraryPanel currentUser={currentUser} notify={showToast} />
           )}
@@ -5806,6 +5814,7 @@ function VideosPanel(props: {
   const [storyCharactersError, setStoryCharactersError] = useState("");
   const [storyCharactersReloadKey, setStoryCharactersReloadKey] = useState(0);
   const [featuredVlogTemplates, setFeaturedVlogTemplates] = useState<FeaturedVlogTemplate[]>([]);
+  const [featuredVlogTagDimensions, setFeaturedVlogTagDimensions] = useState<VlogTagDimension[]>([]);
   const [featuredVlogTemplatesLoading, setFeaturedVlogTemplatesLoading] = useState(false);
   const [featuredVlogTemplatesError, setFeaturedVlogTemplatesError] = useState("");
   const [featuredVlogTemplatesReloadKey, setFeaturedVlogTemplatesReloadKey] = useState(0);
@@ -5895,10 +5904,11 @@ function VideosPanel(props: {
     let cancelled = false;
     setFeaturedVlogTemplatesLoading(true);
     setFeaturedVlogTemplatesError("");
-    fetchFeaturedVlogTemplates()
-      .then((templates) => {
+    Promise.all([fetchFeaturedVlogTemplates(), fetchVlogTagCatalog()])
+      .then(([templates, catalog]) => {
         if (cancelled) return;
         setFeaturedVlogTemplates(templates);
+        setFeaturedVlogTagDimensions(catalog.dimensions);
         if (!templates.some((template) => template.id === featuredVlogTemplateId)) {
           selectFeaturedVlogTemplate(templates[0]?.id || "");
         }
@@ -6197,7 +6207,7 @@ function VideosPanel(props: {
 
         {mode === "featured_vlog" && <div className="mt-5 space-y-4 border-t border-ink/10 pt-5">
           <div><h3 className="text-base font-semibold">第一步：生成并确认 Vlog 脚本</h3><p className="mt-1 text-sm text-ink/60">模板提供体验环节和镜头编排。脚本会结合当前账号的民宿资料与知识库生成 3–6 个镜头；确认后新增一篇视频笔记。</p></div>
-          <FeaturedVlogTemplatePicker templates={featuredVlogTemplates} value={featuredVlogTemplateId} onChange={selectFeaturedVlogTemplate} disabled={loading || featuredVlogTemplatesLoading} />
+          <FeaturedVlogTemplatePicker templates={featuredVlogTemplates} dimensions={featuredVlogTagDimensions} value={featuredVlogTemplateId} onChange={selectFeaturedVlogTemplate} disabled={loading || featuredVlogTemplatesLoading} />
           {featuredVlogTemplatesLoading && <p className="text-xs text-ink/55">正在读取服务端精选 Vlog 模板...</p>}
           {featuredVlogTemplatesError && <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-coral/25 bg-coral/5 p-3 text-sm text-coral"><span>{featuredVlogTemplatesError}</span><button type="button" className="secondary-button" onClick={() => setFeaturedVlogTemplatesReloadKey((current) => current + 1)}>重试</button></div>}
           {!featuredVlogTemplatesLoading && !featuredVlogTemplatesError && !featuredVlogTemplates.length && <div className="rounded border border-dashed border-ink/20 bg-white/60 p-3 text-sm text-ink/60">平台还没有精选 Vlog 模板，请联系管理员配置。</div>}

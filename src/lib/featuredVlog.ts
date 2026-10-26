@@ -10,7 +10,7 @@ import { getBackendApiBaseUrl } from "@/lib/backendApi";
 import { buildBackendSignedHeaders } from "@/lib/xhs-signature";
 import type { BackendAiCredentials } from "@/lib/backendAiClient";
 import { normalizeReferenceVideo, type ReferenceVideo } from "@/lib/referenceVideos";
-import { normalizeTemplateTags } from "@/lib/featuredVlogTags";
+import { normalizeTemplateTags, normalizeTemplateTagIds, normalizeVlogTag, type VlogTemplateTag } from "@/lib/featuredVlogTags";
 
 export type FeaturedVlogBeat = {
   name: string;
@@ -24,6 +24,8 @@ export type FeaturedVlogTemplate = {
   id: string;
   name: string;
   tags?: string[];
+  tagIds?: number[];
+  tagDetails?: VlogTemplateTag[];
   outline: string;
   beats: FeaturedVlogBeat[];
   /** Legacy backend field; retired from the editor and new script planning. */
@@ -167,6 +169,8 @@ export function normalizeFeaturedVlogTemplate(value: unknown): FeaturedVlogTempl
     id: stringValue(item.id),
     name: stringValue(item.name),
     tags: normalizeTemplateTags(item.tags),
+    tagIds: normalizeTemplateTagIds(item.tagIds),
+    tagDetails: Array.isArray(item.tagDetails) ? item.tagDetails.map(normalizeVlogTag).filter((tag): tag is VlogTemplateTag => Boolean(tag)) : [],
     outline: stringValue(item.outline),
     beats,
     requiredScenes: stringList(item.requiredScenes),
@@ -221,9 +225,9 @@ function readTemplateResponse(value: unknown) {
   return template;
 }
 
-export async function fetchFeaturedVlogTemplates(tags?: string[]) {
+export async function fetchFeaturedVlogTemplates(tagIds?: number[]) {
   const response = await authRequest<{ templates?: unknown[] }>("/featuredVlog/v1/template/list", {
-    method: "POST", ...(tags?.length ? { body: { tags: normalizeTemplateTags(tags) } } : {})
+    method: "POST", ...(tagIds?.length ? { body: { tagIds: normalizeTemplateTagIds(tagIds) } } : {})
   });
   if (!response.status || !Array.isArray(response.data?.templates)) throw new Error(response.message || "获取精选 Vlog 模板失败。");
   return response.data.templates.map(readTemplateResponse);
@@ -235,14 +239,14 @@ export async function fetchFeaturedVlogTemplateTags() {
   return normalizeTemplateTags(response.data.tags);
 }
 
-export type FeaturedVlogTemplateInput = Pick<FeaturedVlogTemplate, "name" | "tags" | "outline" | "perspectiveGuidance" | "visualGuidance" | "musicTags" | "referenceVideoId"> & {
+export type FeaturedVlogTemplateInput = Pick<FeaturedVlogTemplate, "name" | "tagIds" | "outline" | "perspectiveGuidance" | "visualGuidance" | "musicTags" | "referenceVideoId"> & {
   beats: Array<Pick<FeaturedVlogBeat, "name" | "shotDuty" | "required">>;
 };
 
 function templateWriteFields(input: FeaturedVlogTemplateInput) {
   return {
     name: input.name, outline: input.outline,
-    ...(input.tags !== undefined ? { tags: normalizeTemplateTags(input.tags) } : {}),
+    ...(input.tagIds !== undefined ? { tagIds: normalizeTemplateTagIds(input.tagIds) } : {}),
     beats: input.beats.map(b => ({ name: b.name, shotDuty: b.shotDuty, required: b.required, visualGuidance: "" })),
     requiredScenes: [], // Keep the existing backend schema, clear retired requirements on save.
     perspectiveGuidance: input.perspectiveGuidance, visualGuidance: input.visualGuidance,
