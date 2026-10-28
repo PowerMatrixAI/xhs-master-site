@@ -29,7 +29,7 @@ export function FeaturedVlogTemplatePicker({ templates, dimensions, value, onCha
       <button type="button" disabled={disabled || (!selectedTags.length && !nameQuery)} onClick={() => { setFilters([]); setNameQuery(""); }} className="text-xs text-teal hover:underline disabled:text-ink/30">清空条件</button>
     </div>
     <div className="flex flex-wrap items-center gap-2" aria-label="已选筛选标签"><span className="text-xs text-ink/55">已选标签：</span>{selectedTags.length ? selectedTags.map((tag) => <span key={tag.id} className="inline-flex items-center gap-1 rounded bg-teal/10 px-2 py-1 text-xs text-teal">{tag.dimensionName}：{tag.name}<button type="button" disabled={disabled} aria-label={`取消筛选 ${tag.dimensionName}：${tag.name}`} onClick={() => setFilters((current) => current.filter((id) => id !== tag.id))}><X size={12} /></button></span>) : <span className="text-xs text-ink/45">不限标签</span>}</div>
-    <p className="text-xs text-ink/55">符合筛选的模板 {filtered.length} 个 / 共 {templates.length} 个；需同时包含所有已选标签。</p>
+    <p className="text-xs text-ink/55">符合筛选的模板 {filtered.length} 个 / 共 {templates.length} 个；匹配任意一个已选标签即可。</p>
     {outsideFilter && <p className="rounded bg-ink/5 p-3 text-xs text-ink/60">当前选择“{selected?.name}”不在筛选结果中；已保留当前脚本，可从下方另选模板。</p>}
     {!filtered.length && templates.length > 0 && <p className="rounded border border-dashed border-ink/15 p-5 text-center text-sm text-ink/55">没有符合条件的模板，可清空条件或调整筛选。</p>}
     <div className="grid max-h-96 gap-3 overflow-auto sm:grid-cols-2" role="radiogroup" aria-label="筛选后的Vlog模板">

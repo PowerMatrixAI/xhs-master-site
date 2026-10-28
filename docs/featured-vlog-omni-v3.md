@@ -16,6 +16,8 @@ FEATURED_VLOG_OMNI_ENABLED=true
 
 先启用兼容执行器再开控制台开关。关闭开关不删除旧脚本，但拒绝继续为v3脚本组装新任务；既有v1/v2任务走原流程。新脚本记录productionVersion=3/timingVersion=2/sceneVersion=1，旧缓存不自动升级。
 
+精选Vlog新生成脚本的整片时长为20–30秒（各镜时长之和扣除叠化重叠），提示词要求与返回结果校验同时生效。仍为3–6镜、每镜2–10秒、0.5秒步进，生成后不得通过拉伸或截断剧情强凑总长；不合格结果明确报错。既有缓存脚本/计划的确认时间线不自动修改，创意故事仍采用原20–40秒创作目标。
+
 ## 协议
 
 `plan.json version=3 kind=featured_vlog`：generation.provider=kling_cli、tool=omni_ref_video，显式指定kling-video-v3_0_omni、9:16、720p、单条静音；output为1080x1920/24fps。每镜sceneReference含source、imageUrl或生成描述和选中分析快照；direction含摄影、运镜、动作、分段秒数及结束画面。transitionToNext继续cut/dissolve，最后为null。旧provider=kling_mcp计划及已完成片段仍兼容后期；需要新生成时重新组装CLI任务，不静默换通道或自动重提旧任务。

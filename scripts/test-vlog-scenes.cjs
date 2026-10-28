@@ -26,7 +26,7 @@ const prompts = load('src/lib/featuredVlogPrompts.ts', {
 });
 const person = { id: 'A', appearance: '白裙游客', props: ['背包'] };
 const state = (position, view = 'back', ids = ['A']) => ({ location: '客房', characters: ids.map(id => ({ id, position, pose: '自然站立', view })), props: ['背包在游客身上'] });
-const shots = [1, 2, 3].map(order => ({ order, role: '放缓', beat: '停留', description: '游客入室后走到窗边', suggestedMaterial: '客房', subjectPresence: 'traveler', duration: 4,
+const shots = [1, 2, 3].map(order => ({ order, role: '放缓', beat: '停留', description: '游客入室后走到窗边', suggestedMaterial: '客房', subjectPresence: 'traveler', duration: 7,
   startState: state('门口'), mainAction: '同一游客从门口走到窗边', endState: state('窗边'), characterChanges: [], continuityNote: '前镜进入这间客房',
   transitionToNext: order === 3 ? null : { type: 'cut', duration: 0, reason: '空间承接', outgoingState: '窗边停步', incomingState: '下一镜专属动作：桌面放包' } }));
 const script = { sceneVersion: 1, timingVersion: 2, title: '慢下来', summary: '入室停步', perspective: '旁观', moodTags: [], musicTags: [], noteTask: { topicTitle: '慢下来', contentGoal: '放缓', writingStyleName: '测试' }, characters: [person], shots };

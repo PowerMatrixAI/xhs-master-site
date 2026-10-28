@@ -19,6 +19,9 @@ import { VIDEO_SHOT_DESIGN, VIDEO_FRAME_PHOTOGRAPHY, VIDEO_MOTION_PHOTOGRAPHY } 
 import { VIDEO_TIMELINE_PROMPT, videoTimelineV2Enabled, validateVideoTimeline, videoTimelineDuration, timedMotionPrompt, type VideoTransition } from "@/lib/videoTimeline";
 import { VLOG_SCENE_RULES, VlogCharacterChangeError, validateVlogScenes, vlogFrameContext, vlogMotionPrompt, type VlogCharacter, type VlogShotScene } from "@/lib/vlogScene";
 
+const VLOG_DURATION = { min: 20, max: 30 };
+const VLOG_TIMELINE_PROMPT = VIDEO_TIMELINE_PROMPT.replace("20-40 秒", `${VLOG_DURATION.min}-${VLOG_DURATION.max} 秒`);
+
 function extractJson(text: string): Record<string, unknown> | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/iu)?.[1];
   const source = fenced || text;
@@ -91,7 +94,8 @@ ${omni ? VLOG_SCENE_RULES.replace("模板及用户未指定时，主角倾向为
 ${omni ? OMNI_SCRIPT_RULES : ""}
 ${VIDEO_SCRIPT_BUDGET}
 ${VIDEO_SHOT_DESIGN}
-- 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VIDEO_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
+- 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VLOG_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
+- 整片最终时长（各镜duration之和扣除叠化重叠）必须在${VLOG_DURATION.min}-${VLOG_DURATION.max}秒内，回复前计算核对；按内容分配每镜长度，不为凑时长添加空动作。
 - 模板每镜mainContent是观看重点、希望呈现的内容及其主题作用，不是固定摄影指令。具体机位、路径、运动方式和幅度在制作时依据实际图片调整，但仍需实现已确认镜头的主要内容；不把模板建议固化为不可能的拍摄动作。
 - 先在内部规划整片场景分布，再展开镜头：民宿室内、民宿外部和目的地环境均可承担叙事，不固定室内外比例。保留模板必需内容；在资料支持且不违背主题时，安排有独立叙事职责的室外景观镜头，不能全部默认在客房、窗边、桌面完成。
 - 室内承担入住、使用、休息或空间特色；室外可承担地点建立、环境发现、体验推进及情绪收束。每次换场景须推动同一主题并在continuityNote说明承接，不为凑比例插无关风景。室内窗边看景不等同于独立的室外景观镜头。
@@ -179,6 +183,11 @@ ${JSON.stringify({
   if (timed) {
     if (parsed?.timingVersion !== 2) throw new Error("脚本缺少新版时间线，请重新生成。");
     validateVideoTimeline(2, rawShots);
+  }
+  // Check only newly generated scripts; existing cached plans retain their timeline.
+  const totalDuration = videoTimelineDuration(rawShots, timed ? 2 : 1);
+  if (totalDuration < VLOG_DURATION.min || totalDuration > VLOG_DURATION.max) {
+    throw new Error(`精选Vlog成片时长须为${VLOG_DURATION.min}–${VLOG_DURATION.max}秒（已扣除叠化），本次为${totalDuration}秒，请重新生成脚本。`);
   }
   const shots = rawShots.map((raw, index) => {
     const shot = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};

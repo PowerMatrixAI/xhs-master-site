@@ -50,9 +50,11 @@ async function main() {
     { id: "old", name: "旧模板" }
   ];
   assert.deepEqual(plain(helpers.filterTemplatesByTags(templates, []).map((item) => item.id)), ["a", "b", "old"]);
-  assert.deepEqual(plain(helpers.filterTemplatesByTags(templates, ["森林", "静谧"]).map((item) => item.id)), ["b"]);
-  assert.equal(helpers.filterTemplatesByTags(templates, ["民宿", "森林"]).length, 0);
-  assert.deepEqual(plain(helpers.filterTemplatesByTagIds(templates, [11, 41]).map((item) => item.id)), ["b"]);
+  assert.deepEqual(plain(helpers.filterTemplatesByTags(templates, ["森林", "静谧"]).map((item) => item.id)), ["a", "b"]);
+  assert.equal(helpers.filterTemplatesByTags(templates, ["民宿", "森林"]).length, 2);
+  assert.deepEqual(plain(helpers.filterTemplatesByTagIds(templates, [11, 41]).map((item) => item.id)), ["a", "b"]);
+  assert.equal(helpers.filterTemplatesByTagIds(templates, []).length, 3);
+  assert.equal(helpers.filterTemplatesByTagIds(templates, [999]).length, 0);
   assert.equal(helpers.filterTemplatesByTagIds([{ tagIds: [7] }], [8]).length, 0, "same-name tags in different dimensions must not be confused");
 
   const dependencies = { "@/lib/featuredVlogTags": helpers };
@@ -107,6 +109,8 @@ async function main() {
   const pickerProps = () => ({ templates, dimensions, value: selected, disabled: false, onChange: (id) => { selected = id; } });
   const drawerProps = () => nodes(tree).find((node) => node.type === FilterDrawerStub).props;
   tree = picker(pickerProps());
+  assert.ok(!text(tree).includes("展示对象：民宿"), "template cards display tag names without dimension prefixes");
+  assert.deepEqual(plain(helpers.templateTagLabels({ tagDetails: [dimensions[0].tags[0]], tags: [] })), ["民宿"]);
   assert.equal(nodes(tree).filter((node) => node.type === "select").length, 0, "the page must not grow one dropdown per dimension");
   nodes(tree).find((node) => node.props?.["aria-label"] === "打开标签筛选").props.onClick();
   tree = picker(pickerProps());
@@ -135,9 +139,10 @@ async function main() {
   drawerTree = drawer(drawerProps());
   nodes(drawerTree).find((node) => node.props?.["aria-label"] === "展示对象：民宿").props.onChange();
   tree = picker(pickerProps());
-  assert.ok(text(tree).includes("没有符合条件的模板"));
+  assert.ok(text(tree).includes("符合筛选的模板 2 个"));
+  assert.ok(text(tree).includes("匹配任意一个已选标签即可"));
   drawerTree = drawer(drawerProps());
-  button(drawerTree, "查看 0 个模板").props.onClick();
+  button(drawerTree, "查看 2 个模板").props.onClick();
   drawerTree = drawer(drawerProps());
   const closingDialog = nodes(drawerTree).find((node) => node.type === "dialog");
   assert.equal(closingDialog.props["data-closing"], "true", "keep the drawer mounted until its exit animation finishes");

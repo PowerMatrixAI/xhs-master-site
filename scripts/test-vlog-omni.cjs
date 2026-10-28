@@ -64,6 +64,18 @@ async function main() {
   assert.ok(!calls.at(-1).input.includes('RETIRED_SHOT_CAMERA_INSTRUCTION'));
   assert.ok(!calls.at(-1).input.includes('RETIRED_REQUIRED_SCENE'));
   assert.ok(!calls.at(-1).input.includes('REFERENCE_CONTENT_NOT_FOR_SCRIPT'));
+  assert.ok(calls.at(-1).input.includes('20-30 秒') && !calls.at(-1).input.includes('20-40 秒'));
+  for (const [durations, overlap, expected] of [[[7,7,6.5], .25, 20], [[10,10,10], 0, 30], [[6,6,7.5], 0, 19.5], [[8,8,8,6.5], 0, 30.5]]) {
+    const sample = clone(script);
+    sample.shots = durations.map((duration, i) => ({ ...clone(script.shots[i]), order: i+1, duration,
+      direction: { ...clone(script.shots[i].direction), timing: [{ start: 0, end: duration, action: '观察并停留' }] },
+      transitionToNext: i === durations.length-1 ? null : { ...clone(script.shots[0].transitionToNext), type: overlap ? 'dissolve' : 'cut', duration: overlap }
+    }));
+    reply = () => sample;
+    const generate = () => prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template, availableWritingStyles: ['测试'] });
+    if (expected < 20 || expected > 30) await assert.rejects(generate, /成片时长须为20–30秒/);
+    else assert.equal((await generate()).script.shots.length, durations.length);
+  }
   const assets = [0,1,2].map(i => ({ id: i+1, filePath: `${i}.png`, fileUrl: `https://example.com/${i}.png`, fileType: 'image', tags: '庭院', aiAnalysis: `分析${i}：左侧树木右侧通道`, aiAnalysisStatus: i === 2 ? 'deleted' : 'completed' }));
   reply = () => ({ overallDirection: '自然', shots: script.shots.map((s,i) => ({ order: s.order, source: i < 3 ? 'asset' : 'generate', assetKey: i < 3 ? `A0${i+1}` : '', sceneDescription: '保留场景结构', selectionReason: '通道与观察主题匹配' })) });
   const frames = await prompts.planFeaturedVlogFrames({ script, assets, template: {}, credentials: {} });
@@ -100,6 +112,9 @@ async function main() {
   assert.ok(!JSON.stringify(plan).includes('endingTransitionPrompt'));
   assert.ok(!JSON.stringify(plan).includes('framePrompt'));
   assert.ok(task.length < 18000, task.length);
+  const cachedLong = clone(script);
+  cachedLong.shots.forEach(s => { s.duration = 7; s.direction.timing = [{ start: 0, end: 7, action: '观察' }]; });
+  assert.doesNotThrow(() => omni.buildOmniTask({ script: cachedLong, template, framePlan: frames.framePlan, noteTask: { id: 99 }, music: { audioUrl: 'https://example.com/music.mp3' } }), 'existing cached scripts keep their confirmed timeline');
   // Reproduce the production call shape: the route passes a full Account and
   // NoteTask, not the minimal objects used by the original fixtures.
   const internal = 'INTERNAL_STRATEGY_RESEARCH_LIBRARY_ONLY_'.repeat(3000);

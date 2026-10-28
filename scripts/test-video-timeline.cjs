@@ -54,7 +54,7 @@ async function main() {
   assert.equal(plan.shots[0].narrationText, shots[0].narrationText);
   assert.ok(!plan.shots[0].videoPrompt.includes('总时长严格为5秒'));
 
-  response = { ...script, sceneVersion: 1, characters: [], shots: shots.map(s => ({ ...s, startState: { location: '庭院', characters: [], props: [] }, endState: { location: '庭院', characters: [], props: [] }, mainAction: '花草轻微摇动', characterChanges: [], continuityNote: '相同庭院' })) };
+  response = { ...script, sceneVersion: 1, characters: [], shots: shots.map(s => ({ ...s, duration: 7, startState: { location: '庭院', characters: [], props: [] }, endState: { location: '庭院', characters: [], props: [] }, mainAction: '花草轻微摇动', characterChanges: [], continuityNote: '相同庭院' })) };
   const vlog = await vlogLib.generateFeaturedVlogScript({ ...base, template: { beats: [] }, availableWritingStyles: ['测试'] });
   assert.equal(vlog.script.timingVersion, 2);
   const vlogInput = { ...base, script, template: { id: 't', name: '旅行' }, music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' };

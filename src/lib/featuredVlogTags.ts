@@ -17,14 +17,14 @@ export function normalizeVlogTag(value: unknown): VlogTemplateTag | null {
 }
 
 export function templateTagLabels(template: Pick<FeaturedVlogTemplate, "tags" | "tagDetails">): string[] {
-  return template.tagDetails?.length ? template.tagDetails.map((tag) => `${tag.dimensionName || "未分类"}：${tag.name}`) : normalizeTemplateTags(template.tags);
+  return template.tagDetails?.length ? template.tagDetails.map((tag) => tag.name) : normalizeTemplateTags(template.tags);
 }
 
 export function filterTemplatesByTagIds<T extends Pick<FeaturedVlogTemplate, "tagIds">>(templates: T[], ids: number[]) {
   const filters = normalizeTemplateTagIds(ids);
   return templates.filter((template) => {
     const tags = new Set(template.tagIds || []);
-    return filters.every((id) => tags.has(id));
+    return !filters.length || filters.some((id) => tags.has(id));
   });
 }
 
@@ -50,6 +50,6 @@ export function filterTemplatesByTags<T extends Pick<FeaturedVlogTemplate, "tags
   const keys = normalizeTemplateTags(filters).map((tag) => tag.toLocaleLowerCase());
   return templates.filter((template) => {
     const tags = new Set(normalizeTemplateTags(template.tags).map((tag) => tag.toLocaleLowerCase()));
-    return keys.every((key) => tags.has(key));
+    return !keys.length || keys.some((key) => tags.has(key));
   });
 }

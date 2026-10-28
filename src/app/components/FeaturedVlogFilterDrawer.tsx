@@ -89,7 +89,7 @@ export function FeaturedVlogFilterDrawer({ dimensions, selectedIds, onChange, ma
     }}>
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 space-y-4 border-b border-ink/10 p-5">
-        <div className="flex items-start justify-between gap-4"><div><h3 id="vlog-filter-drawer-title" className="text-lg font-semibold">标签筛选</h3><p id="vlog-filter-drawer-description" className="mt-1 text-xs leading-5 text-ink/50">按维度选择标签，需同时包含所有已选标签。</p></div><button type="button" aria-label="关闭标签筛选" disabled={closing} onClick={requestClose} className="icon-button shrink-0"><X size={17} /></button></div>
+        <div className="flex items-start justify-between gap-4"><div><h3 id="vlog-filter-drawer-title" className="text-lg font-semibold">标签筛选</h3><p id="vlog-filter-drawer-description" className="mt-1 text-xs leading-5 text-ink/50">按维度选择标签，匹配任意一个已选标签即可。</p></div><button type="button" aria-label="关闭标签筛选" disabled={closing} onClick={requestClose} className="icon-button shrink-0"><X size={17} /></button></div>
         <label className="flex items-center gap-2 rounded-lg border border-ink/15 bg-white px-3 focus-within:border-teal/50"><Search size={16} className="shrink-0 text-ink/40" /><input data-vlog-tag-search aria-label="搜索所有维度的标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="搜索所有维度的标签" className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none" />{tagQuery && <button type="button" aria-label="清除标签关键词" onClick={() => setTagQuery("")} className="text-ink/45"><X size={14} /></button>}</label>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[128px_minmax(0,1fr)] sm:grid-cols-[180px_minmax(0,1fr)]">
