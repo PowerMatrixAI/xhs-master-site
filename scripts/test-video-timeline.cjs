@@ -14,6 +14,7 @@ const ai = { completeWithBackendAi: async request => { lastRequest = request; re
 const scenes = load('src/lib/vlogScene.ts');
 const overrides = { '@/lib/videoTimeline': timing, '@/lib/vlogScene': scenes, '@/lib/videoDelivery': load('src/lib/videoDelivery.ts'), '@/lib/backendAiServerClient': ai };
 overrides['@/lib/featuredVlogTemplateRules'] = load('src/lib/featuredVlogTemplateRules.ts');
+overrides['@/lib/featuredVlogAssetSelection'] = load('src/lib/featuredVlogAssetSelection.ts', { './featuredVlogTemplateRules': overrides['@/lib/featuredVlogTemplateRules'] });
 overrides['@/lib/videoPromptBudget'] = load('src/lib/videoPromptBudget.ts');
 overrides['@/lib/videoPhotography'] = load('src/lib/videoPhotography.ts');
 overrides['@/lib/videoAssetSelection'] = load('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': ai });

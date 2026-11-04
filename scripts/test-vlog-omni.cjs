@@ -24,6 +24,8 @@ function load(file) {
 const omni = load('src/lib/featuredVlogOmni.ts');
 const selection = load('src/lib/videoAssetSelection.ts');
 const prompts = load('src/lib/featuredVlogPrompts.ts');
+const templateRules = load('src/lib/featuredVlogTemplateRules.ts');
+const vlogSelection = load('src/lib/featuredVlogAssetSelection.ts');
 const story = load('src/lib/videoPrompts.ts');
 const clone = x => JSON.parse(JSON.stringify(x));
 const state = people => ({ location: '场景', characters: people ? [{ id: 'A', position: '通行区域', pose: '自然站立', view: 'front' }] : [], props: [] });
@@ -61,6 +63,31 @@ async function main() {
   assert.equal(planningTemplate.beats[0].mainContent, template.beats[0].shotDuty);
   assert.equal(planningTemplate.beats[0].required, true);
   assert.equal(planningTemplate.visualGuidance, '自然摄影质感');
+  const annotated = '展示建筑与山谷的关系。 【景别】远景；【机位】高位俯拍；【运镜】缓慢环绕。原片对照：00:00–00:06 建筑。';
+  const parsedBeat = templateRules.parseVlogBeatContent(annotated);
+  assert.equal(parsedBeat.mainContent, '展示建筑与山谷的关系。');
+  assert.ok(parsedBeat.cameraReference.viewpoint.includes('高位俯拍'));
+  assert.ok(parsedBeat.cameraReference.movement.includes('环绕'));
+  assert.ok(parsedBeat.cameraReference.sourceNote.includes('00:00–00:06'));
+  assert.equal(parsedBeat.cameraReference.raw, annotated.slice(annotated.indexOf('【景别】')));
+  for (const legacy of ['展示住宿与自然的关系', '普通文字【未知标记】全部保留']) {
+    assert.equal(templateRules.parseVlogBeatContent(legacy).mainContent, legacy);
+  }
+  for (const partial of ['内容目标。【机位】俯拍', '内容目标。【机位】俯拍【机位】侧面', '内容目标。【运镜】']) {
+    const parsed = templateRules.parseVlogBeatContent(partial);
+    assert.equal(parsed.mainContent, '内容目标。');
+    assert.equal(parsed.cameraReference.raw, partial.slice(partial.indexOf('【')));
+  }
+  assert.equal(templateRules.parseVlogBeatContent('【机位】俯拍').mainContent, '【机位】俯拍');
+  const annotatedTemplate = { ...template, beats: [{ ...template.beats[0], shotDuty: annotated }] };
+  reply = () => script;
+  await prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template: annotatedTemplate, availableWritingStyles: ['测试'] });
+  const softTemplate = JSON.parse(calls.at(-1).input.split('平台模板：\n')[1].split('\n\n用户补充要求：')[0]);
+  assert.equal(softTemplate.beats[0].mainContent, parsedBeat.mainContent);
+  assert.equal(softTemplate.beats[0].required, true);
+  assert.ok(softTemplate.beats[0].cameraReference.viewpoint.includes('俯拍'));
+  assert.equal(annotatedTemplate.beats[0].shotDuty, annotated, 'planning must not mutate backend records');
+  assert.ok(calls.at(-1).input.includes('未读图的暂定摄影设计'));
   assert.ok(!calls.at(-1).input.includes('RETIRED_SHOT_CAMERA_INSTRUCTION'));
   assert.ok(!calls.at(-1).input.includes('RETIRED_REQUIRED_SCENE'));
   assert.ok(!calls.at(-1).input.includes('REFERENCE_CONTENT_NOT_FOR_SCRIPT'));
@@ -143,6 +170,10 @@ async function main() {
   assert.ok(!('noteTask' in plan), 'execution plan must not contain any noteTask object');
   assert.ok(!task.includes('账号：'));
   assert.ok(!JSON.stringify(plan).includes('selectionReason'), 'selection rationale stays in console, not execution instructions');
+  for (const instruction of ['plan.shots[].direction仅为暂定拍法', '保留平视', '允许固定机位', 'cameraMovement明确最终景别、机位', 'request.arguments.prompt必须等于refinement.prompt', '不直接执行或拼接plan.direction', '必要内容或核心动作确实无法完成时才停止报告']) {
+    assert.ok(task.includes(instruction), instruction);
+  }
+  assert.equal(plan.shots[0].direction.camera.type, script.shots[0].direction.camera.type, 'original plan remains unchanged; adaptation belongs in refinement');
   console.log('Full-account and previous-task regression: execution payload contains no planning/research/library context.');
   const stressScript = clone(script);
   stressScript.summary = '概'.repeat(160); stressScript.perspective = '视'.repeat(80);
@@ -169,10 +200,82 @@ async function main() {
   };
   const selected = await selection.shortlistVideoAssets(large, script.shots, 1400);
   assert.equal(seen.size, 90); assert.ok(selected.assets.some(a => a.assetKey === 'A90'));
+
+  // Cached scripts can contain camera prose in otherwise content-bearing fields.
+  const cached = clone(script);
+  cached.shots.forEach(s => {
+    s.description = '俯拍建筑与山谷，展示住宿与自然的关系';
+    s.role = '建筑环境全景';
+    s.suggestedMaterial = '高位俯拍庭院，必须可环绕';
+    s.mainAction = '人物走向窗边；运镜：缓慢推进';
+    s.direction.photography.angle = 'CAMERA_REFERENCE_TOP_DOWN_ONLY';
+    s.cameraReference = { movement: 'CACHED_CAMERA_REFERENCE' };
+    s.startState.characters.forEach(c => { c.pose = '自然站立，摄影机高位俯拍'; });
+  });
+  const beforeCached = JSON.stringify(cached);
+  const contentOnly = vlogSelection.featuredVlogForAssetSelection(cached);
+  assert.ok(!/俯拍|全景|环绕|运镜|摄影机|CAMERA_REFERENCE|direction|transitionToNext/.test(JSON.stringify(contentOnly)));
+  assert.ok(contentOnly.shots[0].description.includes('建筑与山谷'));
+  assert.ok(contentOnly.shots[0].mainAction.includes('人物走向窗边'));
+  assert.equal(contentOnly.shots[1].startState.characters.length, 1);
+  assert.ok(!('view' in contentOnly.shots[1].startState.characters[0]));
+  assert.equal(JSON.stringify(cached), beforeCached);
+  assert.ok(vlogSelection.vlogSelectionContent('人物仰视山体，低角度仰拍的建筑').includes('人物观看山体'));
+  assert.ok(vlogSelection.vlogSelectionContent('人物走向窗边，建筑与山谷同框').includes('人物走向窗边'));
+  assert.equal(vlogSelection.vlogSelectionContent('必须高位斜俯拍的庭院'), '庭院');
+  assert.equal(vlogSelection.vlogSelectionContent('镜头从人物背后跟随游客穿过门洞'), '游客穿过门洞');
+  const levelAssets = Array.from({ length: 90 }, (_, i) => ({ ...assets[0], id: i+1, filePath: `${i}.png`,
+    tags: '庭院'.repeat(60), aiAnalysis: '平视图片，建筑、山谷与庭院同框，具备人物行走通道。'.repeat(15) }));
+  let screeningCalls = 0, finalSelectionCalls = 0;
+  reply = r => {
+    if (r.input.includes('\n本批：')) {
+      screeningCalls++;
+      const shotInput = JSON.parse(r.input.split('镜头：')[1].split('\n本批：')[0]);
+      assert.equal(JSON.stringify(shotInput), JSON.stringify(contentOnly.shots));
+      assert.ok(r.input.includes(vlogSelection.VLOG_ASSET_SELECTION_RULES));
+      const group = JSON.parse(r.input.split('\n本批：')[1]);
+      return { assetKeys: [group[0].assetKey] };
+    }
+    finalSelectionCalls++;
+    const selectionScript = JSON.parse(r.input.split('\n脚本：')[1].split('\n素材：')[0]);
+    assert.equal(JSON.stringify(selectionScript), JSON.stringify(contentOnly));
+    assert.ok(r.input.includes('不能仅因不符合参考拍法拒绝图片'));
+    assert.ok(r.input.includes('不能勉强使用内容不相关的图片'));
+    return { overallDirection: '按实际平视图片读图适配', shots: cached.shots.map((s,i) => ({ order: s.order,
+      source: i === 0 ? 'asset' : 'generate', assetKey: i === 0 ? 'A01' : '',
+      sceneDescription: i === 0 ? '保留原图平视透视、建筑与山谷关系' : '内容无匹配素材时生成无人环境',
+      selectionReason: i === 0 ? '建筑与山谷同框，可承接内容' : '缺少内容匹配素材' })) };
+  };
+  const adapted = await prompts.planFeaturedVlogFrames({ script: cached, template: annotatedTemplate, assets: levelAssets, credentials: {} });
+  assert.ok(screeningCalls > 0 && finalSelectionCalls === 1);
+  assert.equal(adapted.framePlan[0].frameSource, 'asset');
+  assert.equal(adapted.framePlan[0].assetUrl, levelAssets[0].fileUrl);
+  assert.ok(adapted.framePlan[0].framePrompt.includes('平视'));
+  assert.equal(adapted.framePlan[1].frameSource, 'generate');
+  const adaptedTask = prompts.buildFeaturedVlogVideoTask({ script: cached, template: annotatedTemplate,
+    framePlan: adapted.framePlan, motionPlan: [], noteTask: { id: 42 }, music: { audioUrl: 'https://example.com/music.mp3' } });
+  assert.ok(adaptedTask.includes('平视图片能承接内容时保留平视'));
+  assert.ok(adaptedTask.includes('不为参考俯拍/航拍/环绕补造屋顶、隐藏区域、背面或通道'));
+  assert.equal(JSON.stringify(cached), beforeCached);
+  console.log('Camera adaptation: tagged/legacy parsing, content-only screening and selection, level-image mapping and execution contract passed.');
+  const legacyCached = { ...cached, productionVersion: undefined };
+  reply = r => {
+    const frameScript = JSON.parse(r.input.split('脚本：\n')[1].split('\n\n摄影处理：')[0]);
+    assert.ok(!/俯拍|环绕|CAMERA_REFERENCE|direction|endState/.test(JSON.stringify(frameScript)));
+    assert.equal(frameScript.shots[1].startState.characters[0].view, 'front', 'face orientation is retained for refinement, not source-image selection');
+    return { overallDirection: '保留实际图片透视', shots: contentOnly.shots.map((s,i) => ({
+      order: s.order, role: s.role, description: '仅起始瞬间', frameSource: i === 0 ? 'asset' : 'generate',
+      assetKey: i === 0 ? 'A01' : '', framePrompt: '保留实际图片的平视角度与空间' })) };
+  };
+  const legacyFrames = await prompts.planFeaturedVlogFrames({ script: legacyCached, template: annotatedTemplate, assets, credentials: {} });
+  assert.equal(legacyFrames.framePlan[0].assetUrl, assets[0].fileUrl);
+  assert.equal(legacyFrames.framePlan[0].role, cached.shots[0].role, 'API metadata retains the original content role');
+  assert.ok(legacyFrames.framePlan[0].framePrompt.includes('平视'));
   const baseStory = { ...script, productionVersion: undefined };
   reply = () => ({ overallDirection: '自然', shots: script.shots.map((s,i) => ({ order: s.order, role: s.role, description: s.description, frameSource: i === 0 ? 'asset' : 'generate', assetKey: i === 0 ? 'A01' : '', framePrompt: '自然场景' })) });
   await story.planStoryVideoFrames({ account: {}, noteTask: {}, story: baseStory, assets });
   assert.ok(calls.at(-1).input.includes('分析0'), 'story selection must receive image analysis');
+  assert.ok(!calls.at(-1).input.includes(vlogSelection.VLOG_ASSET_SELECTION_RULES), 'vlog camera policy must not change story selection');
   delete process.env.FEATURED_VLOG_OMNI_ENABLED;
   assert.throws(() => omni.buildOmniTask({ script }), /未启用/);
   console.log(`Omni v3: script, analysis selection, full-library batching, task contract and legacy gate passed. Task ${task.length} chars.`);

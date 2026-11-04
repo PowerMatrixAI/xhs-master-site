@@ -1,5 +1,6 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
-import { featuredVlogTemplateForPlanning, VLOG_REFERENCE_STYLE_RULE } from "@/lib/featuredVlogTemplateRules";
+import { featuredVlogTemplateForPlanning, VLOG_REFERENCE_STYLE_RULE, VLOG_CAMERA_REFERENCE_RULE } from "@/lib/featuredVlogTemplateRules";
+import { featuredVlogForAssetSelection, VLOG_ASSET_SELECTION_RULES } from "@/lib/featuredVlogAssetSelection";
 import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
 import { omniEnabled, styleVideoForTemplate, LINCHUAN, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
 import {
@@ -94,6 +95,7 @@ ${omni ? VLOG_SCENE_RULES.replace("模板及用户未指定时，主角倾向为
 ${omni ? OMNI_SCRIPT_RULES : ""}
 ${VIDEO_SCRIPT_BUDGET}
 ${VIDEO_SHOT_DESIGN}
+- ${VLOG_CAMERA_REFERENCE_RULE}
 - 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VLOG_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
 - 整片最终时长（各镜duration之和扣除叠化重叠）必须在${VLOG_DURATION.min}-${VLOG_DURATION.max}秒内，回复前计算核对；按内容分配每镜长度，不为凑时长添加空动作。
 - 模板每镜mainContent是观看重点、希望呈现的内容及其主题作用，不是固定摄影指令。具体机位、路径、运动方式和幅度在制作时依据实际图片调整，但仍需实现已确认镜头的主要内容；不把模板建议固化为不可能的拍摄动作。
@@ -255,13 +257,26 @@ export async function planFeaturedVlogFrames(input: {
   credentials: BackendAiCredentials;
 }) {
   validateVlogScenes(input.script);
-  const selection = await shortlistVideoAssets(videoAssetReferences(input.assets), input.script.shots, 14000, input.credentials);
+  const contentScript = featuredVlogForAssetSelection(input.script);
+  const selection = await shortlistVideoAssets(videoAssetReferences(input.assets), contentScript.shots, 14000, input.credentials, VLOG_ASSET_SELECTION_RULES);
   const candidates = selection.assets;
   if (input.script.productionVersion === 3) return planOmniScenes(input, candidates, selection.calls);
-  const skeleton = input.script.shots.map((shot) => ({
+  // Legacy first-frame generation must not draw the action's ending state.
+  const frameContentScript = {
+    ...contentScript,
+    characters: input.script.characters,
+    shots: contentScript.shots.map(({ endState: _end, mainAction: _action, ...s }, index) => ({
+      ...s,
+      startState: s.startState ? { ...s.startState, characters: s.startState.characters.map((c, j) => ({
+        ...c, view: input.script.shots[index].startState!.characters[j].view
+      })) } : undefined,
+      description: input.script.sceneVersion === 1 ? "仅呈现本镜起始瞬间" : s.description
+    }))
+  };
+  const skeleton = frameContentScript.shots.map((shot) => ({
     order: shot.order,
     role: shot.role,
-    description: input.script.sceneVersion === 1 ? JSON.stringify(shot.startState) : shot.description,
+    description: shot.description,
     frameSource: "generate",
     assetKey: "",
     framePrompt: ""
@@ -275,11 +290,12 @@ export async function planFeaturedVlogFrames(input: {
 ${VIDEO_FRAME_BUDGET}
 ${VIDEO_FRAME_PHOTOGRAPHY}
 ${ASSET_SELECTION_RULES}
+${VLOG_ASSET_SELECTION_RULES}
 - 首帧只画起始状态的一个静态瞬间；结束状态和主要动作属于后续视频，不可同屏叠加。人物表是身份清单，不要求所有人物同时出镜；以本镜 startState.characters 为准。图片分析可提供原图人数线索但不能替代读图；已有目标人物需复用，其他人物按设计调整，生成后必须读图核验，不能机械叠加游客。
 - 模板画面指导只作为场景与风格参考；若它描述了整个过程，以已确认 startState 的位置、人数和姿态作为唯一首帧，不把后续状态提前画入。
 - 严格按脚本镜头数量和顺序输出，不能增删镜头。
-- 脚本如包含 transitionToNext，本镜首帧应使用前一镜 transitionToNext.incomingState，并参考前一镜 outgoingState 的主体位置、构图、运动方向；真实素材仍须保留场地事实。
-- 优先从当前账号素材库选图：图片分析为主要依据，文件名、标签和适用类型补充，只要素材描述的主要场景或主体能承接镜头画面，就选择 asset。无需标签写明民宿名称、拍摄地点或日期，也无需原图已经包含游客手部、行李和完整动作；这些视角和动作可在后续精修中补充。不得声称已经看过图片或核实其拍摄地点。
+- 保留本镜起始内容和人物状态；跨镜构图与摄影方向可在制作时适配，不用暂定摄影意图拒绝素材，真实素材须保留原有透视和场地事实。
+- 优先从当前账号素材库选图：图片分析为主要依据，文件名、标签和适用类型补充，只要素材描述的主要场景或主体能承接镜头画面，就选择 asset。无需标签写明民宿名称、拍摄地点或日期，也无需原图已经包含游客手部、行李和完整动作；这些人物动作可在后续精修中补充，但不得为了参考拍法强改原图观察角度。不得声称已经看过图片或核实其拍摄地点。
 - 按已确认startState.location、镜头职责与suggestedMaterial匹配场景：室内镜头选室内素材，目的地景观镜头优先匹配山水、村落、街道、绿荫等环境素材，不能默认退回客房或窗边图。室内窗景不能代替脚本要求的独立室外画面；不要为多选风景而把已确认的室内动作改到室外。
 - 室外选图沿用宽松语义匹配，不要求标签证明是本店实拍；选中风景只代表画面适用，不证明具体景点、路线或民宿提供项目。可用环境镜头保持无人画面，不必强行添加游客。
 - 每个素材最多使用一次，只返回候选 assetKey，不返回 URL。
@@ -288,14 +304,14 @@ ${ASSET_SELECTION_RULES}
 - 若素材标签无法证明场地归属，在 overallDirection 中提示发布前人工核验素材与民宿的关系；不要把通用素材描述成已核验的本店现场。
 - 脚本涉及尚未核实的活动时，允许从“登山、玩水、徒步”中选一种拍成不指向具体地点或民宿服务的通用体验画面；不要因缺少已核实活动而留空、暂停镜头，也不得把 AI 画面表述为真实活动记录。
 - asset 的 framePrompt 保留原图空间，只补充本镜起始瞬间的游客姿态；generate 同样只描述一个起始瞬间的主体、构图、光线和摄影质感。完整动作不能写成同屏多个状态。
-- 按已确认的摄影视角安排人物朝向，正面、侧面、背面均可；第三人称画面可以自然呈现虚构游客正脸与表情。POV保持第一人称视点，不为展示脸而凭空新增人物；人物数量与身份始终遵循脚本。
+- 按实际图片条件适配暂定摄影视角，再安排人物朝向，正面、侧面、背面均可；第三人称画面可以自然呈现虚构游客正脸与表情。POV保持第一人称视点，不为展示脸而凭空新增人物；人物数量与身份始终遵循脚本。
 - 使用全片人物表中的固定外观，同id不能在不同首帧换脸、换性别或年龄。startState.view=front时应能清晰看到正脸和五官，不因空间场景默认改为侧影。人物与场地构图兼顾，不以增加室内镜头来凑正脸。
 
 脚本：
-${JSON.stringify(input.script.sceneVersion === 1 ? { title: input.script.title, perspective: input.script.perspective, characters: input.script.characters, shots: input.script.shots.map(s => ({ order: s.order, role: s.role, startState: s.startState, suggestedMaterial: s.suggestedMaterial })) } : input.script, null, 2)}
+${JSON.stringify(frameContentScript, null, 2)}
 
-模板视觉要求：
-${JSON.stringify({ visualGuidance: input.template.visualGuidance, perspectiveGuidance: input.template.perspectiveGuidance }, null, 2)}
+摄影处理：
+暂定拍法不参与选图；保留图片原有透视和空间，最终拍法读图后确定。人物朝向按内容设计，不为参考摄影角度重绘场景。
 
 账号素材候选：
 ${JSON.stringify(candidates.map(({ fileUrl: _url, ...item }) => item), null, 2)}
@@ -315,7 +331,7 @@ ${JSON.stringify(candidates.map(({ fileUrl: _url, ...item }) => item), null, 2)}
     const assetKey = text(item.assetKey);
     const framePrompt = text(item.framePrompt);
     const expected = input.script.shots[index];
-    if (Number(item.order) !== index + 1 || text(item.role) !== expected.role || !text(item.description) || !framePrompt || !frameSource) return null;
+    if (Number(item.order) !== index + 1 || text(item.role) !== skeleton[index].role || !text(item.description) || !framePrompt || !frameSource) return null;
     if (frameSource === "asset") {
       const asset = byKey.get(assetKey);
       if (!asset || used.has(assetKey)) return null;
@@ -333,7 +349,7 @@ async function planOmniScenes(input: { script: FeaturedVlogScript; template: Fea
   validateOmniScript(input.script);
   const response = await completeWithBackendAi({ credentials: input.credentials,
     instructions: "你是精选Vlog场景参考选图师。只读取文字分析，不声称看过实际图片。只输出JSON。",
-    input: `${ASSET_SELECTION_RULES}\n图片是场景参考，不是首帧，不需要已含主角。每图最多选一次，仅返回候选assetKey，禁止虚构URL。只在没有匹配场景时generate。保留已确认镜头职责、人数、时长、转场；脚本摄影意图不能作为拒绝可用场景的苛刻条件。场景图不先加入林川，人物由Omni主体加入。generate只写无人环境生成要求。asset只写保留空间事实的参考要求，不虚构可行走区域、光向或设施；实际图由智能体查看细化。\n每镜selectionReason最多60字、sceneDescription最多180字，保留图片分析快照由程序完成，不重复输出。\n脚本：${JSON.stringify(input.script)}\n素材：${JSON.stringify(candidates.map(assetMetadata))}\n返回 {"overallDirection":"整片方向","shots":[{"order":1,"source":"asset或generate","assetKey":"选中标识或空串","selectionReason":"匹配依据","sceneDescription":"场景参考要求"}]}`
+    input: `${ASSET_SELECTION_RULES}\n${VLOG_ASSET_SELECTION_RULES}\n图片是场景参考，不是首帧，不需要已含主角。每图最多选一次，仅返回候选assetKey，禁止虚构URL。只在没有匹配场景时generate。保留已确认镜头职责、人数、时长、转场；脚本摄影意图不能作为拒绝可用场景的苛刻条件。场景图不先加入林川，人物由Omni主体加入。generate只写无人环境生成要求。asset只写保留空间事实的参考要求，不虚构可行走区域、光向或设施；实际图由智能体查看细化。\n每镜selectionReason最多60字、sceneDescription最多180字，保留图片分析快照由程序完成，不重复输出。\n脚本：${JSON.stringify(featuredVlogForAssetSelection(input.script))}\n素材：${JSON.stringify(candidates.map(assetMetadata))}\n返回 {"overallDirection":"整片方向","shots":[{"order":1,"source":"asset或generate","assetKey":"选中标识或空串","selectionReason":"匹配依据","sceneDescription":"场景参考要求"}]}`
   });
   if (!response.ok) throw new Error(`场景参考选图失败：${response.error}`);
   const parsed = extractJson(response.text);
@@ -370,6 +386,7 @@ export async function planFeaturedVlogMotion(input: {
 硬性要求：
 ${VIDEO_MOTION_BUDGET}
 ${VIDEO_MOTION_PHOTOGRAPHY}
+- 摄影设计仍须在实际读图后适配，首帧计划与旧脚本中的景别、机位、运镜仅暂定。保留原图透视与空间；不为复刻参考拍法改成俯拍、航拍或补造隐藏区域，不适合移动时可固定。只因拍法不适配应调整拍法，不能改换核心内容。
 - 每镜只执行本镜 startState→mainAction→endState，移动首帧中已有的同一人物。入场/离场仅按 characterChanges；手部与背影沿用同一身份。mainVideoPrompt与endingTransitionPrompt不得含下一镜的事件或人物位置，不把结束状态添加为第二个人物，不在单镜内切场景。
 - 与首帧规划镜头数量、顺序完全一致，不得更换场景和镜头职责。
 ${input.script.sceneVersion === 1 ? "- 按本镜 duration（旧时间线为5秒）完成唯一主要动作，结尾只呈现本镜 endState。相邻镜头的衔接和叠化由后期处理，本请求不生成后续镜头的事件。" : input.script.timingVersion === 2 ? "- 严格沿用脚本 duration。关键动作在目标时长内完成，结尾自然收束，不变形成下一场景。" : "- 每个片段总长 5 秒；主体动态约前 4 秒，最后约 1 秒自然收束。"}

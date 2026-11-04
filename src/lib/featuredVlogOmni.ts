@@ -8,6 +8,7 @@ export const LINCHUAN = {
   id: "324475410205532", bindName: "林川", type: "image", characterId: "A", version: 1,
   appearance: "28岁东亚男性，黑短发，无胡须眼镜；沙米卷袖衬衫、灰绿长裤、米灰鞋、深棕帆布包左肩左髋"
 } as const;
+/** Provisional photography intent; actual scene-image review determines the final camera. */
 export type ShotDirection = {
   focus: string;
   photography: { scale: string; height: string; angle: string; composition: string; depth: string };
@@ -31,7 +32,7 @@ export function styleVideoForTemplate(template: Pick<FeaturedVlogTemplate, "refe
 export const OMNI_SCRIPT_RULES = `本脚本使用productionVersion:3、timingVersion:2、sceneVersion:1。人物仅允许A，固定为${LINCHUAN.appearance}。不另造身份或改变服装；环境镜头可无人，不强制所有镜头出人，不因提供主体就加人。characters为空或只含A，按实际剧情决定。模板、用户要求若需要不兼容的固定人物，不擅自替换为林川，应明确指出不支持。
 每镜增加direction，结构为 {"focus":"观看重点","photography":{"scale":"景别","height":"机位高度","angle":"观察角度","composition":"主体位置/构图","depth":"前中远景意图"},"camera":{"type":"fixed|pan|track|push|pull|follow","direction":"运动方向或固定朝向","speed":"速度","extent":"运动范围"},"action":"人物动作或纯环境变化","timing":[{"start":0,"end":2,"action":"开始到完成的动作"}],"ending":"结束画面"}。
 timing用秒，连续覆盖0到本镜duration，最多3段；每项action不超过20字。其余direction短句每项最多25字。人物动作与摄影机运动分开，fixed不得同时跟随位移。每镜一个可完成的主要动作，避免统一走停转头。
-摄影设计是意图，尚未看实际图，不捏造通道、障碍或光源。按主题变化景别、机位、主体位置和节奏，不强制航拍。相邻切点说明视线/方向/构图/主题承接，时间光线变化需有理由。结束状态不能包含下一镜场景或剪辑效果；cut/dissolve仅由transitionToNext定义。`;
+direction是未读图的暂定拍法，不是用户确认后的摄影硬约束。内容、核心动作及时间线先确定；具体景别、机位、构图和运镜读图后可采用、部分采用或替换，不捏造通道、障碍或光源。不要在description、suggestedMaterial、起止状态及mainAction中重复这些摄影指令。按主题变化景别、主体位置和节奏，不强制航拍。相邻切点说明主题承接，摄影方向与构图可适配实际图；时间光线变化需有理由。结束状态不能包含下一镜场景或剪辑效果；cut/dissolve仅由transitionToNext定义。`;
 
 export function validateOmniScript(script: FeaturedVlogScript) {
   if (script.productionVersion !== 3) throw new Error("缺少 Omni 脚本版本。");
@@ -107,16 +108,18 @@ ${JSON.stringify(plan)}
 \`\`\`
 
 ## 准备与读图细化
+plan.shots[].direction仅为暂定拍法，其他文本中的摄影描述也仅供参考，不能直接当最终生成提示词；原始plan.json及sourceHash不改写，适配只记录在resolved-plan.json的refinement。
 1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载模板参考视频及场景/配乐，参考视频3–10秒直接使用，超过10秒截前10秒，不足3秒报错；不回退静态视频，不生成首帧或调用Turbo。
 2. generate镜头先用generate-image制作无主角场景参考图（9:16），保存到骨架scenePath；有sceneStyleReference时可用edit-image以背景和返回的sceneStylePath锚点统一摄影质感，不复制建筑或人物。asset镜头保留原图，不先加人或重绘。
 3. 逐张查看实际图，核对已有人员、通行区域、障碍、光向、画幅，不能只读分析。细化落点/尺度/透视、接触承重/遮挡、光向/光比/色温/环境反光/投影、景深/运动模糊；不带入棚拍背景/光线。有玻璃才检查反射，无人不加人物约束，hands不要求露脸，朝向按本镜；不得叠加第二个林川。
-4. 分写人物动作、运镜、分段时间、结束状态、适用约束和prompt。机位、路径、运动方式/幅度按实际图调整并记录理由，仍需实现主要内容；保留确认主题、顺序、时长、身份和转场，核心动作不支持则停止报告，不擅自换图或改剧情。
+4. 根据实际图确定最终景别、机位、构图及运镜，可采用、部分采用或替换暂定拍法；平视图片能承接内容时保留平视，不为参考俯拍/航拍/环绕补造屋顶、隐藏区域、背面或通道。缺乏空间信息或不适合移动时允许固定机位。只因拍法不适配应调整拍法，不换图、不生成替代场景；必要内容或核心动作确实无法完成时才停止报告。保留主题、核心事件、顺序、时长、身份、人数和转场。
+5. 分写人物动作、分段时间及结束状态。imageObservations记录实际视角、空间与可用信息；cameraMovement明确最终景别、机位、构图、运镜及调整理由；constraints记录不可改变的空间与透视边界；prompt只含适配后的拍法，不叠加冲突的暂定指令。构图调整需兼顾相邻镜衔接，不改变核心内容。
 
 ## Kling CLI生成与记录
 执行 kling --version（>=0.2.3）、kling who_am_i、kling account、kling omni_ref_video --help、kling element_get ${LINCHUAN.id}，核对账号/image主体/能力。只用官方kling，缺失或失败报告，不改通道。参数映射按实时帮助，不靠默认值。
 每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath、--video传styleVideoPath，本地自动上传。A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${LINCHUAN.id}>>>，无人省略。主体约束身份服装；${VLOG_REFERENCE_STYLE_RULE} 补齐720p、9:16、单条、关闭音频/原声/智能分镜；时长max(3,ceil(duration))<=10，动作在目标时长内完成。实际内部切镜不通过。
 --poll 0单次提交，保存CLI回执；ok=true后立即记录body.generationId及creditsConsumed，再用 kling query_tasks 实际ID查询，从成功works取视频地址。失败/超时续查原ID，不重投、不改模型；报价以当前入口为准。
-按Skill v3规范填写resolved-plan.json，保留sourceHash；refinement记录实际读图、动作、运镜、分段时间、光学和prompt。request记录model、规范化arguments/inputs、完整argv及原始submitResponse；elements落盘为数组，prompt等于细化prompt。输入记录实际CLI路径，argv从kling、omni_ref_video开始，凭据不得记录。
+按Skill v3规范填写resolved-plan.json，保留sourceHash；refinement记录实际读图、动作、最终拍法、分段时间、光学和prompt。生成阶段只执行适配后的拍法，request.arguments.prompt必须等于refinement.prompt，不直接执行或拼接plan.direction。request记录model、规范化arguments/inputs、完整argv及原始submitResponse；elements落盘为数组，prompt等于细化prompt。输入记录实际CLI路径，argv从kling、omni_ref_video开始，凭据不得记录。
 下载片段到骨架clipPath；分别计算实际scenePath和clipPath文件的SHA256填入sceneSha256、clipSha256，防止改图/换片后误用旧验收。查看并填visualReview={passed:true,notes:"身份/光学/动作/无内部切镜检查结果"}。只通过技术检查不能标记视觉通过。每镜抽取实际起始画面，经飞书发送给请求用户，标明任务/镜号及“视频起始画面预览”，不是预先制作的首帧。
 
 ## 后期与交付

@@ -92,6 +92,7 @@ export type FeaturedVlogScript = {
     suggestedMaterial: string;
     subjectPresence: "pov" | "traveler" | "environment";
     duration?: number;
+    /** Tentative until the production agent reviews the selected scene image. */
     direction?: import("./featuredVlogOmni").ShotDirection;
     transitionToNext?: import("./videoTimeline").VideoTransition | null;
   }>;

@@ -18,7 +18,7 @@ export function videoAssetReferences(assets: VideoSourceAsset[]): VideoAssetRefe
 export const assetMetadata = ({ fileUrl: _url, ...asset }: VideoAssetReference) => asset;
 
 // Bound each screening request, never silently drop the tail of an account library.
-export async function shortlistVideoAssets(assets: VideoAssetReference[], shots: readonly unknown[], budget = 14000, credentials?: BackendAiCredentials) {
+export async function shortlistVideoAssets(assets: VideoAssetReference[], shots: readonly unknown[], budget = 14000, credentials?: BackendAiCredentials, selectionGuidance = "") {
   const batches: VideoAssetReference[][] = [];
   let batch: VideoAssetReference[] = [], length = 2;
   for (const asset of assets) {
@@ -44,7 +44,7 @@ export async function shortlistVideoAssets(assets: VideoAssetReference[], shots:
       const response = await completeWithBackendAi({
         credentials,
         instructions: "你是视频素材筛选员。只输出JSON。",
-        input: `${ASSET_SELECTION_RULES}\n为每镜从本批选最多2张最匹配素材；不匹配可留空，不能因无分析排除素材。只返回 {"assetKeys":["A01"]}，全批最多${shots.length * 2}项。\n镜头：${JSON.stringify(shots)}\n本批：${JSON.stringify(group.map(assetMetadata))}`
+        input: `${ASSET_SELECTION_RULES}${selectionGuidance ? `\n${selectionGuidance}` : ""}\n为每镜从本批选最多2张最匹配素材；不匹配可留空，不能因无分析排除素材。只返回 {"assetKeys":["A01"]}，全批最多${shots.length * 2}项。\n镜头：${JSON.stringify(shots)}\n本批：${JSON.stringify(group.map(assetMetadata))}`
       });
       calls++;
       if (!response.ok) throw new Error(`素材分批筛选失败：${response.error}`);
