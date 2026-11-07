@@ -1,4 +1,18 @@
 import type { FeaturedVlogResolution } from "./featuredVlog";
+import type { VlogCharacterSelection } from "./vlogCharacters";
+
+export function templateVlogCharacter(records: Record<string, VlogCharacterSelection> | undefined, templateId: string): VlogCharacterSelection {
+  const value = records?.[templateId];
+  return value === "none" || value === "shenhe" ? value : "linchuan";
+}
+
+export function vlogTaskCharacterChanged(content: string, choice: VlogCharacterSelection): boolean {
+  if (!content) return false;
+  try {
+    const plan = JSON.parse(content.match(/```json\s*([\s\S]*?)```/)?.[1] || "{}");
+    return (plan.characterSelection || (plan.character?.id === "325994250221723" ? "shenhe" : "linchuan")) !== choice;
+  } catch { return choice !== "linchuan"; }
+}
 
 export function templateVlogResolution(records: Record<string, FeaturedVlogResolution> | undefined, templateId: string): FeaturedVlogResolution {
   return records?.[templateId] === "1080p" ? "1080p" : "720p";

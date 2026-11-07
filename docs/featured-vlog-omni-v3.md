@@ -24,6 +24,10 @@ FEATURED_VLOG_OMNI_ENABLED=true
 
 ### 出镜、运镜与清晰度
 
+- 第二步可选林川（324641305202280）、沈禾（325994250221723）或none（不添加人物），按账号/模板保存；旧缓存默认林川。请求字段featuredVlogCharacter只接受linchuan/shenhe/none，不能提交自定义主体对象覆盖目录。
+- 更换初始人物或选择无人时先调用内部adapt_featured_vlog_character生成制作脚本，再选场景、配乐和组装任务。制作脚本标记characterSelection，原确认脚本不覆盖；保持场景、顺序、时长、转场类型/重叠、动作分段秒数。换人保留出镜安排，无人则将体验改为环境呈现，不使用手部/剪影代替。
+- plan.characterSelection记录所选模式；实际有人时character来自预设目录，全片无人省略character。旧Skill已按plan.character读取主体，无需再固定人物；Hermes执行前element_get检查账号权限，人物不可访问时报错不替换。不添加人物需检查并处理原素材已有人员。
+
 - 按模板内容决定人物：风景/地点建立默认无人，体验动作按需绑定林川，不设人物镜头比例。每镜subjectPresence写入任务，environment必须起止无人且无入场离场；POV仅实际可见人物局部时绑定，全片无人不输出character。旧执行任务缺少subjectPresence时兼容原状态判断。
 - 读图后空间充分时设计中等幅度、有明确起幅与终幅变化的运动，静观细节可固定；不编造米数、隐藏空间或建筑背面。最终拍法和理由记入refinement并实际验收。
 - 第二步选择生成清晰度，默认720P放大输出，1080P直接以Kling 1080p生成，不能降级或放大冒充；最终均1080x1920/24fps。设置按账号/模板写浏览器工作区，不改脚本；修改后旧任务提示重新生成，旧缓存默认720P。

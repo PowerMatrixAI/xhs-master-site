@@ -3,11 +3,9 @@ import { validateVideoTimeline, videoTimelineDuration } from "./videoTimeline";
 import { validateVlogScenes } from "./vlogScene";
 import type { VlogSceneState } from "./vlogScene";
 import { VLOG_REFERENCE_STYLE_RULE } from "./featuredVlogTemplateRules";
+import { VLOG_CHARACTERS, vlogCharacterSelection, type VlogCharacterSelection } from "./vlogCharacters";
 
-export const LINCHUAN = {
-  id: "324641305202280", bindName: "林川-山林周末Vlog", type: "image", characterId: "A", version: 2,
-  appearance: "28岁东亚男性，黑短发，无胡须眼镜；沙米卷袖衬衫、灰绿长裤、米灰鞋、深棕帆布包左肩左髋"
-} as const;
+export const LINCHUAN = VLOG_CHARACTERS.linchuan;
 /** Provisional photography intent; actual scene-image review determines the final camera. */
 export type ShotDirection = {
   focus: string;
@@ -45,6 +43,7 @@ export function validateOmniScript(script: FeaturedVlogScript) {
   if (script.productionVersion !== 3) throw new Error("缺少 Omni 脚本版本。");
   validateVideoTimeline(2, script.shots);
   validateVlogScenes(script);
+  if (script.characterSelection === "none" && (script.characters?.length || script.shots.some(s => s.subjectPresence !== "environment" || s.startState!.characters.length || s.endState!.characters.length || s.characterChanges!.length))) throw new Error("不添加人物模式必须全部为无人环境镜头。");
   // Identity is bound by the preset Element in buildOmniTask, not AI wording.
   if (script.timingVersion !== 2 || script.sceneVersion !== 1 || !Array.isArray(script.characters) || script.characters.some(c => c.id !== LINCHUAN.characterId)) throw new Error("Omni 当前仅支持预设人物主体A，请重新生成脚本。");
   script.shots.forEach((s, i) => {
@@ -80,11 +79,15 @@ function executionDirection(d: ShotDirection) {
 export function buildOmniTask(input: {
   noteTask: { id: number };
   resolution?: FeaturedVlogResolution;
+  characterSelection?: VlogCharacterSelection;
   script: FeaturedVlogScript; framePlan: FeaturedVlogFramePlan; music: MusicCandidate;
   template: Pick<FeaturedVlogTemplate, "id" | "name" | "version" | "referenceVideoId" | "referenceVideo">; overallDirection: string;
 }) {
   validateOmniScript(input.script);
   const resolution = vlogResolution(input.resolution);
+  const choice = vlogCharacterSelection(input.characterSelection);
+  if (choice !== (input.script.characterSelection || "linchuan")) throw new Error("人物选择已变化，请先完成人物制作适配。");
+  const character = choice === "none" ? null : VLOG_CHARACTERS[choice];
   const hasPeople = input.script.shots.some(s => s.startState!.characters.length || s.endState!.characters.length);
   if (!omniEnabled()) throw new Error("Omni v3 尚未启用，请先完成参考资源与执行器验证。");
   const styleVideo = styleVideoForTemplate(input.template);
@@ -103,7 +106,8 @@ export function buildOmniTask(input: {
     template: { id: input.template.id, name: input.template.name, version: input.template.version, referenceVideoId: styleVideo.id },
     generation: { provider: "kling_cli", tool: "omni_ref_video", model: "kling-video-v3_0_omni", resolution, aspect_ratio: "9:16", imageCount: "1", prefer_multi_shots: "false", enable_audio: "false", keepOriginalSound: "false" },
     output: { width: 1080, height: 1920, fps: 24 },
-    ...(hasPeople ? { character: LINCHUAN } : {}), styleVideo,
+    characterSelection: choice,
+    ...(hasPeople && character ? { character } : {}), styleVideo,
     sceneStyleReference: anchor ? { imageUrl: anchor.assetUrl } : undefined,
     script: { title: input.script.title, summary: input.script.summary, perspective: input.script.perspective },
     music: { id: input.music.id, name: input.music.name, tags: input.music.tags, durationSeconds: input.music.durationSeconds, audioUrl: input.music.audioUrl }, shots };
@@ -130,8 +134,8 @@ plan.shots[].direction仅为暂定拍法，其他文本中的摄影描述也仅�
 5. 分写动作、时间、结束状态。imageObservations记录视角空间；cameraMovement记录最终拍法及理由；constraints记录空间/透视边界；prompt只含适配拍法，不拼冲突指令；兼顾相邻衔接。
 
 ## Kling CLI生成与记录
-执行 kling --version（>=0.2.3）、kling who_am_i、kling account、kling omni_ref_video --help${hasPeople ? `、kling element_get ${LINCHUAN.id}` : ""}，核对账号${hasPeople ? "/image主体" : ""}/能力。只用官方kling，缺失或失败报告，不改通道。参数映射按实时帮助，不靠默认值。
-每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath、--video传styleVideoPath，本地自动上传。${hasPeople ? `A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${LINCHUAN.id}>>>，无人省略。主体约束身份服装；` : "全片无人，不绑定人物主体。"}${VLOG_REFERENCE_STYLE_RULE} 显式传resolution=${resolution}、9:16、单条、关闭音频/原声/智能分镜；清晰度不支持则停止，不降级。时长max(3,ceil(duration))<=10，动作在目标时长内完成。实际内部切镜不通过。
+执行 kling --version（>=0.2.3）、kling who_am_i、kling account、kling omni_ref_video --help${hasPeople && character ? `、kling element_get ${character.id}` : ""}，核对账号/主体/能力。只用官方kling，失败报告不改通道，参数按实时帮助。
+每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath、--video传styleVideoPath，本地自动上传。${hasPeople && character ? `A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${character.id}>>>，无人省略。主体约束身份服装；` : "全片无人，不绑定人物，不生成其他人物或手部。"}${VLOG_REFERENCE_STYLE_RULE} 显式传resolution=${resolution}、9:16、单条、关闭音频/原声/智能分镜；不支持停止，不降级。时长max(3,ceil(duration))<=10，动作按时完成，内部切镜不通过。
 --poll 0单次提交，保存CLI回执；ok=true后立即记录body.generationId及creditsConsumed，再用 kling query_tasks 实际ID查询，从成功works取视频地址。失败/超时续查原ID，不重投、不改模型；报价以当前入口为准。
 按Skill写resolved-plan.json并保留sourceHash；refinement记录读图/动作/最终拍法/时间/光学/prompt。request.arguments.prompt必须等于refinement.prompt，不直接执行或拼接plan.direction。request记录model、arguments/inputs、argv、原始submitResponse；elements为数组，输入为实际CLI路径，argv从kling、omni_ref_video开始，不记凭据。
 下载片段到骨架clipPath；分别计算实际scenePath和clipPath文件的SHA256填入sceneSha256、clipSha256，防止改图/换片后误用旧验收。查看并填visualReview={passed:true,notes:"身份/光学/动作/无内部切镜检查结果"}。只通过技术检查不能标记视觉通过。每镜抽取实际起始画面，经飞书发送给请求用户，标明任务/镜号及“视频起始画面预览”，不是预先制作的首帧。

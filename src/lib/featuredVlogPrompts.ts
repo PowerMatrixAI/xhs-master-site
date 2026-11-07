@@ -1,4 +1,5 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
+import { VLOG_CHARACTERS, vlogCharacterSelection, type VlogCharacterSelection } from "@/lib/vlogCharacters";
 import { featuredVlogTemplateForPlanning, VLOG_REFERENCE_STYLE_RULE, VLOG_CAMERA_REFERENCE_RULE } from "@/lib/featuredVlogTemplateRules";
 import { featuredVlogForAssetSelection, VLOG_ASSET_SELECTION_RULES } from "@/lib/featuredVlogAssetSelection";
 import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
@@ -469,6 +470,36 @@ ${JSON.stringify(musicCandidates, null, 2)}
   return { music: selected, reason: text(parsed?.reason), model: response.model };
 }
 
+export async function adaptFeaturedVlogCharacter(input: { script: FeaturedVlogScript; characterSelection?: VlogCharacterSelection; credentials?: BackendAiCredentials }) {
+  const choice = vlogCharacterSelection(input.characterSelection);
+  validateOmniScript(input.script);
+  if (choice === (input.script.characterSelection || "linchuan")) return { script: { ...input.script, characterSelection: choice }, calls: 0 };
+  const person = choice === "none" ? null : VLOG_CHARACTERS[choice];
+  const response = await completeWithBackendAi({ credentials: input.credentials,
+    instructions: "你是精选Vlog制作适配员。仅按用户人物选择适配已确认脚本，返回完整合法JSON，不新增镜头。",
+    input: `选择：${person ? JSON.stringify(person) : "不添加任何人物，包括手部、剪影、反射中的人"}。
+保留主题、场景、镜头职责、顺序、每镜duration、转场type/duration和timing各段起止秒数。不编造设施。${person ? "只替换A的外观、性别称谓、发型服装及不兼容的随身道具，保留原先各镜头是否出人及核心动作；不用新人物填充无人镜头。所有相关文本包括主题摘要、动作、摄影、起止状态和转场衔接同步适配，不保留林川/其他原人物的名字、性别、服装或包具要求。" : "将人物体验转换为对应环境、物件静置或自然变化，人物专属动作改为无人场景呈现，不保留走路、采摘、举杯等需要人执行的命令，不用隐形人物/POV手部代替。全部镜头subjectPresence=environment；顶层characters=[]，每镜起止characters=[]，characterChanges=[]。全文同步移除人物命令与称谓，保持原场景与体验主题，不添加新设施；无法适配则返回{error:原因}。"}
+${VIDEO_SCRIPT_BUDGET}
+每镜direction仍完整，暂定拍法读图后调整；未涉及人物适配的字段原样保留，不扩写。direction各短句最多25字，timing.action最多20字。只输出一个完整脚本对象。原脚本：${JSON.stringify(input.script)}`
+  });
+  if (!response.ok) throw new Error(`人物制作适配失败：${response.error}`);
+  const raw = extractJson(response.text);
+  if (!raw || raw.error) throw new Error(`人物制作适配失败：${text(raw?.error) || "未返回完整脚本"}`);
+  const adapted = { ...raw, characterSelection: choice, noteTask: input.script.noteTask } as FeaturedVlogScript;
+  if (![adapted.title, adapted.summary, adapted.perspective].every(v => typeof v === "string" && !!v.trim())) throw new Error("人物适配结果缺少标题、概要或视角。");
+  validateOmniScript(adapted);
+  if (adapted.shots.length !== input.script.shots.length) throw new Error("人物适配不得增删镜头。");
+  adapted.shots.forEach((s, i) => {
+    const old = input.script.shots[i];
+    if (!person && (old.startState!.characters.length || old.endState!.characters.length) && s.mainAction === old.mainAction) throw new Error("无人适配须转换原人物动作，不能只清空人物数组。");
+    if (s.order !== old.order || s.duration !== old.duration || s.transitionToNext?.type !== old.transitionToNext?.type || s.transitionToNext?.duration !== old.transitionToNext?.duration
+      || s.startState!.location !== old.startState!.location || s.endState!.location !== old.endState!.location
+      || JSON.stringify(s.direction!.timing.map(p => [p.start, p.end])) !== JSON.stringify(old.direction!.timing.map(p => [p.start, p.end]))) throw new Error("人物适配不得改变场景、顺序、时长或转场类型。");
+    if (person && (s.subjectPresence !== old.subjectPresence || JSON.stringify(s.startState!.characters.map(c => c.id)) !== JSON.stringify(old.startState!.characters.map(c => c.id)) || JSON.stringify(s.endState!.characters.map(c => c.id)) !== JSON.stringify(old.endState!.characters.map(c => c.id)))) throw new Error("切换人物不得改变镜头出镜安排。");
+  });
+  return { script: adapted, calls: 1 };
+}
+
 export function buildFeaturedVlogVideoTask(input: {
   account: { name: string; accountParam: string };
   noteTask: { id: number; topicTitle: string };
@@ -479,6 +510,7 @@ export function buildFeaturedVlogVideoTask(input: {
   music: MusicCandidate;
   overallDirection: string;
   resolution?: import("./featuredVlog").FeaturedVlogResolution;
+  characterSelection?: VlogCharacterSelection;
 }) {
   if (input.script.productionVersion === 3) return buildOmniTask(input);
   validateVlogScenes(input.script);

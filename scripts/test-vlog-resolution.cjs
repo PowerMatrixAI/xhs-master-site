@@ -2,10 +2,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
-function load(file) {
+function load(file, overrides = {}) {
   const mod = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  vm.runInNewContext(code, { module: mod, exports: mod.exports, require });
+  vm.runInNewContext(code, { module: mod, exports: mod.exports, require: id => overrides[id] || require(id) });
   return mod.exports;
 }
 const { templateVlogResolution: resolution, vlogTaskResolutionChanged: changed } = load('src/lib/templateVideoDrafts.ts');
@@ -30,3 +30,21 @@ assert.equal(changed(task('1080p'), '1080p'), false);
 assert.equal(changed('', '1080p'), false);
 assert.equal(changed('旧任务', '720p'), false);
 console.log('Vlog resolution: controls, defaults, template/account isolation, restoration and stale-task warning passed.');
+const catalog = load('src/lib/vlogCharacters.ts');
+const { FeaturedVlogCharacterSettings: Characters } = load('src/app/components/FeaturedVlogCharacterSettings.tsx', { '@/lib/vlogCharacters': catalog });
+const { templateVlogCharacter: choice, vlogTaskCharacterChanged: characterChanged } = load('src/lib/templateVideoDrafts.ts');
+assert.equal(choice(undefined, 'A'), 'linchuan');
+assert.equal(choice({ A: 'none', B: 'shenhe' }, 'A'), 'none');
+assert.equal(choice(JSON.parse(JSON.stringify({ A: 'none', B: 'shenhe' })), 'B'), 'shenhe');
+assert.throws(() => catalog.vlogCharacterSelection('custom-id'), /有效人物/);
+assert.throws(() => catalog.vlogCharacterSelection(null), /有效人物/);
+let picked = 'linchuan';
+const characterTree = Characters({ value: picked, disabled: false, onChange: v => picked = v });
+assert.equal(nodes(characterTree).filter(n => n.type === 'option').length, 3);
+nodes(characterTree).find(n => n.type === 'select').props.onChange({ target: { value: 'none' } });
+assert.equal(picked, 'none');
+assert.equal(characterChanged('旧任务', 'linchuan'), false);
+assert.equal(characterChanged('旧任务', 'none'), true);
+assert.equal(characterChanged('```json\n{"characterSelection":"none"}\n```', 'none'), false);
+assert.equal(characterChanged('```json\n{"characterSelection":"shenhe"}\n```', 'linchuan'), true);
+console.log('Vlog character controls: presets, explicit none, restoration and stale-task warning passed.');
