@@ -144,7 +144,7 @@ async function featuredVlogContext(body: Record<string, unknown>, credentials: B
   if (script.productionVersion === 3) {
     if (!omniEnabled()) throw new Error("Omni尚未启用，请完成资源和执行器验证。");
     validateOmniScript(script);
-    if (body.action !== "adapt_featured_vlog_character" && vlogCharacterSelection(body.featuredVlogCharacter) !== (script.characterSelection || "linchuan")) throw new Error("人物选择已变化，请先完成人物制作适配。");
+    if (!["adapt_featured_vlog_character", "featured_vlog_context"].includes(String(body.action)) && vlogCharacterSelection(body.featuredVlogCharacter) !== (script.characterSelection || "linchuan")) throw new Error("人物选择已变化，请先完成人物制作适配。");
   }
   if (script.productionVersion !== 3 && vlogCharacterSelection(body.featuredVlogCharacter) !== "linchuan") throw new Error("重新生成Omni脚本后可选择人物。");
   if (script.productionVersion !== 3 && script.timingVersion === 2 && !videoTimelineV2Enabled()) throw new Error("新版时间线尚未启用，请等待执行器和接口验收完成。");
@@ -222,6 +222,14 @@ export async function POST(request: Request) {
   if ((body.noteTask as { type?: string }).type !== "video_text") return NextResponse.json({ error: "只有视频笔记可以生成视频方案。" }, { status: 400 });
   const credentials = getBackendAiCredentialsFromRequest(request);
   if (!credentials) return NextResponse.json({ error: "登录认证信息缺失，请重新登录后重试。" }, { status: 401 });
+  if (body.mode === "featured_vlog" && body.action === "featured_vlog_context") {
+    try {
+      const input = await featuredVlogContext(body, credentials);
+      const music = await fetchMusicCandidatesFromBackend(Number(input.account.id), credentials);
+      if (!music.length) throw new Error("平台配乐库暂无可用配乐，请先上传并启用曲目。");
+      return NextResponse.json({ template: input.template, assets: input.assets, music });
+    } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "制作资源检查失败" }, { status: 400 }); }
+  }
   if (body.mode === "featured_vlog" && body.action === "adapt_featured_vlog_character") {
     const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, async () => {
       const input = await featuredVlogContext(body, credentials);
@@ -234,7 +242,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
   }
   if (body.mode === "featured_vlog" && body.action === "plan_featured_vlog_frames") {
-    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildFeaturedVlogFrameResult(body, credentials)));
+    const task = createAsyncRouteTask(() => runWithBackendAiCredentials(credentials, () => buildFeaturedVlogFrameResult(body, credentials)), { ttlMs: 60 * 60 * 1000 });
     return NextResponse.json({ async: true, uuid: task.uuid, status: task.status });
   }
   if (body.mode === "featured_vlog" && body.action === "plan_featured_vlog_motion") {

@@ -15,6 +15,7 @@ let responseQueue = [];
 let requestCount = 0;
 const prompts = load('src/lib/featuredVlogPrompts.ts', {
   '@/lib/vlogCharacters': load('src/lib/vlogCharacters.ts'),
+  '@/lib/vlogCharacterAdaptation': load('src/lib/vlogCharacterAdaptation.ts', { './vlogCharacters': load('src/lib/vlogCharacters.ts') }),
   '@/lib/featuredVlogTemplateRules': load('src/lib/featuredVlogTemplateRules.ts'),
   '@/lib/featuredVlogAssetSelection': load('src/lib/featuredVlogAssetSelection.ts', { './featuredVlogTemplateRules': load('src/lib/featuredVlogTemplateRules.ts') }),
   '@/lib/videoAssetSelection': load('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': {} }),

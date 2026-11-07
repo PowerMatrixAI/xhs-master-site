@@ -1,9 +1,10 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
+import { directVlogBinding, applyVlogCharacterPatch } from "@/lib/vlogCharacterAdaptation";
 import { VLOG_CHARACTERS, vlogCharacterSelection, type VlogCharacterSelection } from "@/lib/vlogCharacters";
 import { featuredVlogTemplateForPlanning, VLOG_REFERENCE_STYLE_RULE, VLOG_CAMERA_REFERENCE_RULE } from "@/lib/featuredVlogTemplateRules";
 import { featuredVlogForAssetSelection, VLOG_ASSET_SELECTION_RULES } from "@/lib/featuredVlogAssetSelection";
 import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
-import { omniEnabled, styleVideoForTemplate, LINCHUAN, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
+import { omniEnabled, styleVideoForTemplate, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
 import {
   fetchMusicCandidatesFromBackend,
   isHttpsUrl,
@@ -92,7 +93,7 @@ export async function generateFeaturedVlogScript(input: {
     input: `请为当前民宿账号生成一份待用户确认的精选vlog视频脚本。
 
 要求：
-${omni ? VLOG_SCENE_RULES.replace("模板及用户未指定时，主角倾向为20-30岁成年女性", "人物使用本轮固定林川主体") : VLOG_SCENE_RULES}
+${omni ? VLOG_SCENE_RULES.replace(/同一条视频的主体住客使用同一个稳定id[^\n]*/u, "同一条视频使用通用游客A，不预设性别、外观或服装，具体人物第二步再选。仅保留动作必需道具，不随换场景创建新人物。") : VLOG_SCENE_RULES}
 ${omni ? OMNI_SCRIPT_RULES : ""}
 ${VIDEO_SCRIPT_BUDGET}
 ${VIDEO_SHOT_DESIGN}
@@ -146,14 +147,14 @@ ${omni ? '无人示例：subjectPresence="environment"，startState={location:"�
 返回以下业务字段结构，必须同时增加上述 sceneVersion、characters 和每镜 startState、mainAction、endState、characterChanges、continuityNote${timed ? "，并必须在顶层增加 timingVersion:2，在每镜增加 duration 和 transitionToNext，不能省略时间线字段" : ""}：
 ${JSON.stringify({
   sceneVersion: 1, ...(timed ? { timingVersion: 2 } : {}),
-  ...(omni ? { productionVersion: 3 } : {}),
-  characters: [{ id: "A", appearance: omni ? LINCHUAN.appearance : "默认20-30岁成年女性，五官、发型、服装固定；明确模版人物设定优先", props: ["按剧情安排的随身道具"] }],
+  ...(omni ? { productionVersion: 3, characterSelection: "unassigned" } : {}),
+  characters: [{ id: "A", appearance: omni ? "游客A，具体外观在第二步选择" : "默认20-30岁成年女性，五官、发型、服装固定；明确模版人物设定优先", props: ["按剧情安排的必要道具"] }],
   title: "视频脚本标题", summary: "脚本概要", perspective: "叙事视角", moodTags: ["整片情绪标签"], musicTags: ["配乐标签"],
   noteTask: { topicTitle: "本周笔记主题", contentType: "精选Vlog视频", contentGoal: "用具体画面表达模版的体验主题", targetUser: "目标观众", painPoint: "观众需求", coreView: "视频核心表达", requiredMaterials: "所需场景", recommendedAssets: "素材类型", coverCopyDirection: "封面方向", commentHook: "交流切入点", expectedGoal: "预期感受", writingStyleName: "精确文风名称" },
   shots: [{ order: 1, beat: "体验环节", role: "镜头职责", description: "具体事件摘要", suggestedMaterial: "可用素材建议", subjectPresence: "traveler",
-    startState: { location: "客房", characters: [{ id: "A", position: "门口", pose: "刚入室，目光观察环境", view: "front" }], props: ["背包在游客身上"] },
+    startState: { location: "客房", characters: [{ id: "A", position: "门口", pose: "刚入室，目光观察环境", view: "front" }], props: omni ? [] : ["背包在游客身上"] },
     mainAction: "同一游客从门口走到窗边停步",
-    endState: { location: "客房", characters: [{ id: "A", position: "窗边", pose: "自然停留观察环境，未看摄影机", view: "front" }], props: ["背包仍在游客身上"] },
+    endState: { location: "客房", characters: [{ id: "A", position: "窗边", pose: "自然停留观察环境，未看摄影机", view: "front" }], props: omni ? [] : ["背包仍在游客身上"] },
     characterChanges: [], continuityNote: "首镜建立场景；后续镜头说明与上一镜的状态关系",
     ...(timed ? { duration: 4, transitionToNext: { type: "cut", duration: 0, reason: "按剧情安排相邻镜头衔接", outgoingState: "窗边停步", incomingState: "下一镜的起始状态" } } : {})
   }]
@@ -233,10 +234,11 @@ ${JSON.stringify({
     knowledgeSourceKeys: input.knowledgeSourceKeys || []
   };
   if (!noteTask.topicTitle || !noteTask.contentGoal) throw new Error("后端 AI 返回的精选vlog笔记信息不完整，请重试。");
+  if (omni && !Array.isArray(parsed.characters)) throw new Error("脚本缺少游客出镜结构，请重新生成。");
   const script: FeaturedVlogScript = {
-    ...(omni ? { productionVersion: 3 as const } : {}),
+    ...(omni ? { productionVersion: 3 as const, characterSelection: "unassigned" as const, genericCharacterVersion: 1 as const } : {}),
     sceneVersion: 1,
-    characters: parsed.characters as VlogCharacter[],
+    characters: omni ? (parsed.characters as VlogCharacter[]).map(c => ({ ...c, appearance: "游客A，具体外观在第二步选择" })) : parsed.characters as VlogCharacter[],
     ...(timed ? { timingVersion: 2 as const } : {}),
     title,
     summary,
@@ -473,31 +475,23 @@ ${JSON.stringify(musicCandidates, null, 2)}
 export async function adaptFeaturedVlogCharacter(input: { script: FeaturedVlogScript; characterSelection?: VlogCharacterSelection; credentials?: BackendAiCredentials }) {
   const choice = vlogCharacterSelection(input.characterSelection);
   validateOmniScript(input.script);
-  if (choice === (input.script.characterSelection || "linchuan")) return { script: { ...input.script, characterSelection: choice }, calls: 0 };
+  const direct = directVlogBinding(input.script, choice);
+  if (direct) { validateOmniScript(direct.script); return direct; }
   const person = choice === "none" ? null : VLOG_CHARACTERS[choice];
   const response = await completeWithBackendAi({ credentials: input.credentials,
-    instructions: "你是精选Vlog制作适配员。仅按用户人物选择适配已确认脚本，返回完整合法JSON，不新增镜头。",
-    input: `选择：${person ? JSON.stringify(person) : "不添加任何人物，包括手部、剪影、反射中的人"}。
-保留主题、场景、镜头职责、顺序、每镜duration、转场type/duration和timing各段起止秒数。不编造设施。${person ? "只替换A的外观、性别称谓、发型服装及不兼容的随身道具，保留原先各镜头是否出人及核心动作；不用新人物填充无人镜头。所有相关文本包括主题摘要、动作、摄影、起止状态和转场衔接同步适配，不保留林川/其他原人物的名字、性别、服装或包具要求。" : "将人物体验转换为对应环境、物件静置或自然变化，人物专属动作改为无人场景呈现，不保留走路、采摘、举杯等需要人执行的命令，不用隐形人物/POV手部代替。全部镜头subjectPresence=environment；顶层characters=[]，每镜起止characters=[]，characterChanges=[]。全文同步移除人物命令与称谓，保持原场景与体验主题，不添加新设施；无法适配则返回{error:原因}。"}
+    instructions: "你是Vlog制作适配员。只输出需要修改的字段补丁JSON，不返回完整脚本。",
+    input: `选择：${person ? JSON.stringify(person) : "不添加任何人物，包括手部、剪影或反射中的人"}。
+保持主题、场景、镜头职责、顺序、时长和转场。换人只改称谓、外观及不兼容道具，不能改核心动作或出镜安排；无人模式把人物体验改为对应的环境或物件呈现，不用隐形人物驱动物品。无法适配则返回{"error":"原因"}。
+输出可选title/summary/perspective以及shots数组。每项包含order及需要修改的字段：description、continuityNote、mainAction（只允许无人模式修改）、startCharacters/endCharacters（沿用原结构，换人保留位置与view）、startProps/endProps、focus/action/ending、composition/depth、camera={type,direction,speed,extent}、timingActions（按原时间段顺序仅返回动作文字）、transitionText={reason,outgoingState,incomingState}。禁止输出其他字段，不新增镜头，不改变时间段。换人只能修改camera.direction中的人物称谓，不改运镜方式或幅度。无人模式须覆盖原有人物的镜头并改写mainAction，将跟随人物的运镜改成观察对应环境，不保留人物命令。服装和外观以所选主体为准，非人物字段不扩写。
 ${VIDEO_SCRIPT_BUDGET}
-每镜direction仍完整，暂定拍法读图后调整；未涉及人物适配的字段原样保留，不扩写。direction各短句最多25字，timing.action最多20字。只输出一个完整脚本对象。原脚本：${JSON.stringify(input.script)}`
+原脚本：${JSON.stringify(input.script)}`
   });
   if (!response.ok) throw new Error(`人物制作适配失败：${response.error}`);
   const raw = extractJson(response.text);
-  if (!raw || raw.error) throw new Error(`人物制作适配失败：${text(raw?.error) || "未返回完整脚本"}`);
-  const adapted = { ...raw, characterSelection: choice, noteTask: input.script.noteTask } as FeaturedVlogScript;
-  if (![adapted.title, adapted.summary, adapted.perspective].every(v => typeof v === "string" && !!v.trim())) throw new Error("人物适配结果缺少标题、概要或视角。");
-  validateOmniScript(adapted);
-  if (adapted.shots.length !== input.script.shots.length) throw new Error("人物适配不得增删镜头。");
-  adapted.shots.forEach((s, i) => {
-    const old = input.script.shots[i];
-    if (!person && (old.startState!.characters.length || old.endState!.characters.length) && s.mainAction === old.mainAction) throw new Error("无人适配须转换原人物动作，不能只清空人物数组。");
-    if (s.order !== old.order || s.duration !== old.duration || s.transitionToNext?.type !== old.transitionToNext?.type || s.transitionToNext?.duration !== old.transitionToNext?.duration
-      || s.startState!.location !== old.startState!.location || s.endState!.location !== old.endState!.location
-      || JSON.stringify(s.direction!.timing.map(p => [p.start, p.end])) !== JSON.stringify(old.direction!.timing.map(p => [p.start, p.end]))) throw new Error("人物适配不得改变场景、顺序、时长或转场类型。");
-    if (person && (s.subjectPresence !== old.subjectPresence || JSON.stringify(s.startState!.characters.map(c => c.id)) !== JSON.stringify(old.startState!.characters.map(c => c.id)) || JSON.stringify(s.endState!.characters.map(c => c.id)) !== JSON.stringify(old.endState!.characters.map(c => c.id)))) throw new Error("切换人物不得改变镜头出镜安排。");
-  });
-  return { script: adapted, calls: 1 };
+  if (!raw || raw.error) throw new Error(`人物制作适配失败：${text(raw?.error) || "未返回有效补丁"}`);
+  const result = applyVlogCharacterPatch(input.script, choice, raw);
+  validateOmniScript(result.script);
+  return { ...result, model: response.model };
 }
 
 export function buildFeaturedVlogVideoTask(input: {

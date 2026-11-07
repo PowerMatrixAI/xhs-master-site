@@ -5,6 +5,7 @@ type AsyncTaskRecord<T> = {
   status: AsyncTaskStatus;
   createdAt: number;
   updatedAt: number;
+  ttlMs?: number;
   result?: T;
   error?: string;
 };
@@ -27,13 +28,13 @@ function cleanupExpiredTasks() {
   const now = Date.now();
   const store = getTaskStore();
   for (const [uuid, record] of store.entries()) {
-    if (now - record.updatedAt > TASK_TTL_MS) {
+    if (now - record.updatedAt > (record.ttlMs ?? TASK_TTL_MS)) {
       store.delete(uuid);
     }
   }
 }
 
-export function createAsyncRouteTask<T>(runner: () => Promise<T>) {
+export function createAsyncRouteTask<T>(runner: () => Promise<T>, options: { ttlMs?: number } = {}) {
   cleanupExpiredTasks();
   const uuid = crypto.randomUUID();
   const now = Date.now();
@@ -43,7 +44,8 @@ export function createAsyncRouteTask<T>(runner: () => Promise<T>) {
     uuid,
     status: "pending",
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    ...options
   });
 
   void runner()
@@ -53,6 +55,7 @@ export function createAsyncRouteTask<T>(runner: () => Promise<T>) {
         status: "completed",
         createdAt: now,
         updatedAt: Date.now(),
+        ...options,
         result
       });
     })
@@ -62,6 +65,7 @@ export function createAsyncRouteTask<T>(runner: () => Promise<T>) {
         status: "failed",
         createdAt: now,
         updatedAt: Date.now(),
+        ...options,
         error: error instanceof Error ? error.message : "任务执行失败"
       });
     });

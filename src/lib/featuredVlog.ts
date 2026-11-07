@@ -61,7 +61,8 @@ export type PlatformMusic = {
 export type MusicCandidate = Pick<PlatformMusic, "id" | "name" | "tags" | "durationSeconds" | "mimeType" | "audioUrl">;
 
 export type FeaturedVlogScript = {
-  characterSelection?: import("./vlogCharacters").VlogCharacterSelection;
+  genericCharacterVersion?: 1;
+  characterSelection?: import("./vlogCharacters").VlogCharacterSelection | "unassigned";
   productionVersion?: 3;
   sceneVersion?: 1;
   characters?: import("./vlogScene").VlogCharacter[];

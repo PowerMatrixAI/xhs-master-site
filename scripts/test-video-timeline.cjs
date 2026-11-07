@@ -19,6 +19,7 @@ overrides['@/lib/videoPromptBudget'] = load('src/lib/videoPromptBudget.ts');
 overrides['@/lib/videoPhotography'] = load('src/lib/videoPhotography.ts');
 overrides['@/lib/videoAssetSelection'] = load('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': ai });
 overrides['@/lib/vlogCharacters'] = load('src/lib/vlogCharacters.ts');
+overrides['@/lib/vlogCharacterAdaptation'] = load('src/lib/vlogCharacterAdaptation.ts', { './vlogCharacters': overrides['@/lib/vlogCharacters'] });
 overrides['@/lib/featuredVlogOmni'] = load('src/lib/featuredVlogOmni.ts', { './vlogCharacters': overrides['@/lib/vlogCharacters'], './videoTimeline': timing, './vlogScene': scenes, './featuredVlogTemplateRules': overrides['@/lib/featuredVlogTemplateRules'] });
 const storyLib = load('src/lib/videoPrompts.ts', { ...overrides, '@/lib/storyCharacters': { characterDownloadUrl: () => '' } });
 const vlogLib = load('src/lib/featuredVlogPrompts.ts', { ...overrides, '@/lib/featuredVlog': { isHttpsUrl: url => url.startsWith('https://') } });

@@ -63,7 +63,10 @@ async function main() {
   reply = () => script;
   const generated = await prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template, availableWritingStyles: ['测试'] });
   assert.equal(generated.script.productionVersion, 3);
-  assert.ok(calls.at(-1).input.includes('林川'));
+  assert.ok(!calls.at(-1).input.includes('林川'));
+  assert.ok(!calls.at(-1).input.includes(omni.LINCHUAN.appearance));
+  assert.equal(generated.script.characterSelection, 'unassigned');
+  assert.equal(generated.script.characters[0].appearance, '游客A，具体外观在第二步选择');
   assert.ok(!calls.at(-1).input.includes('主角倾向为20-30岁成年女性'));
   const planningTemplate = JSON.parse(calls.at(-1).input.split('平台模板：\n')[1].split('\n\n用户补充要求：')[0]);
   assert.equal(planningTemplate.beats[0].mainContent, template.beats[0].shotDuty);
@@ -319,12 +322,18 @@ async function main() {
   const originalScript = JSON.stringify(script);
   const characterCatalog = load('src/lib/vlogCharacters.ts');
   assert.equal((await prompts.adaptFeaturedVlogCharacter({ script, characterSelection: 'linchuan' })).calls, 0);
+  reply = () => clone(script);
+  const assigned = await prompts.adaptFeaturedVlogCharacter({ script: generated.script, characterSelection: 'linchuan' });
+  assert.equal(assigned.calls, 0, 'new generic scripts bind the selected preset without AI');
+  assert.equal(assigned.script.characterSelection, 'linchuan');
+  assert.equal(generated.script.characterSelection, 'unassigned');
+  assert.throws(() => omni.buildOmniTask({ script: generated.script }), /适配/);
   const female = clone(script);
   female.title = '沈禾的周末';
   female.characters[0].appearance = characterCatalog.VLOG_CHARACTERS.shenhe.appearance;
   reply = request => {
     assert.ok(request.input.includes('325994250221723'));
-    return female;
+    return { title: female.title, shots: [] };
   };
   const femaleResult = await prompts.adaptFeaturedVlogCharacter({ script, characterSelection: 'shenhe' });
   const femaleTask = prompts.buildFeaturedVlogVideoTask({ script: femaleResult.script, characterSelection: 'shenhe', template, framePlan: frames.framePlan, motionPlan: [], noteTask: { id: 50 }, music: { audioUrl: 'https://example.com/music.mp3' } });
@@ -337,7 +346,7 @@ async function main() {
   noPeople.shots.forEach(s => { s.mainAction = '草木随风轻动'; s.direction.action = '草木随风轻动'; });
   reply = request => {
     assert.ok(request.input.includes('不添加任何人物'));
-    return noPeople;
+    return { title: noPeople.title, shots: script.shots.filter(s=>s.startState.characters.length).map(s=>({ order:s.order, mainAction:'草木随风轻动', description:'观察环境变化', action:'草木随风轻动', timingActions:s.direction.timing.map(()=> '草木随风轻动') })) };
   };
   const emptyResult = await prompts.adaptFeaturedVlogCharacter({ script, characterSelection: 'none' });
   const emptyTask = prompts.buildFeaturedVlogVideoTask({ script: emptyResult.script, characterSelection: 'none', template, framePlan: frames.framePlan, motionPlan: [], noteTask: { id: 51 }, music: { audioUrl: 'https://example.com/music.mp3' } });
@@ -346,11 +355,11 @@ async function main() {
   assert.ok(!emptyPlan.character && !emptyTask.includes('<<<'));
   fs.writeFileSync('tmp/omni-v3-character-contract-plans.json', JSON.stringify([femalePlan, emptyPlan]));
   reply = () => script;
-  await assert.rejects(() => prompts.adaptFeaturedVlogCharacter({ script, characterSelection: 'none' }), /无人环境/);
+  await assert.rejects(() => prompts.adaptFeaturedVlogCharacter({ script, characterSelection: 'none' }), /不允许修改/);
   const changedTimeline = clone(female);
   changedTimeline.shots[0].transitionToNext = { ...changedTimeline.shots[0].transitionToNext, type: 'dissolve', duration: .25 };
   reply = () => changedTimeline;
-  await assert.rejects(() => prompts.adaptFeaturedVlogCharacter({ script, characterSelection: 'shenhe' }), /转场类型/);
+  await assert.rejects(() => prompts.adaptFeaturedVlogCharacter({ script, characterSelection: 'shenhe' }), /不允许修改/);
   assert.equal(JSON.stringify(script), originalScript, 'production adaptation must not overwrite the confirmed script');
   console.log('Vlog characters: preset binding, environment-only adaptation, timeline locks and unchanged source script passed.');
   delete process.env.FEATURED_VLOG_OMNI_ENABLED;

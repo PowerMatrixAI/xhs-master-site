@@ -32,7 +32,7 @@ export function styleVideoForTemplate(template: Pick<FeaturedVlogTemplate, "refe
   } catch { throw new Error("模板参考视频地址无效，需提供可下载的HTTP/HTTPS视频地址。"); }
   return { source: "template" as const, id: video.id, name: video.name, version: video.version, url: video.videoUrl, purpose: "style_and_texture" as const, maxDuration: 10 };
 }
-export const OMNI_SCRIPT_RULES = `本脚本使用productionVersion:3、timingVersion:2、sceneVersion:1。人物仅允许A，固定为${LINCHUAN.appearance}。不另造身份或改变服装；环境镜头可无人，不强制所有镜头出人，不因提供主体就加人。characters为空或只含A，按实际剧情决定。模板、用户要求若需要不兼容的固定人物，不擅自替换为林川，应明确指出不支持。
+export const OMNI_SCRIPT_RULES = `本脚本使用productionVersion:3、timingVersion:2、sceneVersion:1、characterSelection:unassigned。第一步只规划通用游客A是否出镜、动作与时间线，不绑定具体人物，不指定姓名、性别、年龄、五官、发型或服装。appearance写“游客A，具体外观在第二步选择”；props仅写真正服务动作的道具，不预设肩包。全篇使用游客A，不写具体人物身份。环境镜头可无人，characters为空或只含A，不强制每镜出人。第二步才按用户选择适配人物或无人模式。
 每镜增加direction，结构为 {"focus":"观看重点","photography":{"scale":"景别","height":"机位高度","angle":"观察角度","composition":"主体位置/构图","depth":"前中远景意图"},"camera":{"type":"fixed|pan|track|push|pull|follow","direction":"运动方向或固定朝向","speed":"速度","extent":"运动范围"},"action":"人物动作或纯环境变化","timing":[{"start":0,"end":2,"action":"开始到完成的动作"}],"ending":"结束画面"}。
 timing用秒，连续覆盖0到本镜duration，最多3段；每项action不超过20字。其余direction短句每项最多25字。人物动作与摄影机运动分开，fixed不得同时跟随位移。每镜一个可完成的主要动作，避免统一走停转头。
 先按模板主要内容判断出镜需要：风景、地点建立、远景/航拍类环境展示默认environment无人；仅在体验动作、情绪或模板明确要求体现人物尺度时安排A，不设人物镜头比例。environment起止characters与characterChanges均为[]；人物中途进入不能标environment；POV不代表人物可见，仅可见手部等局部时记A。
