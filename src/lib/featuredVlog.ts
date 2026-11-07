@@ -12,6 +12,8 @@ import type { BackendAiCredentials } from "@/lib/backendAiClient";
 import { normalizeReferenceVideo, type ReferenceVideo } from "@/lib/referenceVideos";
 import { normalizeTemplateTags, normalizeTemplateTagIds, normalizeVlogTag, type VlogTemplateTag } from "@/lib/featuredVlogTags";
 
+export type FeaturedVlogResolution = "720p" | "1080p";
+
 export type FeaturedVlogBeat = {
   name: string;
   shotDuty: string;

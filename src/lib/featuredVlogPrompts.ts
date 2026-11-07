@@ -140,6 +140,8 @@ ${input.extraRequirements || "无"}
 
 可选文风名称：${input.availableWritingStyles.join("、")}
 
+${omni ? '无人示例：subjectPresence="environment"，startState={location:"山谷",characters:[],props:[]}，mainAction="云雾流过山谷"，endState={location:"山谷",characters:[],props:[]}，characterChanges=[]。全片可无人；仅体验动作需人物时使用下方A的字段示例，不照抄为每镜出人。' : ''}
+
 返回以下业务字段结构，必须同时增加上述 sceneVersion、characters 和每镜 startState、mainAction、endState、characterChanges、continuityNote${timed ? "，并必须在顶层增加 timingVersion:2，在每镜增加 duration 和 transitionToNext，不能省略时间线字段" : ""}：
 ${JSON.stringify({
   sceneVersion: 1, ...(timed ? { timingVersion: 2 } : {}),
@@ -476,6 +478,7 @@ export function buildFeaturedVlogVideoTask(input: {
   motionPlan: FeaturedVlogMotionPlan;
   music: MusicCandidate;
   overallDirection: string;
+  resolution?: import("./featuredVlog").FeaturedVlogResolution;
 }) {
   if (input.script.productionVersion === 3) return buildOmniTask(input);
   validateVlogScenes(input.script);

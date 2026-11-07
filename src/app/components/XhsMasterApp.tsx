@@ -73,7 +73,8 @@ import {
 import { generateStrategyWithBrowserLlm, generateWeeklyTasksWithBrowserLlm } from "@/lib/browserStrategyLlm";
 import { loadBrowserWorkspace, saveBrowserWorkspace } from "@/lib/browserWorkspace";
 import { videoTimelineDuration, type TimedVideoShot } from "@/lib/videoTimeline";
-import { templateVideoDraftRecords } from "@/lib/templateVideoDrafts";
+import { templateVideoDraftRecords, templateVlogResolution, vlogTaskResolutionChanged } from "@/lib/templateVideoDrafts";
+import { FeaturedVlogResolutionSettings } from "@/app/components/FeaturedVlogResolutionSettings";
 import { accountTypeTemplates } from "@/data/accountTypeTemplates";
 import { clampWeeklyFrequency, normalizeWeeklyTaskMedia } from "@/lib/weeklyPlan";
 import { collectRecentWeeklyTopicGroups } from "@/lib/weeklyTopicHistory";
@@ -104,6 +105,7 @@ import {
   type FeaturedVlogFramePlan,
   type FeaturedVlogMotionPlan,
   type FeaturedVlogScript,
+  type FeaturedVlogResolution,
   type FeaturedVlogTemplate,
   type MusicCandidate
 } from "@/lib/featuredVlog";
@@ -387,6 +389,7 @@ type PersistedFeaturedVlogDraft = {
 };
 
 type VideoDraftWorkspace = {
+  featuredVlogResolutionByTemplate?: Record<string, FeaturedVlogResolution>;
   lastMode?: VideoSourceMode;
   storyVideo?: PersistedStoryVideoDraft;
   featuredVlog?: PersistedFeaturedVlogDraft;
@@ -2865,7 +2868,7 @@ export function XhsMasterApp() {
     mode: VideoSourceMode,
     assets: Asset[],
     story?: VideoStoryDraft,
-    featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript }
+    featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution }
   ) {
     if (!selected || !latestPlan || task.type !== "video_text") return;
     setLoading(true);
@@ -2881,7 +2884,8 @@ export function XhsMasterApp() {
         ...(mode === "featured_vlog" && featuredVlog ? {
           featuredVlogTemplateId: featuredVlog.templateId,
           featuredVlogTemplateVersion: featuredVlog.templateVersion,
-          featuredVlogScript: featuredVlog.script
+          featuredVlogScript: featuredVlog.script,
+          featuredVlogResolution: featuredVlog.resolution || "720p"
         } : {}),
         knowledgeSnapshotId: latestPlan.knowledgeSnapshotId || "",
         knowledgeSourceKeys: task.knowledgeSourceKeys || []
@@ -5783,7 +5787,7 @@ function VideosPanel(props: {
   videoDraftWorkspace: VideoDraftWorkspace;
   videoWorkspaceReady: boolean;
   updateVideoDraftWorkspace: (accountId: number, update: (workspace: VideoDraftWorkspace) => VideoDraftWorkspace) => void;
-  generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript }) => void;
+  generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution }) => void;
   generateStandaloneVideoStory: (input: { templateId: string; characterId: string; sourceType: VideoStorySourceType; sourceContent: string; extraRequirements: string }) => Promise<VideoStoryResult | null>;
   createStoryVideoNoteTask: (story: VideoStoryDraft, knowledgeSnapshotId: string) => Promise<NoteTask | null>;
   generateStandaloneFeaturedVlog: (input: { template: FeaturedVlogTemplate; extraRequirements: string }) => Promise<FeaturedVlogResult | null>;
@@ -5829,6 +5833,8 @@ function VideosPanel(props: {
   const activeTask = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask : note;
   const result = activeTask ? results[activeTask.id] : null;
   const videoTaskContent = result?.openclawTask.content || activeTask?.plan || "";
+  const featuredVlogResolution = templateVlogResolution(videoDraftWorkspace.featuredVlogResolutionByTemplate, featuredVlogTemplateId);
+  const resolutionChanged = mode === "featured_vlog" && vlogTaskResolutionChanged(videoTaskContent, featuredVlogResolution);
 
   useEffect(() => {
     if (note && note.id !== selectedNoteId) setSelectedNoteId(note.id);
@@ -6249,10 +6255,11 @@ function VideosPanel(props: {
           <div className="border-t border-ink/10 pt-4"><h3 className="text-base font-semibold">第二步：生成完整视频任务</h3><p className="mt-1 text-sm text-ink/60">{featuredVlogDraft?.script.productionVersion === 3 ? "系统依据图片分析选择场景参考和配乐。智能体查看实际图片后细化动作、光线与运镜，使用 Omni 全能参考制作视频，再完成转场和整片配乐。" : "系统将规划首帧和镜头动态，并自动选择平台配乐。"}没有可用配乐时会停止生成，不生成旁白 TTS。</p><p className="mt-1 text-xs text-ink/50">新脚本尚未加入本周内容时，点击生成任务即确认脚本并新增笔记；已有笔记则更新其任务指令。重新生成脚本会开启该模版的新一条视频。</p></div>
         </div>}
 
+        {mode === "featured_vlog" && <FeaturedVlogResolutionSettings omni={featuredVlogDraft?.script.productionVersion === 3} value={featuredVlogResolution} disabled={loading} onChange={resolution => selected && updateVideoDraftWorkspace(selected.id, workspace => ({ ...workspace, featuredVlogResolutionByTemplate: { ...workspace.featuredVlogResolutionByTemplate, [featuredVlogTemplateId]: resolution } }))} />}
         <button type="button" disabled={loading || !canGenerate} onClick={async () => {
           const task = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask || await confirmAndCreateFeaturedVlogTask() : note;
           if (!task) return;
-          generateVideoPrompt(task, mode, mode === "story_video" || mode === "featured_vlog" ? imageAssets : selectedAssets, storyDraft || undefined, featuredVlogDraft ? { templateId: featuredVlogTemplateId, templateVersion: featuredVlogDraft.templateVersion, script: featuredVlogDraft.script } : undefined);
+          generateVideoPrompt(task, mode, mode === "story_video" || mode === "featured_vlog" ? imageAssets : selectedAssets, storyDraft || undefined, featuredVlogDraft ? { templateId: featuredVlogTemplateId, templateVersion: featuredVlogDraft.templateVersion, script: featuredVlogDraft.script, resolution: featuredVlogResolution } : undefined);
         }} className="primary-button mt-4">
           <ActionButtonContent
             loading={isGeneratingVideoTask}
@@ -6265,6 +6272,7 @@ function VideosPanel(props: {
       <div className="panel">
         <div className="mb-3 flex items-center justify-between"><div><h2 className="section-title">智能体视频任务</h2><p className="mt-1 text-sm text-ink/60">复制后交给智能体准备最终视频和 video-path.txt。</p></div><IconButton title="复制视频任务" onClick={() => copy(videoTaskContent)} icon={<Clipboard size={17} />} /></div>
         {mode === "featured_vlog" && featuredVlogTask && results[featuredVlogTask.id]?.sceneReferences && <details className="mb-4 rounded border border-ink/10 p-3"><summary className="cursor-pointer text-sm font-semibold">场景参考与选图依据</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">{results[featuredVlogTask.id].sceneReferences!.map(s => <div key={s.order} className="text-xs leading-5">{s.assetUrl && <img src={s.assetUrl} alt={`镜头${s.order}场景参考`} className="mb-2 h-36 w-full rounded object-contain" />}<p>镜头{s.order} · {s.frameSource === "asset" ? "素材库场景参考" : "AI场景补图"}</p><p>{s.selectionReason}</p>{s.aiAnalysis && <p className="text-ink/60">图片分析：{s.aiAnalysis}</p>}</div>)}</div></details>}
+        {resolutionChanged && <p role="status" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-800">清晰度设置已变化，请重新生成任务。下方仍为上次生成的指令。</p>}
         <textarea className="code-textarea min-h-[560px]" value={videoTaskContent || "生成后显示视频执行任务。"} readOnly />
       </div>
     </div>

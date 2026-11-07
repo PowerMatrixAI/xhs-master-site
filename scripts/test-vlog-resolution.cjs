@@ -1,0 +1,32 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require('typescript');
+function load(file) {
+  const mod = { exports: {} };
+  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  vm.runInNewContext(code, { module: mod, exports: mod.exports, require });
+  return mod.exports;
+}
+const { templateVlogResolution: resolution, vlogTaskResolutionChanged: changed } = load('src/lib/templateVideoDrafts.ts');
+const { FeaturedVlogResolutionSettings: Settings } = load('src/app/components/FeaturedVlogResolutionSettings.tsx');
+const nodes = t => !t || typeof t !== 'object' ? [] : Array.isArray(t) ? t.flatMap(nodes) : [t, ...nodes(t.props?.children)];
+let accounts = { 1: { settings: { A: '720p', B: '1080p' }, script: { title: '保留已确认脚本' } }, 2: { settings: {} } };
+assert.equal(resolution(undefined, 'A'), '720p');
+assert.equal(resolution(accounts[1].settings, 'B'), '1080p');
+assert.equal(resolution(accounts[2].settings, 'B'), '720p');
+const script = accounts[1].script;
+let tree = Settings({ omni: true, value: resolution(accounts[1].settings, 'A'), disabled: false, onChange(value) { accounts[1].settings = { ...accounts[1].settings, A: value }; } });
+nodes(tree).find(n => n.type === 'input' && n.props.value === '1080p').props.onChange();
+accounts = JSON.parse(JSON.stringify(accounts)); // Workspace refresh round trip.
+assert.equal(resolution(accounts[1].settings, 'A'), '1080p');
+assert.equal(resolution(accounts[1].settings, 'B'), '1080p');
+assert.equal(accounts[1].script.title, script.title);
+assert.equal(nodes(Settings({ omni: false })).filter(n => n.type === 'input').length, 0);
+assert.ok(nodes(Settings({ omni: true, value: '1080p', disabled: true })).filter(n => n.type === 'input').every(n => n.props.disabled));
+const task = r => '```json\n' + JSON.stringify({ generation: { resolution: r } }) + '\n```';
+assert.equal(changed(task('720p'), '1080p'), true);
+assert.equal(changed(task('1080p'), '1080p'), false);
+assert.equal(changed('', '1080p'), false);
+assert.equal(changed('旧任务', '720p'), false);
+console.log('Vlog resolution: controls, defaults, template/account isolation, restoration and stale-task warning passed.');

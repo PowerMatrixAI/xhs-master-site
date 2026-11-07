@@ -20,7 +20,15 @@ FEATURED_VLOG_OMNI_ENABLED=true
 
 ## 协议
 
-`plan.json version=3 kind=featured_vlog`：generation.provider=kling_cli、tool=omni_ref_video，显式指定kling-video-v3_0_omni、9:16、720p、单条静音；output为1080x1920/24fps。每镜sceneReference含source、imageUrl或生成描述和选中分析快照；direction含摄影、运镜、动作、分段秒数及结束画面。transitionToNext继续cut/dissolve，最后为null。旧provider=kling_mcp计划及已完成片段仍兼容后期；需要新生成时重新组装CLI任务，不静默换通道或自动重提旧任务。
+`plan.json version=3 kind=featured_vlog`：generation.provider=kling_cli、tool=omni_ref_video，显式指定kling-video-v3_0_omni、9:16、720p或1080p、单条静音；output为1080x1920/24fps。每镜sceneReference含source、imageUrl或生成描述和选中分析快照；direction含摄影、运镜、动作、分段秒数及结束画面。transitionToNext继续cut/dissolve，最后为null。旧provider=kling_mcp计划及已完成片段仍兼容后期；需要新生成时重新组装CLI任务，不静默换通道或自动重提旧任务。
+
+### 出镜、运镜与清晰度
+
+- 按模板内容决定人物：风景/地点建立默认无人，体验动作按需绑定林川，不设人物镜头比例。每镜subjectPresence写入任务，environment必须起止无人且无入场离场；POV仅实际可见人物局部时绑定，全片无人不输出character。旧执行任务缺少subjectPresence时兼容原状态判断。
+- 读图后空间充分时设计中等幅度、有明确起幅与终幅变化的运动，静观细节可固定；不编造米数、隐藏空间或建筑背面。最终拍法和理由记入refinement并实际验收。
+- 第二步选择生成清晰度，默认720P放大输出，1080P直接以Kling 1080p生成，不能降级或放大冒充；最终均1080x1920/24fps。设置按账号/模板写浏览器工作区，不改脚本；修改后旧任务提示重新生成，旧缓存默认720P。
+- API请求新增可选featuredVlogResolution（720p/1080p），只用于任务组装；非法值拒绝，旧版脚本不能请求1080p。先部署双清晰度执行器，再部署控制台。Hermes须同步执行器；本地修改不会自动同步远端机器。
+- 生成清晰度参与已有片段hash；请求记录、CLI显式参数必须一致，1080p源片至少1080x1920，否则后期失败。实拍细节和水印不由清晰度设置保证，真实付费对比验收需另行确认。
 
 最终指令采用显式字段白名单（含嵌套状态、摄影与时间线），完全不输出account/noteTask对象；任务编号仅用于工作目录与交付追踪。只携带已确认制作概要、选中场景参考及简短分析、主角、模板参考视频、选定配乐、镜头设计和执行要求。账号策划、爆款研究、全量素材、周计划、专家规则和上一版任务正文仅用于控制台内部，不进入最终执行JSON。选图理由保留在控制台预览，不写入执行计划。
 

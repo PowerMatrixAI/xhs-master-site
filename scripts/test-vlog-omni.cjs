@@ -50,6 +50,12 @@ async function main() {
   process.env.VIDEO_REFERENCE_PUBLIC_ORIGIN = 'https://obsolete.example.com';
   assert.equal(omni.styleVideoForTemplate(template).url, template.referenceVideo.videoUrl);
   omni.validateOmniScript(script);
+  const paraphrased = clone(script);
+  paraphrased.characters[0].appearance = '林川，米色衬衫、灰绿色长裤，携带深棕色肩包';
+  assert.doesNotThrow(() => omni.validateOmniScript(paraphrased), 'identity must not depend on exact appearance wording');
+  const wrongIdentity = clone(script);
+  wrongIdentity.characters.push({ id: 'B', appearance: '另一位游客', props: [] });
+  assert.throws(() => omni.validateOmniScript(wrongIdentity), /预设人物主体A/);
   const invalid = clone(script); invalid.shots[0].direction.timing[0].end = 3;
   assert.throws(() => omni.validateOmniScript(invalid), /时长/);
   invalid.shots[0].direction = undefined;
@@ -122,7 +128,39 @@ async function main() {
   assert.ok(task.includes('kling query_tasks'));
   assert.ok(task.includes('submitResponse'));
   assert.ok(!task.includes('通过MCP上传'));
-  assert.equal(plan.character.id, '324475410205532');
+  assert.equal(plan.character.id, '324641305202280');
+  assert.equal(plan.character.bindName, '林川-山林周末Vlog');
+  const makeTask = (s, resolution) => prompts.buildFeaturedVlogVideoTask({ script: s, template, framePlan: frames.framePlan, motionPlan: [], noteTask: { id: 1 }, music: { audioUrl: 'https://example.com/music.mp3' }, resolution, overallDirection: '自然' });
+  const getPlan = task => JSON.parse(task.match(/```json\n([\s\S]*?)\n```/)[1]);
+  assert.equal(getPlan(makeTask(script)).generation.resolution, '720p');
+  assert.equal(getPlan(makeTask(script, '1080p')).generation.resolution, '1080p');
+  assert.ok(makeTask(script, '1080p').includes('resolution=1080p'));
+  assert.throws(() => makeTask(script, '4k'), /清晰度/);
+  assert.throws(() => makeTask(script, null), /清晰度/);
+  const environment = clone(script);
+  environment.characters = [];
+  environment.shots.forEach(s => { s.subjectPresence = 'environment'; s.startState = state(false); s.endState = state(false); });
+  const environmentTask = makeTask(environment, '1080p');
+  assert.ok(!('character' in getPlan(environmentTask)));
+  assert.ok(!environmentTask.includes('<<<324641305202280>>>'));
+  assert.ok(getPlan(environmentTask).shots.every(s => s.subjectPresence === 'environment'));
+  const conflict = clone(script);
+  conflict.shots[1].subjectPresence = 'environment';
+  assert.throws(() => omni.validateOmniScript(conflict), /纯环境/);
+  const hands = clone(script);
+  hands.shots[1].subjectPresence = 'pov';
+  hands.shots[1].startState.characters[0].view = 'hands';
+  hands.shots[1].endState.characters[0].view = 'hands';
+  assert.equal(getPlan(makeTask(hands)).character.id, omni.LINCHUAN.id);
+  const entering = clone(script);
+  entering.shots[1].startState = state(false);
+  entering.shots[1].characterChanges = [{ id: 'A', type: 'enter', reason: '由画外走入' }];
+  assert.equal(getPlan(makeTask(entering)).character.id, omni.LINCHUAN.id);
+  const paraphrasedTask = omni.buildOmniTask({ script: paraphrased, template, framePlan: frames.framePlan, noteTask: { id: 1 }, music: { audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' });
+  const paraphrasedPlan = JSON.parse(paraphrasedTask.match(/```json\n([\s\S]*?)\n```/)[1]);
+  assert.equal(paraphrasedPlan.character.id, '324641305202280', 'paraphrased appearance must still bind the preset Element');
+  assert.ok(task.includes('kling element_get 324641305202280'));
+  assert.ok(!task.includes('324475410205532'));
   assert.equal(plan.styleVideo.url, template.referenceVideo.videoUrl);
   assert.equal(plan.styleVideo.id, 8);
   assert.equal(plan.styleVideo.version, 3);
@@ -170,7 +208,7 @@ async function main() {
   assert.ok(!('noteTask' in plan), 'execution plan must not contain any noteTask object');
   assert.ok(!task.includes('账号：'));
   assert.ok(!JSON.stringify(plan).includes('selectionReason'), 'selection rationale stays in console, not execution instructions');
-  for (const instruction of ['plan.shots[].direction仅为暂定拍法', '保留平视', '允许固定机位', 'cameraMovement明确最终景别、机位', 'request.arguments.prompt必须等于refinement.prompt', '不直接执行或拼接plan.direction', '必要内容或核心动作确实无法完成时才停止报告']) {
+  for (const instruction of ['plan.shots[].direction仅为暂定拍法', '保留平视', '信息不足可固定', 'cameraMovement记录最终拍法及理由', 'request.arguments.prompt必须等于refinement.prompt', '不直接执行或拼接plan.direction', '核心动作无法完成才停止报告']) {
     assert.ok(task.includes(instruction), instruction);
   }
   assert.equal(plan.shots[0].direction.camera.type, script.shots[0].direction.camera.type, 'original plan remains unchanged; adaptation belongs in refinement');
@@ -188,6 +226,8 @@ async function main() {
   const longUrl = 'https://example.com/image.jpg?sig=' + 'a'.repeat(400);
   const stressTask = omni.buildOmniTask({ account: { name: '账号', accountParam: 'test' }, noteTask: { id: 1, topicTitle: '测试' }, template, script: stressScript, framePlan: frames.framePlan.map((f,i) => ({ ...f, frameSource: 'asset', assetUrl: longUrl + i, framePrompt: '图'.repeat(180), aiAnalysis: '析'.repeat(100), selectionReason: '因'.repeat(60) })), music: { id: 1, name: '配乐', tags: [], audioUrl: longUrl }, overallDirection: '整'.repeat(90) });
   assert.ok(stressTask.length <= 18000, `stress task ${stressTask.length}`);
+  const stress1080 = stressTask.replace('"resolution":"720p"', '"resolution":"1080p"');
+  assert.ok(stress1080.length <= 18000);
   console.log(`Omni six-shot long-field/signed-URL budget: ${stressTask.length} chars`);
   fs.mkdirSync('tmp', { recursive: true });
   fs.writeFileSync('tmp/omni-v3-contract-plan.json', JSON.stringify(plan));
@@ -254,8 +294,8 @@ async function main() {
   assert.equal(adapted.framePlan[1].frameSource, 'generate');
   const adaptedTask = prompts.buildFeaturedVlogVideoTask({ script: cached, template: annotatedTemplate,
     framePlan: adapted.framePlan, motionPlan: [], noteTask: { id: 42 }, music: { audioUrl: 'https://example.com/music.mp3' } });
-  assert.ok(adaptedTask.includes('平视图片能承接内容时保留平视'));
-  assert.ok(adaptedTask.includes('不为参考俯拍/航拍/环绕补造屋顶、隐藏区域、背面或通道'));
+  assert.ok(adaptedTask.includes('平视图可保留平视'));
+  assert.ok(adaptedTask.includes('不为俯拍/航拍/环绕补造屋顶、背面或通道'));
   assert.equal(JSON.stringify(cached), beforeCached);
   console.log('Camera adaptation: tagged/legacy parsing, content-only screening and selection, level-image mapping and execution contract passed.');
   const legacyCached = { ...cached, productionVersion: undefined };

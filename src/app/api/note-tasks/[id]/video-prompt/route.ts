@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { omniEnabled, styleVideoForTemplate, validateOmniScript } from "@/lib/featuredVlogOmni";
+import { omniEnabled, styleVideoForTemplate, validateOmniScript, vlogResolution } from "@/lib/featuredVlogOmni";
 import { validateVideoTimeline, videoTimelineV2Enabled } from "@/lib/videoTimeline";
 import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
@@ -179,7 +179,9 @@ async function buildFeaturedVlogMusicResult(body: Record<string, unknown>, crede
 }
 
 async function buildFeaturedVlogTaskResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
+  const resolution = vlogResolution(body.featuredVlogResolution);
   const input = await featuredVlogContext(body, credentials);
+  if (input.script.productionVersion !== 3 && resolution !== "720p") throw new Error("请重新生成Omni脚本后选择1080p。");
   const framePlan = body.framePlan;
   const motionPlan = body.motionPlan;
   const selectedMusicInput = body.selectedMusic && typeof body.selectedMusic === "object" ? body.selectedMusic as Record<string, unknown> : {};
@@ -198,6 +200,7 @@ async function buildFeaturedVlogTaskResult(body: Record<string, unknown>, creden
     framePlan: framePlan as FeaturedVlogFramePlan,
     motionPlan: motionPlan as FeaturedVlogMotionPlan,
     music: selectedMusic,
+    resolution,
     overallDirection: String(body.overallDirection || "")
   });
   return {
