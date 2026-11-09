@@ -13,6 +13,7 @@ let response, lastRequest;
 const ai = { completeWithBackendAi: async request => { lastRequest = request; return { ok: true, text: JSON.stringify(response) }; } };
 const scenes = load('src/lib/vlogScene.ts');
 const overrides = { '@/lib/videoTimeline': timing, '@/lib/vlogScene': scenes, '@/lib/videoDelivery': load('src/lib/videoDelivery.ts'), '@/lib/backendAiServerClient': ai };
+overrides['@/lib/vlogPhotography'] = load('src/lib/vlogPhotography.ts');
 overrides['@/lib/featuredVlogTemplateRules'] = load('src/lib/featuredVlogTemplateRules.ts');
 overrides['@/lib/featuredVlogAssetSelection'] = load('src/lib/featuredVlogAssetSelection.ts', { './featuredVlogTemplateRules': overrides['@/lib/featuredVlogTemplateRules'] });
 overrides['@/lib/videoPromptBudget'] = load('src/lib/videoPromptBudget.ts');

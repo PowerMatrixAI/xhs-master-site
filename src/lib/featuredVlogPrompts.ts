@@ -1,10 +1,11 @@
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
+import { VLOG_PHOTOGRAPHY_RULES } from "@/lib/vlogPhotography";
 import { directVlogBinding, applyVlogCharacterPatch } from "@/lib/vlogCharacterAdaptation";
 import { VLOG_CHARACTERS, vlogCharacterSelection, type VlogCharacterSelection } from "@/lib/vlogCharacters";
 import { featuredVlogTemplateForPlanning, VLOG_REFERENCE_STYLE_RULE, VLOG_CAMERA_REFERENCE_RULE } from "@/lib/featuredVlogTemplateRules";
 import { featuredVlogForAssetSelection, VLOG_ASSET_SELECTION_RULES } from "@/lib/featuredVlogAssetSelection";
 import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
-import { omniEnabled, styleVideoForTemplate, OMNI_SCRIPT_RULES, validateOmniScript, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
+import { omniEnabled, styleVideoForTemplate, OMNI_SCRIPT_RULES, validateOmniScript, normalizeOmniCast, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
 import {
   fetchMusicCandidatesFromBackend,
   isHttpsUrl,
@@ -93,10 +94,10 @@ export async function generateFeaturedVlogScript(input: {
     input: `请为当前民宿账号生成一份待用户确认的精选vlog视频脚本。
 
 要求：
-${omni ? VLOG_SCENE_RULES.replace(/同一条视频的主体住客使用同一个稳定id[^\n]*/u, "同一条视频使用通用游客A，不预设性别、外观或服装，具体人物第二步再选。仅保留动作必需道具，不随换场景创建新人物。") : VLOG_SCENE_RULES}
-${omni ? OMNI_SCRIPT_RULES : ""}
-${VIDEO_SCRIPT_BUDGET}
-${VIDEO_SHOT_DESIGN}
+${omni ? VLOG_SCENE_RULES.replace(/人物与镜头状态规则：[^\n]*/u, "人物与镜头状态规则：sceneVersion=1，characters为空或仅含游客A，每项有id、appearance和props；不设计情侣、家庭或额外配角，模板多人体验以一位游客的参与视角呈现。").replace(/同一条视频的主体住客使用同一个稳定id[^\n]*/u, "同一条视频使用通用游客A，不预设性别、外观或服装，具体人物第二步再选。仅保留动作必需道具，不随换场景创建新人物。") : VLOG_SCENE_RULES}
+${omni ? `${OMNI_SCRIPT_RULES.replace("每项最多25字", "每项最多15字")}\n${VLOG_PHOTOGRAPHY_RULES}` : ""}
+${omni ? VIDEO_SCRIPT_BUDGET.replace("6500", "10500").replace("description≤90", "description≤50").replace("mainAction≤45", "mainAction≤30").replace("continuityNote≤45", "continuityNote≤25").replace("各≤40", "各≤25") : VIDEO_SCRIPT_BUDGET}
+${omni ? VIDEO_SHOT_DESIGN.replace("简写在现有description/startState/主要动作中，不新增字段", "写入direction摄影字段；description/startState/mainAction只表达内容与人物状态") : VIDEO_SHOT_DESIGN}
 - ${VLOG_CAMERA_REFERENCE_RULE}
 - 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VLOG_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
 - 整片最终时长（各镜duration之和扣除叠化重叠）必须在${VLOG_DURATION.min}-${VLOG_DURATION.max}秒内，回复前计算核对；按内容分配每镜长度，不为凑时长添加空动作。
@@ -147,7 +148,7 @@ ${omni ? '无人示例：subjectPresence="environment"，startState={location:"�
 返回以下业务字段结构，必须同时增加上述 sceneVersion、characters 和每镜 startState、mainAction、endState、characterChanges、continuityNote${timed ? "，并必须在顶层增加 timingVersion:2，在每镜增加 duration 和 transitionToNext，不能省略时间线字段" : ""}：
 ${JSON.stringify({
   sceneVersion: 1, ...(timed ? { timingVersion: 2 } : {}),
-  ...(omni ? { productionVersion: 3, characterSelection: "unassigned" } : {}),
+  ...(omni ? { productionVersion: 3, photographyVersion: 1, characterSelection: "unassigned" } : {}),
   characters: [{ id: "A", appearance: omni ? "游客A，具体外观在第二步选择" : "默认20-30岁成年女性，五官、发型、服装固定；明确模版人物设定优先", props: ["按剧情安排的必要道具"] }],
   title: "视频脚本标题", summary: "脚本概要", perspective: "叙事视角", moodTags: ["整片情绪标签"], musicTags: ["配乐标签"],
   noteTask: { topicTitle: "本周笔记主题", contentType: "精选Vlog视频", contentGoal: "用具体画面表达模版的体验主题", targetUser: "目标观众", painPoint: "观众需求", coreView: "视频核心表达", requiredMaterials: "所需场景", recommendedAssets: "素材类型", coverCopyDirection: "封面方向", commentHook: "交流切入点", expectedGoal: "预期感受", writingStyleName: "精确文风名称" },
@@ -166,6 +167,7 @@ ${JSON.stringify({
   requireScriptFields(parsed);
   const rawTask = parsed?.noteTask && typeof parsed.noteTask === "object" ? parsed.noteTask as Record<string, unknown> : {};
   const rawShots = Array.isArray(parsed?.shots) ? parsed.shots : [];
+  if (omni) normalizeOmniCast(parsed?.characters, rawShots);
   if (parsed?.sceneVersion !== 1) throw new Error("Vlog 脚本缺少人物与镜头状态，请重新生成。");
   let aiCalls = 1;
   const validateScenes = () => validateVlogScenes({ sceneVersion: 1, characters: parsed.characters as VlogCharacter[], shots: rawShots });
@@ -236,7 +238,7 @@ ${JSON.stringify({
   if (!noteTask.topicTitle || !noteTask.contentGoal) throw new Error("后端 AI 返回的精选vlog笔记信息不完整，请重试。");
   if (omni && !Array.isArray(parsed.characters)) throw new Error("脚本缺少游客出镜结构，请重新生成。");
   const script: FeaturedVlogScript = {
-    ...(omni ? { productionVersion: 3 as const, characterSelection: "unassigned" as const, genericCharacterVersion: 1 as const } : {}),
+    ...(omni ? { productionVersion: 3 as const, photographyVersion: 1 as const, characterSelection: "unassigned" as const, genericCharacterVersion: 1 as const } : {}),
     sceneVersion: 1,
     characters: omni ? (parsed.characters as VlogCharacter[]).map(c => ({ ...c, appearance: "游客A，具体外观在第二步选择" })) : parsed.characters as VlogCharacter[],
     ...(timed ? { timingVersion: 2 as const } : {}),
@@ -250,6 +252,7 @@ ${JSON.stringify({
   };
   if (omni) {
     if (parsed.productionVersion !== 3) throw new Error("后端AI遗漏Omni脚本版本，请重试。");
+    if (parsed.photographyVersion !== 1) throw new Error("后端AI遗漏摄影设计版本，请重试。");
     validateOmniScript(script);
   }
   return { script, model: response.model, calls: aiCalls };
@@ -482,7 +485,9 @@ export async function adaptFeaturedVlogCharacter(input: { script: FeaturedVlogSc
     instructions: "你是Vlog制作适配员。只输出需要修改的字段补丁JSON，不返回完整脚本。",
     input: `选择：${person ? JSON.stringify(person) : "不添加任何人物，包括手部、剪影或反射中的人"}。
 保持主题、场景、镜头职责、顺序、时长和转场。换人只改称谓、外观及不兼容道具，不能改核心动作或出镜安排；无人模式把人物体验改为对应的环境或物件呈现，不用隐形人物驱动物品。无法适配则返回{"error":"原因"}。
-输出可选title/summary/perspective以及shots数组。每项包含order及需要修改的字段：description、continuityNote、mainAction（只允许无人模式修改）、startCharacters/endCharacters（沿用原结构，换人保留位置与view）、startProps/endProps、focus/action/ending、composition/depth、camera={type,direction,speed,extent}、timingActions（按原时间段顺序仅返回动作文字）、transitionText={reason,outgoingState,incomingState}。禁止输出其他字段，不新增镜头，不改变时间段。换人只能修改camera.direction中的人物称谓，不改运镜方式或幅度。无人模式须覆盖原有人物的镜头并改写mainAction，将跟随人物的运镜改成观察对应环境，不保留人物命令。服装和外观以所选主体为准，非人物字段不扩写。
+输出可选title/summary/perspective以及shots数组。每项包含order及需要修改的字段：description、continuityNote、mainAction（只允许无人模式修改）、startCharacters/endCharacters（沿用原结构，换人保留位置与view）、startProps/endProps、focus/action/ending、composition/depth、camera={type,direction,speed,extent,startFrame,endFrame,visualChange,reason}、subjectPresentation、focusTarget、timingActions（按原时间段顺序仅返回动作文字）、transitionText={reason,outgoingState,incomingState}。禁止输出其他字段，不新增镜头，不改变时间段。换人只能修改camera.direction中的人物称谓，不改其他摄影设计。无人模式须覆盖原有人物的镜头并改写mainAction，将跟随人物的运镜改成观察对应环境，不保留人物命令。photographyVersion=1时，无人模式对原有人物的每镜必须输出focusTarget及完整camera的8项字段，清除其中的人物前景、比例、露脸或跟随要求；原本纯环境镜头可直接保留。subjectRole及subjectPresentation由程序统一为纯环境和无人。服装和外观以所选主体为准，非人物字段不扩写。
+无人模式另允许补丁字段scale、height、angle；photographyVersion=1时，原有人物的每镜必须同时返回scale/height/angle/composition/depth五项，移除“人物后方”“坐姿机位”等依赖人物的拍法。camera.type不得用follow（此处专指跟随人物）；沿通路前进用push，横向位移用track，原地转动用pan，根据环境选择，不用隐形人物作跟随目标。末镜无后续转场，省略transitionText或返回null。
+无人模式必须返回summary、perspective，采用环境叙述，不再描述游客出镜。必须检查全部镜头及相邻关系：本镜或下一镜原有人物时，当前镜头必须返回transitionText三项，全部改成无人画面承接；即使本镜本来无人，也须清理“承接游客静听”等continuityNote及转场incomingState中的人物。原有人物的description、focus、action、ending、composition、depth、timingActions均改成环境描述；不遗漏未改字段中的人物、手部或人像前景。保持原有时间段、转场类型和重叠时长。
 ${VIDEO_SCRIPT_BUDGET}
 原脚本：${JSON.stringify(input.script)}`
   });

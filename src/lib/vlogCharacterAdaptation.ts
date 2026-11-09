@@ -13,7 +13,7 @@ export function directVlogBinding(source: FeaturedVlogScript, choice: VlogCharac
   const script = clone(source);
   script.characterSelection = choice;
   script.characters = choice === "none" ? [] : (script.characters || []).map(c => ({ ...c, appearance: VLOG_CHARACTERS[choice].appearance }));
-  if (choice === "none") script.shots.forEach(s => { s.subjectPresence = "environment"; });
+  if (choice === "none") script.shots.forEach(s => { s.subjectPresence = "environment"; if(script.photographyVersion===1) { s.direction!.subjectRole="environment"; s.direction!.subjectPresentation="无人"; } });
   return { script, calls: 0, changes: [choice === "none" ? "采用无人环境模式" : `绑定${VLOG_CHARACTERS[choice].bindName}，镜头动作与时间线保留`], requiresConfirmation: false };
 }
 
@@ -25,8 +25,12 @@ export function applyVlogCharacterPatch(source: FeaturedVlogScript, choice: Vlog
   const string = (v: unknown) => { if (typeof v !== "string" || !v.trim()) throw new Error("人物适配文字不能为空。"); return v.trim(); };
   allowed(raw, ["title", "summary", "perspective", "shots"]);
   if (!Array.isArray(raw.shots)) throw new Error("人物适配缺少镜头补丁。");
+  const patches = raw.shots;
   const script = clone(source);
   const changes: string[] = [];
+  if (choice === "none" && source.photographyVersion === 1) {
+    string(raw.summary); string(raw.perspective);
+  }
   script.characterSelection = choice;
   delete script.genericCharacterVersion;
   for (const key of ["title", "summary", "perspective"] as const) if (raw[key] !== undefined) {
@@ -38,7 +42,7 @@ export function applyVlogCharacterPatch(source: FeaturedVlogScript, choice: Vlog
   for (const value of raw.shots) {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("镜头补丁无效。");
     const patch = value as Record<string, unknown>;
-    allowed(patch, ["order", "description", "continuityNote", "mainAction", "startCharacters", "endCharacters", "startProps", "endProps", "focus", "action", "ending", "composition", "depth", "camera", "timingActions", "transitionText"]);
+    allowed(patch, ["order", "description", "continuityNote", "mainAction", "startCharacters", "endCharacters", "startProps", "endProps", "focus", "action", "ending", "composition", "depth", "scale", "height", "angle", "camera", "timingActions", "transitionText", "subjectPresentation", "focusTarget"]);
     const order = Number(patch.order);
     if (!Number.isInteger(order) || order < 1 || order > script.shots.length || seen.has(order)) throw new Error("镜头补丁编号无效或重复。");
     seen.add(order);
@@ -59,13 +63,19 @@ export function applyVlogCharacterPatch(source: FeaturedVlogScript, choice: Vlog
       if (!Array.isArray(patch[field]) || !(patch[field] as unknown[]).every(v => typeof v === "string")) throw new Error("道具补丁无效。");
       shot[key]!.props = clone(patch[field] as string[]);
     }
-    for (const key of ["focus", "action", "ending"] as const) if (patch[key] !== undefined) shot.direction![key] = string(patch[key]);
-    for (const key of ["composition", "depth"] as const) if (patch[key] !== undefined) shot.direction!.photography[key] = string(patch[key]);
+    for (const key of ["focus", "action", "ending", "subjectPresentation", "focusTarget"] as const) if (patch[key] !== undefined) {
+      if (choice !== "none" && ["subjectPresentation", "focusTarget"].includes(key) && patch[key] !== shot.direction![key]) throw new Error("换人不能改变摄影关系。");
+      shot.direction![key] = string(patch[key]);
+    }
+    for (const key of ["scale", "height", "angle", "composition", "depth"] as const) if (patch[key] !== undefined) {
+      if (choice !== "none" && ["scale", "height", "angle"].includes(key) && patch[key] !== shot.direction!.photography[key]) throw new Error("换人不能改变摄影构图。");
+      shot.direction!.photography[key] = string(patch[key]);
+    }
     if (patch.camera !== undefined) {
       if (!patch.camera || typeof patch.camera !== "object" || Array.isArray(patch.camera)) throw new Error("运镜补丁无效。");
       const camera = patch.camera as Record<string, unknown>;
-      allowed(camera, ["type", "direction", "speed", "extent"]);
-      for (const key of ["type", "direction", "speed", "extent"] as const) if (camera[key] !== undefined) {
+      allowed(camera, ["type", "direction", "speed", "extent", "startFrame", "endFrame", "visualChange", "reason"]);
+      for (const key of ["type", "direction", "speed", "extent", "startFrame", "endFrame", "visualChange", "reason"] as const) if (camera[key] !== undefined) {
         const value = string(camera[key]);
         if (choice !== "none" && key !== "direction" && value !== shot.direction!.camera[key]) throw new Error("换人不能改变运镜方式和幅度。");
         Object.assign(shot.direction!.camera, { [key]:value });
@@ -75,7 +85,8 @@ export function applyVlogCharacterPatch(source: FeaturedVlogScript, choice: Vlog
       if (!Array.isArray(patch.timingActions) || patch.timingActions.length !== shot.direction!.timing.length) throw new Error("动作时间段数量不能变化。");
       shot.direction!.timing.forEach((p, i) => { p.action = string((patch.timingActions as unknown[])[i]); });
     }
-    if (patch.transitionText !== undefined) {
+    const emptyLastTransition = !shot.transitionToNext && (patch.transitionText === null || (patch.transitionText && typeof patch.transitionText === "object" && !Array.isArray(patch.transitionText) && Object.keys(patch.transitionText).length === 0));
+    if (patch.transitionText !== undefined && !emptyLastTransition) {
       const t = patch.transitionText;
       if (!t || typeof t !== "object" || !shot.transitionToNext) throw new Error("转场补丁无效。");
       allowed(t as Record<string, unknown>, ["reason", "outgoingState", "incomingState"]);
@@ -89,6 +100,18 @@ export function applyVlogCharacterPatch(source: FeaturedVlogScript, choice: Vlog
       const wasPerson = source.shots[i].startState!.characters.length || source.shots[i].endState!.characters.length;
       if (wasPerson && (!seen.has(i+1) || shot.mainAction === source.shots[i].mainAction)) throw new Error("无人适配须转换原人物动作。");
       shot.subjectPresence = "environment";
+      if (script.photographyVersion === 1) {
+        const patch = patches.find(p => Number((p as Record<string, unknown>).order) === i+1) as Record<string, unknown> | undefined;
+        const next = source.shots[i+1];
+        const nextWasPerson = next && (next.startState!.characters.length || next.endState!.characters.length);
+        if (shot.transitionToNext && (wasPerson || nextWasPerson)) {
+          if (!patch?.transitionText || typeof patch.transitionText !== "object" || !["reason","outgoingState","incomingState"].every(k=>typeof (patch.transitionText as Record<string,unknown>)[k]==="string" && String((patch.transitionText as Record<string,unknown>)[k]).trim())) throw new Error(`镜头${i+1}无人适配须同步更新相邻转场文字。`);
+        }
+        if (wasPerson && !["scale", "height", "angle", "composition", "depth"].every(k=>typeof patch?.[k]==="string" && String(patch[k]).trim())) throw new Error(`镜头${i+1}无人适配须重新描述机位与构图。`);
+        if (wasPerson && (!patch?.focusTarget || !patch.camera || !["type","direction","speed","extent","startFrame","endFrame","visualChange","reason"].every(k=>typeof (patch.camera as Record<string,unknown>)[k] === "string" && String((patch.camera as Record<string,unknown>)[k]).trim()))) throw new Error(`镜头${i+1}无人适配须重新描述完整摄影设计。`);
+        shot.direction!.subjectRole="environment";
+        shot.direction!.subjectPresentation="无人";
+      }
       shot.startState!.characters = []; shot.endState!.characters = []; shot.characterChanges = [];
     });
   } else script.characters = (script.characters || []).map(c => ({ ...c, appearance: VLOG_CHARACTERS[choice].appearance }));

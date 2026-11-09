@@ -28,6 +28,11 @@ const templateRules = load('src/lib/featuredVlogTemplateRules.ts');
 const vlogSelection = load('src/lib/featuredVlogAssetSelection.ts');
 const story = load('src/lib/videoPrompts.ts');
 const clone = x => JSON.parse(JSON.stringify(x));
+function photographyScript(value) {
+  const s=clone(value); s.photographyVersion=1;
+  s.shots.forEach(shot=>Object.assign(shot.direction, {subjectRole:shot.subjectPresence==='environment'?'environment':'life',subjectPresentation:shot.subjectPresence==='environment'?'无人':'人物偏侧小比例',focusTarget:'空间',camera:{...shot.direction.camera,startFrame:'前景与空间',endFrame:'空间整体',visualChange:shot.direction.camera.type==='fixed'?'自然光影变化':'前景退出空间展开',reason:'观察空间关系'}}));
+  return s;
+}
 const state = people => ({ location: '场景', characters: people ? [{ id: 'A', position: '通行区域', pose: '自然站立', view: 'front' }] : [], props: [] });
 const durations = [2, 3.5, 4, 3, 4.5, 5];
 const script = { productionVersion: 3, timingVersion: 2, sceneVersion: 1, title: '林川的周末', summary: '从空间到自然', perspective: '第三人称', moodTags: ['自然'], musicTags: ['舒缓'], characters: [{ id: 'A', appearance: omni.LINCHUAN.appearance, props: ['左肩帆布包'] }], noteTask: { topicTitle: '周末', contentGoal: '慢下来', writingStyleName: '测试' }, shots: durations.map((duration, i) => ({
@@ -55,18 +60,26 @@ async function main() {
   assert.doesNotThrow(() => omni.validateOmniScript(paraphrased), 'identity must not depend on exact appearance wording');
   const wrongIdentity = clone(script);
   wrongIdentity.characters.push({ id: 'B', appearance: '另一位游客', props: [] });
-  assert.throws(() => omni.validateOmniScript(wrongIdentity), /预设人物主体A/);
+  assert.throws(() => omni.validateOmniScript(wrongIdentity), /人物标识/);
+  const renamed = clone(script);
+  renamed.characters[0].id = 'traveler_1';
+  renamed.shots.forEach(s => { for (const state of [s.startState,s.endState]) state.characters.forEach(c=>c.id='traveler_1'); });
+  omni.normalizeOmniCast(renamed.characters, renamed.shots);
+  assert.doesNotThrow(()=>omni.validateOmniScript(renamed));
+  assert.equal(renamed.characters[0].id,'A');
+  assert.throws(()=>omni.normalizeOmniCast([{id:'A'},{id:'B'}],[]),/独立人物/);
   const invalid = clone(script); invalid.shots[0].direction.timing[0].end = 3;
   assert.throws(() => omni.validateOmniScript(invalid), /时长/);
   invalid.shots[0].direction = undefined;
   assert.throws(() => omni.validateOmniScript(invalid), /摄影/);
-  reply = () => script;
+  reply = () => photographyScript(script);
   const generated = await prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template, availableWritingStyles: ['测试'] });
   assert.equal(generated.script.productionVersion, 3);
   assert.ok(!calls.at(-1).input.includes('林川'));
   assert.ok(!calls.at(-1).input.includes(omni.LINCHUAN.appearance));
   assert.equal(generated.script.characterSelection, 'unassigned');
   assert.equal(generated.script.characters[0].appearance, '游客A，具体外观在第二步选择');
+  assert.equal(generated.script.photographyVersion,1);
   assert.ok(!calls.at(-1).input.includes('主角倾向为20-30岁成年女性'));
   const planningTemplate = JSON.parse(calls.at(-1).input.split('平台模板：\n')[1].split('\n\n用户补充要求：')[0]);
   assert.equal(planningTemplate.beats[0].mainContent, template.beats[0].shotDuty);
@@ -89,7 +102,7 @@ async function main() {
   }
   assert.equal(templateRules.parseVlogBeatContent('【机位】俯拍').mainContent, '【机位】俯拍');
   const annotatedTemplate = { ...template, beats: [{ ...template.beats[0], shotDuty: annotated }] };
-  reply = () => script;
+  reply = () => photographyScript(script);
   await prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template: annotatedTemplate, availableWritingStyles: ['测试'] });
   const softTemplate = JSON.parse(calls.at(-1).input.split('平台模板：\n')[1].split('\n\n用户补充要求：')[0]);
   assert.equal(softTemplate.beats[0].mainContent, parsedBeat.mainContent);
@@ -107,7 +120,7 @@ async function main() {
       direction: { ...clone(script.shots[i].direction), timing: [{ start: 0, end: duration, action: '观察并停留' }] },
       transitionToNext: i === durations.length-1 ? null : { ...clone(script.shots[0].transitionToNext), type: overlap ? 'dissolve' : 'cut', duration: overlap }
     }));
-    reply = () => sample;
+    reply = () => photographyScript(sample);
     const generate = () => prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template, availableWritingStyles: ['测试'] });
     if (expected < 20 || expected > 30) await assert.rejects(generate, /成片时长须为20–30秒/);
     else assert.equal((await generate()).script.shots.length, durations.length);
@@ -135,6 +148,24 @@ async function main() {
   assert.equal(plan.character.bindName, '林川-山林周末Vlog');
   const makeTask = (s, resolution) => prompts.buildFeaturedVlogVideoTask({ script: s, template, framePlan: frames.framePlan, motionPlan: [], noteTask: { id: 1 }, music: { audioUrl: 'https://example.com/music.mp3' }, resolution, overallDirection: '自然' });
   const getPlan = task => JSON.parse(task.match(/```json\n([\s\S]*?)\n```/)[1]);
+  const photo = photographyScript(script);
+  const photoPlan=getPlan(makeTask(photo));
+  assert.equal(photoPlan.photographyVersion,1);
+  assert.deepEqual(photoPlan.shots[1].direction,photo.shots[1].direction);
+  const missing=clone(photo); delete missing.shots[1].direction.camera.endFrame;
+  assert.throws(()=>omni.validateOmniScript(missing),/镜头 2.*endFrame/);
+  const badRole=clone(photo); badRole.shots[0].direction.subjectRole='foreground';
+  assert.throws(()=>omni.validateOmniScript(badRole),/冲突/);
+  const hintModule=load('src/lib/vlogPhotography.ts');
+  photo.shots.forEach(s=>s.direction.camera.type='fixed');
+  assert.doesNotThrow(()=>omni.validateOmniScript(photo));
+  assert.ok(hintModule.photographyHints(photo).some(h=>h.includes('连续固定')));
+  assert.ok(hintModule.photographyHints(photo).some(h=>h.includes('主要动作文字相同')));
+  const repeatedPeople=photographyScript(script);
+  repeatedPeople.shots.slice(0,3).forEach(s=>{s.subjectPresence='traveler';s.startState=state(true);s.endState=state(true);s.direction.subjectRole='life';s.direction.subjectPresentation=s.order===2?'人物偏左、全身':'人物偏左全身';});
+  assert.ok(hintModule.photographyHints(repeatedPeople).some(h=>h.includes('人物作用及呈现文字相同')));
+  repeatedPeople.shots.slice(0,2).forEach(s=>{s.mainAction=s.order===1?'坐到床沿':'在溪边坐下';s.startState.characters[0].pose='站立';s.endState.characters[0].pose='坐定';});
+  assert.ok(hintModule.photographyHints(repeatedPeople).some(h=>h.includes('从站立到坐姿')));
   assert.equal(getPlan(makeTask(script)).generation.resolution, '720p');
   assert.equal(getPlan(makeTask(script, '1080p')).generation.resolution, '1080p');
   assert.ok(makeTask(script, '1080p').includes('resolution=1080p'));
@@ -211,7 +242,7 @@ async function main() {
   assert.ok(!('noteTask' in plan), 'execution plan must not contain any noteTask object');
   assert.ok(!task.includes('账号：'));
   assert.ok(!JSON.stringify(plan).includes('selectionReason'), 'selection rationale stays in console, not execution instructions');
-  for (const instruction of ['plan.shots[].direction仅为暂定拍法', '保留平视', '信息不足可固定', 'cameraMovement记录最终拍法及理由', 'request.arguments.prompt必须等于refinement.prompt', '不直接执行或拼接plan.direction', '核心动作无法完成才停止报告']) {
+  for (const instruction of ['plan.shots[].direction仅为暂定拍法', '看完本片全部实际图片', '不锁死原图裁切与机位', 'cameraMovement分别写起幅', 'request.arguments.prompt必须等于refinement.prompt', '不直接执行或拼接plan.direction', '核心动作无法成立时停止报告', '不能替代读图', '用户接受偏差仍保留说明']) {
     assert.ok(task.includes(instruction), instruction);
   }
   assert.equal(plan.shots[0].direction.camera.type, script.shots[0].direction.camera.type, 'original plan remains unchanged; adaptation belongs in refinement');
@@ -232,6 +263,18 @@ async function main() {
   const stress1080 = stressTask.replace('"resolution":"720p"', '"resolution":"1080p"');
   assert.ok(stress1080.length <= 18000);
   console.log(`Omni six-shot long-field/signed-URL budget: ${stressTask.length} chars`);
+  const photoStress=photographyScript(stressScript);
+  photoStress.shots.forEach(s=>{
+    s.description='描'.repeat(50);s.mainAction='动'.repeat(30);s.continuityNote='接'.repeat(25);
+    s.direction.subjectPresentation='呈'.repeat(15);s.direction.focusTarget='焦'.repeat(15);
+    for(const k of Object.keys(s.direction.photography)) s.direction.photography[k]='摄'.repeat(15);
+    for(const k of ['focus','action','ending']) s.direction[k]='意'.repeat(15);
+    for(const k of ['direction','speed','extent','startFrame','endFrame','visualChange','reason']) s.direction.camera[k]='摄'.repeat(15);
+    if(s.transitionToNext) for(const k of ['reason','incomingState','outgoingState'])s.transitionToNext[k]='接'.repeat(25);
+  });
+  const photoStressTask=omni.buildOmniTask({noteTask:{id:1},template,script:photoStress,framePlan:frames.framePlan.map((f,i)=>({...f,frameSource:'asset',assetUrl:longUrl+i,framePrompt:'图'.repeat(180),aiAnalysis:'析'.repeat(100)})),music:{id:1,name:'配乐',tags:[],audioUrl:longUrl},overallDirection:'整'.repeat(90)});
+  assert.ok(photoStressTask.length<=18000,`photography stress ${photoStressTask.length}`);
+  console.log(`Photography six-shot long-field/signed-URL budget: ${photoStressTask.length} chars`);
   fs.mkdirSync('tmp', { recursive: true });
   fs.writeFileSync('tmp/omni-v3-contract-plan.json', JSON.stringify(plan));
   const large = selection.videoAssetReferences(Array.from({ length: 90 }, (_, i) => ({ ...assets[0], id: i+1, filePath: `${i}.png`, tags: '长标签'.repeat(20) })));
@@ -297,8 +340,8 @@ async function main() {
   assert.equal(adapted.framePlan[1].frameSource, 'generate');
   const adaptedTask = prompts.buildFeaturedVlogVideoTask({ script: cached, template: annotatedTemplate,
     framePlan: adapted.framePlan, motionPlan: [], noteTask: { id: 42 }, music: { audioUrl: 'https://example.com/music.mp3' } });
-  assert.ok(adaptedTask.includes('平视图可保留平视'));
-  assert.ok(adaptedTask.includes('不为俯拍/航拍/环绕补造屋顶、背面或通道'));
+  assert.ok(adaptedTask.includes('不锁死原图裁切与机位'));
+  assert.ok(adaptedTask.includes('不补造未知房间、建筑背面或路线'));
   assert.equal(JSON.stringify(cached), beforeCached);
   console.log('Camera adaptation: tagged/legacy parsing, content-only screening and selection, level-image mapping and execution contract passed.');
   const legacyCached = { ...cached, productionVersion: undefined };
@@ -326,6 +369,27 @@ async function main() {
   const assigned = await prompts.adaptFeaturedVlogCharacter({ script: generated.script, characterSelection: 'linchuan' });
   assert.equal(assigned.calls, 0, 'new generic scripts bind the selected preset without AI');
   assert.equal(assigned.script.characterSelection, 'linchuan');
+  assert.equal(JSON.stringify(assigned.script.shots.map(s=>s.direction)),JSON.stringify(generated.script.shots.map(s=>s.direction)));
+  const feminine = await prompts.adaptFeaturedVlogCharacter({script:generated.script,characterSelection:'shenhe'});
+  assert.equal(feminine.calls,0);
+  assert.equal(JSON.stringify(feminine.script.shots.map(s=>s.direction)),JSON.stringify(generated.script.shots.map(s=>s.direction)));
+  const adaptationModule=load('src/lib/vlogCharacterAdaptation.ts');
+  const emptyPatch={shots:generated.script.shots.map(s=>({order:s.order,mainAction:'水面自然流动',description:'观察自然',action:'水面自然流动',focus:'水流',ending:'水流延伸',composition:'石块偏侧',depth:'水面与远岸',focusTarget:'水面',camera:{type:'fixed',direction:'朝向水面',speed:'固定',extent:'稳定观察',startFrame:'水面绕石',endFrame:'水面绕石',visualChange:'水纹持续变化',reason:'观察自然细节'},timingActions:s.direction.timing.map(()=>'水面自然流动')}))};
+  emptyPatch.shots.forEach(p=>Object.assign(p,{scale:'环境中景',height:'低位',angle:'朝向水面'}));
+  emptyPatch.summary='观察自然空间';emptyPatch.perspective='环境观察';
+  emptyPatch.shots.slice(0,-1).forEach(p=>p.transitionText={reason:'空间承接',outgoingState:'水面',incomingState:'树影'});
+  const emptyPhoto=adaptationModule.applyVlogCharacterPatch(generated.script,'none',emptyPatch).script;
+  assert.doesNotThrow(()=>omni.validateOmniScript(emptyPhoto));
+  assert.ok(emptyPhoto.shots.every(s=>s.direction.subjectRole==='environment' && s.direction.subjectPresentation==='无人' && !s.startState.characters.length));
+  const emptyFollow=clone(emptyPhoto);emptyFollow.shots[1].direction.camera.type='follow';
+  assert.throws(()=>omni.validateOmniScript(emptyFollow),/无人模式不能沿用人物跟随/);
+  assert.throws(()=>adaptationModule.applyVlogCharacterPatch(generated.script,'none',{summary:'环境',perspective:'环境',shots:[]}),/无人适配/);
+  for (const empty of [null,{}]) {
+    const withEmpty=clone(emptyPatch);withEmpty.shots.at(-1).transitionText=empty;
+    assert.equal(adaptationModule.applyVlogCharacterPatch(generated.script,'none',withEmpty).script.shots.at(-1).transitionToNext,null);
+  }
+  const invalidLast=clone(emptyPatch);invalidLast.shots.at(-1).transitionText={reason:'新增末镜转场'};
+  assert.throws(()=>adaptationModule.applyVlogCharacterPatch(generated.script,'none',invalidLast),/转场补丁/);
   assert.equal(generated.script.characterSelection, 'unassigned');
   assert.throws(() => omni.buildOmniTask({ script: generated.script }), /适配/);
   const female = clone(script);

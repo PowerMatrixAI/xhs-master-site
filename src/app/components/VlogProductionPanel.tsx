@@ -5,6 +5,7 @@ import type { VlogCharacterSelection } from "@/lib/vlogCharacters";
 import { productionScript, stableJson, type VlogProductionDraft, type ProductionOptions } from "@/lib/vlogProduction";
 import { readVlogProduction, writeVlogProduction, VLOG_PRODUCTION_EVENT } from "@/lib/vlogProductionStore";
 import { authenticatedFetch } from "@/lib/api";
+import { VlogPhotographyOverview } from "./VlogPhotographyOverview";
 
 export function VlogProductionPanel({ scope, script, choice, resolution, disabled, onContinue }: {
   scope: string; script: FeaturedVlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution;
@@ -53,6 +54,7 @@ export function VlogProductionPanel({ scope, script, choice, resolution, disable
     {draft && (!sameScript || !sameChoice || draft.resolution !== resolution) && <p className="mt-2 text-ink/60">设置或脚本已变化，继续时仅更新受影响的阶段。</p>}
     {!adaptation ? <p className="mt-2 text-ink/60">生成任务后在此查看实际使用的制作脚本，阶段结果会自动保存。</p> : <>
       <p className="mt-2 font-medium">{adaptation.script.title}</p><p className="mt-1">{adaptation.script.summary}</p>
+      <VlogPhotographyOverview script={adaptation.script} />
       <details className="mt-2"><summary className="cursor-pointer">修改说明及实际镜头内容</summary>
         <ul className="my-2 list-inside list-disc">{adaptation.changes.map((change,i)=><li key={i}>{change}</li>)}</ul>
         {adaptation.script.shots.map(s=><div key={s.order} className="mt-2 border-t border-ink/10 pt-2"><p>镜头{s.order} · {s.role} · {s.duration}秒 · {s.subjectPresence === "environment" ? "无人环境" : s.subjectPresence === "pov" ? "主观视角" : "人物入镜"}</p><p>{s.description}</p><p>动作：{s.mainAction}</p><p>起始：{s.startState?.location}，{s.startState?.characters.map(c=>`${c.id} ${c.pose}`).join("、") || "无人"} → 结束：{s.endState?.location}，{s.endState?.characters.map(c=>`${c.id} ${c.pose}`).join("、") || "无人"}</p><p>转场：{s.transitionToNext ? `${s.transitionToNext.type} ${s.transitionToNext.duration}秒 · ${s.transitionToNext.reason}` : "末镜收束"}</p></div>)}

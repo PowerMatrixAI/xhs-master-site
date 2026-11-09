@@ -62,6 +62,7 @@ export type MusicCandidate = Pick<PlatformMusic, "id" | "name" | "tags" | "durat
 
 export type FeaturedVlogScript = {
   genericCharacterVersion?: 1;
+  photographyVersion?: 1;
   characterSelection?: import("./vlogCharacters").VlogCharacterSelection | "unassigned";
   productionVersion?: 3;
   sceneVersion?: 1;
