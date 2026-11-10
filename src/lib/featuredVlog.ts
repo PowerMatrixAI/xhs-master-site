@@ -337,6 +337,16 @@ export async function updatePlatformMusic(input: Pick<PlatformMusic, "id" | "nam
   return music;
 }
 
+export async function deletePlatformMusic(input: Pick<PlatformMusic, "id">) {
+  requireAdmin();
+  if (!Number.isSafeInteger(input.id) || input.id <= 0) throw new Error("配乐标识无效，请刷新后重试。");
+  const response = await authRequest<{ musicId?: number }>("/featuredVlog/v1/music/delete", {
+    method: "POST",
+    body: { musicId: input.id }
+  });
+  if (!response.status) throw new Error(response.message || "删除平台配乐失败。");
+}
+
 export async function fetchMusicCandidates(accountId: number) {
   const response = await authRequest<{ candidates?: unknown[]; music?: unknown[] }>("/featuredVlog/v1/music/candidates", {
     method: "POST",
