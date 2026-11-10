@@ -157,16 +157,17 @@ environment无人，不传elements或主体引用；原图有人先处理或报�
 plan.shots[].direction仅为暂定拍法；不改原始plan.json及sourceHash，最终设计记resolved-plan.json的refinement。
 1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载模板参考视频及场景/配乐，参考视频3–10秒直接使用，超过10秒截前10秒，不足3秒报错；不回退静态视频，不生成首帧或调用Turbo。
 2. generate先用generate-image制作9:16无人场景图到scenePath；sceneStyleReference可经edit-image统一AI背景质感，不复制建筑人物。asset不先加人或重绘场地；纯环境原图有人时仅去人保场地或停止报告，处理后重新读图。
-3. 准备全部场景图后逐张实际读图，核对人员、通道、障碍、光向和画幅。语义读图不可用时停止受影响镜头并报告，文件尺寸/亮度/哈希不能替代读图，不凭分析文字冒充已看图。
-4. 看完本片全部实际图片后先统筹全片，再逐镜细化：检查人物作用、比例、位置、景别、焦点及运动节奏，避免连续相似人像或无理由固定。拍法可替换暂定设计；保留场地事实，不锁死原图裁切与机位，也不补造未知房间、建筑背面或路线。核心动作无法成立时停止报告，不擅自换图；保留主题、事件、顺序、时长、身份、人数、转场。
-5. imageObservations记录实际空间；cameraMovement分别写起幅、运动方向/速度/范围、终幅、可观察变化与选择理由，调整暂定拍法须说明原因。pan为原地摇摄，track为平移；人物运动不能代替摄影机运动，慢不等于微动。空间支持时主动设计可辨识位移，固定说明静观目的，末镜不自动固定。细化透视/接触/遮挡/光向/反光/投影/景深，不带棚拍背景；constraints只写本镜适用边界。分写人物动作、时间和endingState；prompt使用最终设计，不直接拼plan.direction。
+3. 准备全部场景图后实际读图，核对空间、人员、光向和画幅；工具失败可使用其他已配置查看能力。确实无法查看才报告，文件尺寸/亮度/哈希不能替代读图。
+4. 看完本片全部实际图片再统筹人物作用、比例、景别、焦点和节奏，避免重复人像或无理由固定。拍法可调整，不锁死原图裁切与机位，不补造未知房间、建筑背面或路线。核心动作无法成立时停止报告；保留主题、事件、顺序、时长、身份、人数和转场。
+5. imageObservations记实际空间；cameraMovement分别写起幅、方向/速度/范围、终幅、变化及理由。pan原地摇摄，track平移；人物运动不代替运镜，慢不等于微动，固定说明目的。细化透视/接触/遮挡/光向/投影/景深；constraints仅写适用边界。分写动作、时间、endingState，prompt只用最终设计。
 
 ## Kling CLI生成与记录
-执行 kling --version（>=0.2.3）、kling who_am_i、kling account、kling omni_ref_video --help${hasPeople && character ? `、kling element_get ${character.id}` : ""}，核对账号/主体/能力。只用官方kling，失败报告不改通道，参数按实时帮助。
+按需一次确认官方CLI版本、授权与实时参数，可复用已确认信息。主体仅校验ID和类型，不核对名称、引用格式或脚本人物代号，不增加逐镜审核。
+填好refinement、拟提交request和sceneSha256，以photographySummary简述全片摄影。执行 uv run python scripts/cli.py featured-vlog preflight --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。此步骤免费，不调用AI/Kling；通过后才提交。可据实补齐的问题自主修复，正常流程无需用户回复“继续”。
 每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath、--video传styleVideoPath，本地自动上传。${hasPeople && character ? `A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${character.id}>>>，无人省略。主体约束身份服装；` : "全片无人，不绑定人物，不生成其他人物或手部。"}${VLOG_REFERENCE_STYLE_RULE} 显式传resolution=${resolution}、9:16、单条、关闭音频/原声/智能分镜；不支持停止，不降级。时长max(3,ceil(duration))<=10，动作按时完成，内部切镜不通过。
 --poll 0单次提交，保存CLI回执；ok=true后立即记录body.generationId及creditsConsumed，再用 kling query_tasks 实际ID查询，从成功works取视频地址。失败/超时续查原ID，不重投、不改模型；报价以当前入口为准。
 request.arguments.prompt必须等于refinement.prompt，不直接执行或拼接plan.direction。按Skill记录model、arguments/inputs、argv、submitResponse；elements为数组，输入为实际CLI路径，argv从kling、omni_ref_video开始，不记凭据。
-下载片段到骨架clipPath；实际scenePath和clipPath的SHA256写入sceneSha256、clipSha256。连续查看片段后填写visualReview；notes分别记录人物与环境关系、动作完成、摄影机运动、起终构图变化、场景稳定/身份/内部切镜。远景不要求辨清五官，局部不要求全身，虚化前景不要求脸部锐利。移动未实现须记录偏差，不能因人物动了就算运镜通过；用户接受偏差仍保留说明，不自动重复付费。仅技术检查不能标记视觉通过，passed按实际验收结果填写。每镜实际起始抽帧经飞书发送，标明任务/镜号及“视频起始画面预览”，不是预制首帧。
+下载片段到clipPath并写clipSha256，批次观察人物/动作/运镜/起终构图变化及场景稳定。轻微偏差记录后继续，visualReview.passed=true表示可用于本片，不代表逐字实现。关键缺陷保留passed=false，继续处理其他独立镜头；超出授权的付费重做合并询问一次。用户接受偏差仍保留说明，以acceptedDeviation={reason,source}记录明确接受，不豁免技术错误。远景、局部、虚化前景按本镜目的判断，不设统一清晰正脸要求。实际起始抽帧经飞书交付，标注镜号及“视频起始画面预览”，不等待逐镜批准。
 
 ## 后期与交付
 全部镜头验收后执行 uv run python scripts/cli.py featured-vlog render --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}" --output "$PWD/${dir}/final.mp4" --size 1080x1920。

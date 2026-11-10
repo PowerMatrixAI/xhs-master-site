@@ -193,7 +193,12 @@ async function main() {
   const paraphrasedTask = omni.buildOmniTask({ script: paraphrased, template, framePlan: frames.framePlan, noteTask: { id: 1 }, music: { audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' });
   const paraphrasedPlan = JSON.parse(paraphrasedTask.match(/```json\n([\s\S]*?)\n```/)[1]);
   assert.equal(paraphrasedPlan.character.id, '324641305202280', 'paraphrased appearance must still bind the preset Element');
-  assert.ok(task.includes('kling element_get 324641305202280'));
+  assert.ok(!task.includes('element_get'));
+  assert.ok(task.includes('主体仅校验ID和类型'));
+  assert.ok(task.includes('featured-vlog preflight --plan-file'));
+  assert.ok(task.includes('photographySummary'));
+  assert.ok(task.includes('轻微偏差记录后继续'));
+  assert.ok(task.indexOf('featured-vlog preflight') < task.indexOf('每镜 kling omni_ref_video'));
   assert.ok(!task.includes('324475410205532'));
   assert.equal(plan.styleVideo.url, template.referenceVideo.videoUrl);
   assert.equal(plan.styleVideo.id, 8);

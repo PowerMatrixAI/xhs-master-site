@@ -61,6 +61,14 @@ async function main(){
   assert.throws(()=>adaptation.applyVlogCharacterPatch(source,'shenhe',{shots:[{order:2,mainAction:'喝茶'}]}),/核心动作/);
   assert.equal(adaptation.directVlogBinding(source,'shenhe').calls,0);
   assert.equal(adaptation.directVlogBinding({...source,genericCharacterVersion:undefined},'shenhe'),null);
+  const beforeUpgrade=clone(counts);
+  persisted.stages.build.fingerprint='old-build-rule';
+  persisted.stages.build.result.videoPrompt.content+='\nkling element_get old-id';
+  await run();
+  assert.equal(counts.build_featured_vlog_task,beforeUpgrade.build_featured_vlog_task+1);
+  for(const name of ['adapt_featured_vlog_character','plan_featured_vlog_frames','select_featured_vlog_music']) assert.equal(counts[name],beforeUpgrade[name]);
+  assert.ok(!persisted.lastSuccess.result.videoPrompt.content.includes('element_get'));
+  assert.ok(persisted.lastSuccess.result.videoPrompt.content.includes('featured-vlog preflight'));
   const beforeStore=clone(counts);await assert.rejects(()=>run({persist:async()=>{throw Error('quota')}}),/保存到本地/);assert.deepEqual(counts,beforeStore);
   console.log('Production: parameter reuse, actor binding, confirmation, save retry, stage retry, UUID recovery, lost-task stop, asset invalidation and URL refresh passed.');
 }
