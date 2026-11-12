@@ -82,7 +82,7 @@ export async function runVlogProduction(input: {
     if (!context) throw new Error("制作资源检查失败。");
     if (input.options?.force) { delete draft.stages[input.options.force]; delete draft.stages.build; delete draft.stages.save; }
     async function stage<T>(name: ProductionStage, deps: unknown, action: string, body: Record<string, unknown>, valid: (r: T) => void): Promise<T> {
-      const fingerprint = await productionHash({ ruleVersion: name === "adapt" ? "vlog-photography-3" : name === "build" ? "vlog-skill-preflight-1" : "vlog-production-1", modelPolicy: "backend-default", name, deps });
+      const fingerprint = await productionHash({ ruleVersion: name === "adapt" ? "vlog-photography-3" : name === "build" ? "vlog-skill-prepare-2" : "vlog-production-1", modelPolicy: "backend-default", name, deps });
       let record = draft.stages[name];
       if (record?.fingerprint === fingerprint && record.status === "completed") {
         try { valid(record.result as T); return record.result as T; } catch { record = undefined; }

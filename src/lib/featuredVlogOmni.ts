@@ -143,6 +143,7 @@ export function buildOmniTask(input: {
   return `# 精选Vlog Omni全能参考制作任务
 任务：${input.noteTask.id} · ${input.script.title}
 ${shots.length}镜，预计${videoTimelineDuration(input.script.shots, 2)}秒，9:16，${resolution}生成；输出1080×1920/24fps${resolution === "720p" ? "（非原生1080p）" : "（原生1080p生成，不得以720p放大替代）"}，仅整片配乐。
+总长=镜头合计−叠化重叠；与标题差值≤3秒不阻塞、不询问，按原计划执行，不改镜头时长。
 参考地址见plan.styleVideo.url；--video使用prepare返回路径。
 在xiaohongshu_auto_op工作区执行，目录 $PWD/${dir}。只制作，不发布。
 
@@ -153,11 +154,11 @@ ${JSON.stringify(plan)}
 \`\`\`
 
 ## 准备与读图细化
-environment无人，不传elements或主体引用；原图有人先处理或报告。其余镜头仅可见人物/手部或入场时绑定。主体只锁定身份外观，不要求居中、全身、露脸或始终清晰；按本镜观看重点允许小比例、偏侧、局部、合理遮挡及虚化前景。
+environment无人，不传elements或主体引用；原图有人先处理或报告。其余镜头仅可见人物/手部或入场时绑定。主体仅锁定身份外观，允许小比例、偏侧、局部、遮挡、虚化，不要求居中全身或露脸。
 plan.shots[].direction仅为暂定拍法；不改原始plan.json及sourceHash，最终设计记resolved-plan.json的refinement。
-1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载模板参考视频及场景/配乐，参考视频3–10秒直接使用，超过10秒截前10秒，不足3秒报错；不回退静态视频，不生成首帧或调用Turbo。
-2. generate先用generate-image制作9:16无人场景图到scenePath；sceneStyleReference可经edit-image统一AI背景质感，不复制建筑人物。asset不先加人或重绘场地；纯环境原图有人时仅去人保场地或停止报告，处理后重新读图。
-3. 准备全部场景图后实际读图，核对空间、人员、光向和画幅；工具失败可使用其他已配置查看能力。确实无法查看才报告，文件尺寸/亮度/哈希不能替代读图。
+1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载参考视频、场景及配乐；参考视频3–10秒保留，超过截前10秒，不足3秒报错；禁用静态回退/Turbo。
+2. generate缺图非阻塞：按sceneReference.description直接generate-image生成9:16无人场景，local_path复制到scenePath，不询问；sceneStyleReference可经edit-image统一AI背景质感，不复制建筑人物。asset不先加人或重绘场地；纯环境原图有人时仅去人保场地或停止报告，处理后重新读图。
+3. 备齐后实际读图，核对空间/人员/光向/画幅；工具失败换已配置查看能力，均不可用才报告；尺寸/亮度/哈希不能替代读图。
 4. 看完本片全部实际图片再统筹人物作用、比例、景别、焦点和节奏，避免重复人像或无理由固定。拍法可调整，不锁死原图裁切与机位，不补造未知房间、建筑背面或路线。核心动作无法成立时停止报告；保留主题、事件、顺序、时长、身份、人数和转场。
 5. imageObservations记实际空间；cameraMovement分别写起幅、方向/速度/范围、终幅、变化及理由。pan原地摇摄，track平移；人物运动不代替运镜，慢不等于微动，固定说明目的。细化透视/接触/遮挡/光向/投影/景深；constraints仅写适用边界。分写动作、时间、endingState，prompt只用最终设计。
 
