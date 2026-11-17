@@ -6,7 +6,7 @@ export type MediaTask = {
   status: string; stage: string; progress: number; retryOf?: string; artifacts: MediaArtifact[] | null;
   error?: string; createdAt: string; updatedAt: string;
 };
-export type MediaGenerationInput = { accountId: number; noteTaskId: number; kind: "image" | "video"; mode: string; assetIds: number[]; options: Record<string, unknown> };
+export type MediaGenerationInput = { accountId: number; noteTaskId: number; kind: "image" | "video"; mode: string; prompt: string; assetIds: number[]; options: Record<string, unknown> };
 export type MediaTaskPage = { items: MediaTask[]; total: number; page: number; pageSize: number };
 export const activeMediaStatuses = ["queued", "prompting", "submitting", "running", "uploading"];
 export const mediaStatusLabels: Record<string, string> = { queued: "排队中", prompting: "生成提示词", submitting: "准备制作", running: "媒体制作中", uploading: "保存结果", completed: "已完成", failed: "失败", unknown: "执行结果待核实" };

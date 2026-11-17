@@ -27,9 +27,13 @@ async function main(){
       Object.defineProperty(globalThis.crypto,'randomUUID',{value:undefined,configurable:true});
     }, {user});
     const page=await context.newPage();
+    // Existing prompt polling waits 30 seconds before querying its async result.
+    page.setDefaultTimeout(45_000);
     // A tiny synthetic VP8 clip, verified playable when authored; no external media/network needed.
     const clip=fs.readFileSync(path.join(__dirname,'fixtures/media-preview.webm'));
-    const errors=[]; const generated=[]; const retries=[]; const submissions=[];
+    const errors=[]; const generated=[]; const retries=[]; const submissions=[]; const promptCalls=[]; const savedNotes=[];
+    const imagePrompt={imagePrompt:{content:'图片方案',title:'配图方案',path:''},openclawTask:{content:'完整图片执行任务：使用当前 Skill 生成咖啡配图。',title:'图片任务'},commands:[],referenceStyle:''};
+    const videoPrompt={videoPrompt:{content:'视频方案',title:'成片方案'},openclawTask:{content:'完整视频执行任务：下载所选素材并制作成片。',title:'视频任务'},commands:[]};
     page.on('pageerror',error=>errors.push(error.message));
     await page.route('**/*',async route=>{
       const req=route.request(),url=new URL(req.url());
@@ -40,6 +44,9 @@ async function main(){
         if(url.pathname.endsWith('/login/v1/autoLogin'))return json(user);
         if(url.pathname.endsWith('/account/v1/list'))return json({accounts:[{id:1,name:account.name}]});
         if(url.pathname.endsWith('/account/v1/detail'))return json(account);
+        if(url.pathname.endsWith('/account/v1/saveNoteTask')){
+          const body=req.postDataJSON();savedNotes.push(body);return json(body.noteTask);
+        }
         if(url.pathname.endsWith('/media/v1/tasks')){
           const filtered=tasks.filter(t=>(!url.searchParams.get('kind')||t.kind===url.searchParams.get('kind'))&&(!url.searchParams.get('status')||t.status===url.searchParams.get('status')));
           return json({items:filtered,total:filtered.length,page:1,pageSize:12});
@@ -58,6 +65,15 @@ async function main(){
           tasks.unshift(job);return json(job);
         }
         return json({items:[],templates:[]});
+      }
+      if(url.origin===base && /^\/api\/note-tasks\/\d+\/(image|video)-prompt$/.test(url.pathname)){
+        if(req.method()==='POST'){
+          promptCalls.push({path:url.pathname,body:req.postDataJSON()});
+          if(promptCalls.length===1)return route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'模拟图片方案生成失败'})});
+          return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({async:true,uuid:'page-prompt',status:'pending'})});
+        }
+        assert.equal(url.searchParams.get('uuid'),'page-prompt');
+        return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({async:true,status:'completed',result:url.pathname.includes('image-prompt')?imagePrompt:videoPrompt})});
       }
       if(url.origin===base && !url.pathname.startsWith('/api/'))return route.continue();
       if(url.origin===base)return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({accounts:[],templates:[],items:[]})});
@@ -87,11 +103,19 @@ async function main(){
     await page.getByRole('button',{name:'图片方案',exact:true}).first().click();
     await page.getByRole('button',{name:/^AI 辅助图/}).click();
     await page.getByRole('button',{name:'生成图片并保存',exact:true}).first().click();
+    await page.getByRole('alertdialog').getByText('模拟图片方案生成失败',{exact:true}).waitFor();
+    assert.equal(submissions.length,0,'A failed prompt must not submit a media job');
+    await page.getByRole('alertdialog').getByRole('button',{name:'确认',exact:true}).click();
+    await page.getByRole('button',{name:'生成图片并保存',exact:true}).first().click();
     await page.getByRole('alertdialog').getByText('模拟提交失败，请重试',{exact:true}).waitFor();
     await page.getByRole('alertdialog').getByRole('button',{name:'确认',exact:true}).click();
     await page.getByRole('button',{name:'生成图片并保存',exact:true}).first().click();
     await page.getByRole('dialog',{name:'任务详情'}).getByText('排队中 · 任务 created-1').waitFor();
     assert.equal(submissions[0].requestId,submissions[1].requestId,'Retrying submission must reuse the original idempotency key');
+    assert.equal(promptCalls.length,2,'Submission retry must reuse the prepared prompt');
+    assert.deepEqual(submissions[0],submissions[1]);
+    assert.equal(generated[0].prompt,imagePrompt.openclawTask.content);
+    assert.equal(savedNotes[0].noteTask.plan,imagePrompt.imagePrompt.content);
     assert.match(generated[0].requestId,/^\d+-[a-z0-9]+$/);
     assert.equal(generated[0].kind,'image');assert.equal(generated[0].accountId,1);assert.equal(generated[0].noteTaskId,11);assert.ok(generated[0].requestId);
     assert.ok(!('account' in generated[0].options));assert.ok(!('openclawImagePaths' in generated[0].options));
@@ -101,6 +125,8 @@ async function main(){
     await page.getByRole('button',{name:'生成视频并保存',exact:true}).click();
     await page.getByRole('dialog',{name:'任务详情'}).getByText('排队中 · 任务 created-2').waitFor();
     assert.equal(generated[1].kind,'video');assert.equal(generated[1].noteTaskId,12);assert.deepEqual(generated[1].assetIds,[102]);
+    assert.equal(generated[1].prompt,videoPrompt.openclawTask.content);
+    assert.equal(promptCalls.length,3);
     assert.notEqual(generated[0].requestId,generated[1].requestId);
     const running=tasks.find(t=>t.id==='created-2');running.status='running';running.stage='generating';running.progress=50;
     await page.getByRole('dialog',{name:'任务详情'}).getByText('媒体制作中 · 任务 created-2').waitFor();
@@ -111,7 +137,7 @@ async function main(){
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'mobile layout overflows');
     if(process.env.MEDIA_TEST_SCREENSHOT)await page.screenshot({path:process.env.MEDIA_TEST_SCREENSHOT,fullPage:true});
     assert.deepEqual(errors,[]);
-    console.log('Media tasks browser checks passed: missing randomUUID, submission retry with the same key, CDN image/video playback, upload retry, filters, image/video submission, mobile layout.');
+    console.log('Media tasks browser checks passed: page prepares image/video prompts before submission, prompt failure stops submission, submission retry reuses prompt/key, missing randomUUID, CDN playback, upload retry and mobile layout.');
   } finally {await browser.close();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

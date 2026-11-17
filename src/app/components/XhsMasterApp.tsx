@@ -335,6 +335,7 @@ type VideoPromptResult = {
 };
 
 type VideoSourceMode = "direct_video" | "story_video" | "featured_vlog";
+type FeaturedVlogPromptOptions = { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution; characterSelection?: VlogCharacterSelection; productionOptions?: ProductionOptions };
 type VideoStorySourceType = "template";
 
 type VideoStoryDraft = {
@@ -1621,7 +1622,7 @@ export function XhsMasterApp() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("dashboard");
   const [mediaFocusId, setMediaFocusId] = useState<string>();
   const mediaSubmitting = useRef(false);
-  const mediaRequestKeys = useRef(new Map<string, string>());
+  const mediaPendingRequests = useRef(new Map<string, { requestId: string; input: MediaGenerationInput }>());
   const [accountForm, setAccountForm] = useState(emptyAccountForm([]));
   const [loading, setLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -2883,11 +2884,13 @@ export function XhsMasterApp() {
     mode: VideoSourceMode,
     assets: Asset[],
     story?: VideoStoryDraft,
-    featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution; characterSelection?: VlogCharacterSelection; productionOptions?: ProductionOptions }
-  ) {
-    if (!selected || !latestPlan || task.type !== "video_text") return;
-    setLoading(true);
-    setLoadingAction("generateVideoPrompt");
+    featuredVlog?: FeaturedVlogPromptOptions,
+    controls: GenerationControls = {}
+  ): Promise<VideoPromptResult | null> {
+    if (!selected || !latestPlan || task.type !== "video_text") return null;
+    const manageLoading = controls.manageLoading ?? true;
+    if (manageLoading) setLoading(true);
+    setLoadingAction(controls.loadingAction || "generateVideoPrompt");
     try {
       const endpoint = `/api/note-tasks/${task.id}/video-prompt`;
       const requestBase = {
@@ -2959,8 +2962,8 @@ export function XhsMasterApp() {
           }
         });
         if (finished.stages.build?.status === "completed") setVideoPromptResults(current=>({...current,[task.id]:finished.stages.build!.result as VideoPromptResult}));
-        showToast(finished.waitingConfirmation ? "制作脚本已适配，请核对修改并采用后继续。" : "精选Vlog制作任务已保存。", "success");
-        return;
+        if (controls.showSuccessToast ?? true) showToast(finished.waitingConfirmation ? "制作脚本已适配，请核对修改并采用后继续。" : "精选Vlog制作任务已保存。", "success");
+        return finished.stages.build?.status === "completed" ? finished.stages.build.result as VideoPromptResult : null;
       }
       let resolved: VideoPromptResult;
       if (mode === "story_video") {
@@ -3020,15 +3023,19 @@ export function XhsMasterApp() {
           noteTasks: plan.noteTasks.map((item) => item.id === task.id ? { ...item, ...savedTask } : item)
         })
       }));
-      showToast(
+      if (controls.showSuccessToast ?? true) showToast(
         mode === "direct_video" ? "直接视频任务已生成。" : mode === "story_video" ? "创意故事视频任务已生成。" : "精选vlog视频任务已生成。",
         "success"
       );
+      return resolved;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "生成视频方案失败。", "error");
+      return null;
     } finally {
-      setLoading(false);
-      setLoadingAction(null);
+      if (manageLoading) {
+        setLoading(false);
+        setLoadingAction(null);
+      }
     }
   }
 
@@ -3405,16 +3412,27 @@ export function XhsMasterApp() {
     showToast("复制失败，请检查浏览器剪贴板权限。", "error");
   }
 
-  async function generateOnlineMedia(input: MediaGenerationInput) {
+  async function generateOnlineMedia(
+    input: Omit<MediaGenerationInput, "prompt">,
+    prepare: () => Promise<{ prompt: string; noteTaskId?: number } | null>
+  ) {
     if (mediaSubmitting.current) return;
     mediaSubmitting.current = true;
-    setLoading(true); setLoadingAction("submitMediaGeneration");
+    setLoading(true);
     try {
-      const fingerprint = JSON.stringify(input);
-      const requestId = mediaRequestKeys.current.get(fingerprint) || createXhsRequestId();
-      mediaRequestKeys.current.set(fingerprint, requestId);
-      const job = await submitMediaGeneration(input, requestId);
-      mediaRequestKeys.current.delete(fingerprint);
+      const fingerprint = JSON.stringify([getUser()?.uid, input]);
+      let pending = mediaPendingRequests.current.get(fingerprint);
+      if (!pending) {
+        const prepared = await prepare();
+        if (!prepared) return;
+        if (!prepared.prompt.trim()) throw new Error("未生成完整的媒体任务提示词，请重新生成方案。");
+        pending = { requestId: createXhsRequestId(), input: { ...input, ...prepared } };
+        // Keep both the prompt and key if submission fails; a retry must not redo AI work.
+        mediaPendingRequests.current.set(fingerprint, pending);
+      }
+      setLoadingAction("submitMediaGeneration");
+      const job = await submitMediaGeneration(pending.input, pending.requestId);
+      mediaPendingRequests.current.delete(fingerprint);
       setMediaFocusId(job.id); setActiveTab("mediaTasks");
     } catch (error) { showToast(error instanceof Error ? error.message : "提交媒体任务失败", "error"); }
     finally { mediaSubmitting.current = false; setLoading(false); setLoadingAction(null); }
@@ -3424,7 +3442,23 @@ export function XhsMasterApp() {
     const { imageSourceMode, selectedAssets, candidateAssets, openclawImagePaths, ...settings } = options;
     const urls = (openclawImagePaths || "").split(/\r?\n/).filter(Boolean);
     const assets = selectedAssets || urls.map(url => selected.assets.find(asset => asset.fileUrl === url)).filter((asset): asset is Asset => Boolean(asset));
-    await generateOnlineMedia({ accountId: selected.id, noteTaskId: task.id, kind: "image", mode: imageSourceMode || "ai_generate", assetIds: assets.map(asset => asset.id), options: settings });
+    await generateOnlineMedia({ accountId: selected.id, noteTaskId: task.id, kind: "image", mode: imageSourceMode || "ai_generate", assetIds: assets.map(asset => asset.id), options: settings }, async () => {
+      const generated = await generateImagePrompt(task, options, { manageLoading: false, showSuccessToast: false });
+      return generated ? { prompt: generated.result.openclawTask?.content || "", noteTaskId: generated.savedTask.id } : null;
+    });
+  }
+  async function generateVideoMedia(task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: FeaturedVlogPromptOptions) {
+    if (!selected) return;
+    if (featuredVlog && (featuredVlog.script.productionVersion || 1) > 2) {
+      showToast("当前执行服务暂不支持 Omni v3 在线生成。", "error");
+      return;
+    }
+    await generateOnlineMedia({ accountId: selected.id, noteTaskId: task.id, kind: "video", mode, assetIds: assets.map(asset => asset.id),
+      options: mode === "story_video" ? { story } : mode === "featured_vlog" && featuredVlog ? { featuredVlogTemplateId: featuredVlog.templateId, featuredVlogTemplateVersion: featuredVlog.templateVersion, featuredVlogScript: featuredVlog.script, featuredVlogResolution: featuredVlog.resolution || "720p", featuredVlogCharacter: featuredVlog.characterSelection || "linchuan" } : {}
+    }, async () => {
+      const generated = await generateVideoPrompt(task, mode, assets, story, featuredVlog, { manageLoading: false, showSuccessToast: false });
+      return generated ? { prompt: generated.openclawTask?.content || "" } : null;
+    });
   }
 
   return (
@@ -3724,7 +3758,7 @@ export function XhsMasterApp() {
                 [accountId]: update(current[accountId] || {})
               }))}
               generateVideoPrompt={generateVideoPrompt}
-              generateMedia={generateOnlineMedia}
+              generateVideoMedia={generateVideoMedia}
               generateStandaloneVideoStory={generateStandaloneVideoStory}
               createStoryVideoNoteTask={createStoryVideoNoteTask}
               generateStandaloneFeaturedVlog={generateStandaloneFeaturedVlog}
@@ -5877,7 +5911,7 @@ function VideosPanel(props: {
   results: Record<number, VideoPromptResult>;
   videoDraftWorkspace: VideoDraftWorkspace;
   videoWorkspaceReady: boolean;
-  generateMedia: (input: MediaGenerationInput) => Promise<void>;
+  generateVideoMedia: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: FeaturedVlogPromptOptions) => Promise<void>;
   updateVideoDraftWorkspace: (accountId: number, update: (workspace: VideoDraftWorkspace) => VideoDraftWorkspace) => void;
   generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution; characterSelection?: VlogCharacterSelection; productionOptions?: ProductionOptions }) => void;
   generateStandaloneVideoStory: (input: { templateId: string; characterId: string; sourceType: VideoStorySourceType; sourceContent: string; extraRequirements: string }) => Promise<VideoStoryResult | null>;
@@ -6377,11 +6411,9 @@ function VideosPanel(props: {
         <button type="button" disabled={loading || !canGenerate || (mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3)} onClick={async () => {
           const task = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask || await confirmAndCreateFeaturedVlogTask() : note;
           if (!task || !selected) return;
-          await props.generateMedia({ accountId: selected.id, noteTaskId: task.id, kind: "video", mode,
-            assetIds: (mode === "direct_video" ? selectedAssets : imageAssets).map(asset => asset.id),
-            options: mode === "story_video" ? { story: storyDraft } : mode === "featured_vlog" && featuredVlogDraft ? { templateId: featuredVlogTemplateId, featuredVlogTemplateId, featuredVlogTemplateVersion: featuredVlogDraft.templateVersion, featuredVlogScript: featuredVlogDraft.script, featuredVlogResolution: "720p", featuredVlogCharacter: "linchuan" } : {}
-          });
-        }} className="primary-button ml-2 mt-4"><Video size={17} />{loadingAction === "submitMediaGeneration" ? "正在提交…" : "生成视频并保存"}</button>
+          await props.generateVideoMedia(task, mode, mode === "direct_video" ? selectedAssets : imageAssets, storyDraft || undefined,
+            featuredVlogDraft ? { templateId: featuredVlogTemplateId, templateVersion: featuredVlogDraft.templateVersion, script: featuredVlogDraft.script, resolution: "720p", characterSelection: "linchuan" } : undefined);
+        }} className="primary-button ml-2 mt-4"><Video size={17} />{loadingAction === "submitMediaGeneration" ? "正在提交…" : isGeneratingVideoTask ? videoTaskLoadingText : "生成视频并保存"}</button>
         <p className="mt-2 text-xs text-ink/55">{mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 ? "当前执行服务暂不支持 Omni v3 在线生成，可继续使用原方案流程。" : "自动完成方案和媒体制作，可在“生成任务”中查看进度与成片。"}</p>
       </div>
       <div className="panel">
