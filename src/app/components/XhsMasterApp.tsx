@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { MediaTasksPanel } from "@/app/components/MediaTasksPanel";
+import { submitMediaGeneration, type MediaGenerationInput } from "@/lib/mediaTasks";
 import {
   Activity,
   ArrowDown,
@@ -471,6 +473,7 @@ const mainTabs = [
   ["weekly", "本周内容", CalendarDays],
   ["images", "图片方案", ImageIcon],
   ["videos", "视频方案", Video],
+  ["mediaTasks", "生成任务", Activity],
   ["prompts", "笔记草稿", Wand2],
   ["assets", "素材库", Library],
   ["knowledgeBase", "知识库", Database],
@@ -1615,6 +1618,9 @@ export function XhsMasterApp() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("dashboard");
+  const [mediaFocusId, setMediaFocusId] = useState<string>();
+  const mediaSubmitting = useRef(false);
+  const mediaRequestKeys = useRef(new Map<string, string>());
   const [accountForm, setAccountForm] = useState(emptyAccountForm([]));
   const [loading, setLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -3398,6 +3404,28 @@ export function XhsMasterApp() {
     showToast("复制失败，请检查浏览器剪贴板权限。", "error");
   }
 
+  async function generateOnlineMedia(input: MediaGenerationInput) {
+    if (mediaSubmitting.current) return;
+    mediaSubmitting.current = true;
+    setLoading(true); setLoadingAction("submitMediaGeneration");
+    const fingerprint = JSON.stringify(input);
+    const requestId = mediaRequestKeys.current.get(fingerprint) || crypto.randomUUID();
+    mediaRequestKeys.current.set(fingerprint, requestId);
+    try {
+      const job = await submitMediaGeneration(input, requestId);
+      mediaRequestKeys.current.delete(fingerprint);
+      setMediaFocusId(job.id); setActiveTab("mediaTasks");
+    } catch (error) { showToast(error instanceof Error ? error.message : "提交媒体任务失败", "error"); }
+    finally { mediaSubmitting.current = false; setLoading(false); setLoadingAction(null); }
+  }
+  async function generateImageMedia(task: NoteTask, options: SingleImagePromptOptions = {}) {
+    if (!selected) return;
+    const { imageSourceMode, selectedAssets, candidateAssets, openclawImagePaths, ...settings } = options;
+    const urls = (openclawImagePaths || "").split(/\r?\n/).filter(Boolean);
+    const assets = selectedAssets || urls.map(url => selected.assets.find(asset => asset.fileUrl === url)).filter((asset): asset is Asset => Boolean(asset));
+    await generateOnlineMedia({ accountId: selected.id, noteTaskId: task.id, kind: "image", mode: imageSourceMode || "ai_generate", assetIds: assets.map(asset => asset.id), options: settings });
+  }
+
   return (
     <div className="app-shell min-h-screen bg-paper text-ink">
       <aside className="app-sidebar fixed left-0 top-0 hidden h-screen w-64 flex-col border-r px-4 py-5 backdrop-blur lg:flex">
@@ -3649,6 +3677,7 @@ export function XhsMasterApp() {
           )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
+          {activeTab === "mediaTasks" && <MediaTasksPanel accounts={accounts} focusId={mediaFocusId} onGenerate={kind => setActiveTab(kind === "image" ? "images" : "videos")} notify={showToast} />}
           {activeTab === "images" && (
             <ImagesPanel
               selected={selected}
@@ -3669,6 +3698,7 @@ export function XhsMasterApp() {
               saveImageStyleStudy={saveImageStyleStudy}
               imagePromptResults={imagePromptResults}
               generateImagePrompt={generateImagePrompt}
+              generateImageMedia={generateImageMedia}
               batchImagePostResult={selected ? batchImagePostResults[selected.id] : null}
               generateBatchImagePosts={generateBatchImagePosts}
               showBatchImagePostsComingSoon={() => showToast("该功能即将上线，敬请期待", "error")}
@@ -3693,6 +3723,7 @@ export function XhsMasterApp() {
                 [accountId]: update(current[accountId] || {})
               }))}
               generateVideoPrompt={generateVideoPrompt}
+              generateMedia={generateOnlineMedia}
               generateStandaloneVideoStory={generateStandaloneVideoStory}
               createStoryVideoNoteTask={createStoryVideoNoteTask}
               generateStandaloneFeaturedVlog={generateStandaloneFeaturedVlog}
@@ -4961,6 +4992,7 @@ function ImagesPanel(props: {
   saveImageStyleStudy: (event: React.FormEvent<HTMLFormElement>) => void;
   imagePromptResults: Record<number, ImagePromptResult>;
   generateImagePrompt: (task: NoteTask, options?: SingleImagePromptOptions) => void;
+  generateImageMedia: (task: NoteTask, options?: SingleImagePromptOptions) => Promise<void>;
   batchImagePostResult?: BatchImagePostsResult | null;
   generateBatchImagePosts: (options?: { weeks?: string; openclawImagePaths?: string; planningGoal?: string }) => void;
   showBatchImagePostsComingSoon: () => void;
@@ -4980,6 +5012,7 @@ function ImagesPanel(props: {
     saveImageStyleStudy,
     imagePromptResults,
     generateImagePrompt,
+    generateImageMedia,
     batchImagePostResult,
     generateBatchImagePosts,
     showBatchImagePostsComingSoon,
@@ -5211,6 +5244,7 @@ function ImagesPanel(props: {
                 if (!note) return;
                 if (imageSubmitting) return;
                 setImageSubmitting("single");
+                const runMedia = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-generate-media") === "true";
                 const form = new FormData(event.currentTarget);
                 const run = async () => {
                   const isMixedMode = singleSourceMode === "mixed";
@@ -5256,7 +5290,7 @@ function ImagesPanel(props: {
                       throw new Error(`排除手动素材后，素材库只有 ${autoCandidates.length} 张可供自动选择，无法选择 ${requestedAutoImageCount} 张。`);
                     }
                   }
-                  await generateImagePrompt(note, {
+                  await (runMedia ? generateImageMedia : generateImagePrompt)(note, {
                     imageSourceMode: singleSourceMode,
                     noteContent: String(form.get("noteContent") || ""),
                     singleGoal: String(form.get("singleGoal") || ""),
@@ -5481,6 +5515,8 @@ function ImagesPanel(props: {
                     : "正在生成单篇方案..."}
                 />
               </button>
+              <button type="submit" data-generate-media="true" disabled={loading || Boolean(imageSubmitting) || !note} className="primary-button ml-2 mt-4"><Sparkles size={17} />生成图片并保存</button>
+              <p className="mt-2 text-xs text-ink/55">自动生成方案并制作图片，可在“生成任务”中查看进度和结果。</p>
             </form>
 
             <div className="min-w-0 space-y-5">
@@ -5667,7 +5703,8 @@ function ImagesPanel(props: {
             event.preventDefault();
             if (!note) return;
             const form = new FormData(event.currentTarget);
-            generateImagePrompt(note, {
+            const runMedia = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-generate-media") === "true";
+            (runMedia ? generateImageMedia : generateImagePrompt)(note, {
               imageSourceMode: "remote_images",
               openclawImagePaths: collectRemoteImageUrls(form).join("\n")
             });
@@ -5722,6 +5759,7 @@ function ImagesPanel(props: {
           <button type="submit" disabled={loading || !note} className="primary-button mt-4">
             <ImageIcon size={17} /> {isWedding ? "细化这篇图片方案" : "生成图片方案"}
           </button>
+          <button type="submit" data-generate-media="true" disabled={loading || !note} className="primary-button ml-2 mt-4"><Sparkles size={17} />生成图片并保存</button>
         </form>
 
         <div className="panel">
@@ -5838,6 +5876,7 @@ function VideosPanel(props: {
   results: Record<number, VideoPromptResult>;
   videoDraftWorkspace: VideoDraftWorkspace;
   videoWorkspaceReady: boolean;
+  generateMedia: (input: MediaGenerationInput) => Promise<void>;
   updateVideoDraftWorkspace: (accountId: number, update: (workspace: VideoDraftWorkspace) => VideoDraftWorkspace) => void;
   generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution; characterSelection?: VlogCharacterSelection; productionOptions?: ProductionOptions }) => void;
   generateStandaloneVideoStory: (input: { templateId: string; characterId: string; sourceType: VideoStorySourceType; sourceContent: string; extraRequirements: string }) => Promise<VideoStoryResult | null>;
@@ -6334,6 +6373,15 @@ function VideosPanel(props: {
             loadingText={videoTaskLoadingText}
           />
         </button>}
+        <button type="button" disabled={loading || !canGenerate || (mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3)} onClick={async () => {
+          const task = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask || await confirmAndCreateFeaturedVlogTask() : note;
+          if (!task || !selected) return;
+          await props.generateMedia({ accountId: selected.id, noteTaskId: task.id, kind: "video", mode,
+            assetIds: (mode === "direct_video" ? selectedAssets : imageAssets).map(asset => asset.id),
+            options: mode === "story_video" ? { story: storyDraft } : mode === "featured_vlog" && featuredVlogDraft ? { templateId: featuredVlogTemplateId, featuredVlogTemplateId, featuredVlogTemplateVersion: featuredVlogDraft.templateVersion, featuredVlogScript: featuredVlogDraft.script, featuredVlogResolution: "720p", featuredVlogCharacter: "linchuan" } : {}
+          });
+        }} className="primary-button ml-2 mt-4"><Video size={17} />{loadingAction === "submitMediaGeneration" ? "正在提交…" : "生成视频并保存"}</button>
+        <p className="mt-2 text-xs text-ink/55">{mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 ? "当前执行服务暂不支持 Omni v3 在线生成，可继续使用原方案流程。" : "自动完成方案和媒体制作，可在“生成任务”中查看进度与成片。"}</p>
       </div>
       <div className="panel">
         <div className="mb-3 flex items-center justify-between"><div><h2 className="section-title">智能体视频任务</h2><p className="mt-1 text-sm text-ink/60">复制后交给智能体准备最终视频和 video-path.txt。</p></div><IconButton title="复制视频任务" onClick={() => copy(videoTaskContent)} icon={<Clipboard size={17} />} /></div>

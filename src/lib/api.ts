@@ -437,7 +437,7 @@ async function publicRequest<T = unknown>(
  */
 export async function authRequest<T = unknown>(
   path: string,
-  options: { method?: string; body?: Record<string, unknown> } = {}
+  options: { method?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
 ): Promise<ApiResponse<T>> {
   const { method = "GET", body } = options;
   const bodyStr = body ? JSON.stringify(body) : "";
@@ -458,6 +458,7 @@ export async function authRequest<T = unknown>(
   const response = await authenticatedFetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
+    signal: options.signal,
     body: bodyStr || undefined
   });
   const res = (await response.json()) as ApiResponse<T>;
