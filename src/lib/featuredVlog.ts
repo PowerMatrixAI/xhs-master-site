@@ -104,6 +104,9 @@ export type FeaturedVlogScript = {
 };
 
 export type FeaturedVlogFramePlan = Array<{
+  sceneGenerationVersion?: 1;
+  generationReference?: import("./vlogGenerationReference").VlogGenerationReference;
+  noGenerationReference?: import("./vlogGenerationReference").VlogNoGenerationReference;
   order: number;
   role: string;
   description: string;

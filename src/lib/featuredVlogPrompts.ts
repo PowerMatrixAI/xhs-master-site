@@ -1,3 +1,4 @@
+import { VLOG_GENERATION_REFERENCE_RULES, readGenerationReference, validateNoGenerationReference } from "./vlogGenerationReference";
 import { completeWithBackendAi } from "@/lib/backendAiServerClient";
 import { VLOG_PHOTOGRAPHY_RULES } from "@/lib/vlogPhotography";
 import { directVlogBinding, applyVlogCharacterPatch } from "@/lib/vlogCharacterAdaptation";
@@ -94,10 +95,10 @@ export async function generateFeaturedVlogScript(input: {
     input: `请为当前民宿账号生成一份待用户确认的精选vlog视频脚本。
 
 要求：
-${omni ? VLOG_SCENE_RULES.replace(/人物与镜头状态规则：[^\n]*/u, "人物与镜头状态规则：sceneVersion=1，characters为空或仅含游客A，每项有id、appearance和props；不设计情侣、家庭或额外配角，模板多人体验以一位游客的参与视角呈现。").replace(/同一条视频的主体住客使用同一个稳定id[^\n]*/u, "同一条视频使用通用游客A，不预设性别、外观或服装，具体人物第二步再选。仅保留动作必需道具，不随换场景创建新人物。") : VLOG_SCENE_RULES}
+${omni ? VLOG_SCENE_RULES.replace(/人物与镜头状态规则：[^\n]*/u, "人物与镜头状态规则：sceneVersion=1，characters为空或仅含游客A，每项有id、appearance和props；不设计情侣、家庭或额外配角，模板多人体验以一位游客的参与视角呈现。").replace("mainAction只描述一个可执行主要动作", "mainAction描述一个有动机的主要事件，允许完成它必需的自然动作链").replace(/同一条视频的主体住客使用同一个稳定id[^\n]*/u, "同一条视频使用通用游客A，不预设性别、外观或服装，具体人物第二步再选。仅保留动作必需道具，不随换场景创建新人物。") : VLOG_SCENE_RULES}
 ${omni ? `${OMNI_SCRIPT_RULES.replace("每项最多25字", "每项最多15字")}\n${VLOG_PHOTOGRAPHY_RULES}` : ""}
 ${omni ? VIDEO_SCRIPT_BUDGET.replace("6500", "10500").replace("description≤90", "description≤50").replace("mainAction≤45", "mainAction≤30").replace("continuityNote≤45", "continuityNote≤25").replace("各≤40", "各≤25") : VIDEO_SCRIPT_BUDGET}
-${omni ? VIDEO_SHOT_DESIGN.replace("简写在现有description/startState/主要动作中，不新增字段", "写入direction摄影字段；description/startState/mainAction只表达内容与人物状态") : VIDEO_SHOT_DESIGN}
+${omni ? VIDEO_SHOT_DESIGN.replace("简写在现有description/startState/主要动作中，不新增字段", "写入direction摄影字段；description/startState/mainAction只表达内容与人物状态").replace("每镜一个主要动作", "每镜一个主要事件，允许必要动作链") : VIDEO_SHOT_DESIGN}
 - ${VLOG_CAMERA_REFERENCE_RULE}
 - 必须根据模板的整体主线和环节编排创作，保留所有标记为必须的体验环节；${timed ? VLOG_TIMELINE_PROMPT : "最终镜头为 3-6 个，每个后续生成约 5 秒视频。"}
 - 整片最终时长（各镜duration之和扣除叠化重叠）必须在${VLOG_DURATION.min}-${VLOG_DURATION.max}秒内，回复前计算核对；按内容分配每镜长度，不为凑时长添加空动作。
@@ -266,7 +267,7 @@ export async function planFeaturedVlogFrames(input: {
 }) {
   validateVlogScenes(input.script);
   const contentScript = featuredVlogForAssetSelection(input.script);
-  const selection = await shortlistVideoAssets(videoAssetReferences(input.assets), contentScript.shots, 14000, input.credentials, VLOG_ASSET_SELECTION_RULES);
+  const selection = await shortlistVideoAssets(videoAssetReferences(input.assets), contentScript.shots, 14000, input.credentials, VLOG_ASSET_SELECTION_RULES + (input.script.productionVersion === 3 ? "\n" + VLOG_GENERATION_REFERENCE_RULES : ""));
   const candidates = selection.assets;
   if (input.script.productionVersion === 3) return planOmniScenes(input, candidates, selection.calls);
   // Legacy first-frame generation must not draw the action's ending state.
@@ -357,7 +358,7 @@ async function planOmniScenes(input: { script: FeaturedVlogScript; template: Fea
   validateOmniScript(input.script);
   const response = await completeWithBackendAi({ credentials: input.credentials,
     instructions: "你是精选Vlog场景参考选图师。只读取文字分析，不声称看过实际图片。只输出JSON。",
-    input: `${ASSET_SELECTION_RULES}\n${VLOG_ASSET_SELECTION_RULES}\n图片是场景参考，不是首帧，不需要已含主角。每图最多选一次，仅返回候选assetKey，禁止虚构URL。只在没有匹配场景时generate。保留已确认镜头职责、人数、时长、转场；脚本摄影意图不能作为拒绝可用场景的苛刻条件。场景图不先加入林川，人物由Omni主体加入。generate只写无人环境生成要求。asset只写保留空间事实的参考要求，不虚构可行走区域、光向或设施；实际图由智能体查看细化。\n每镜selectionReason最多60字、sceneDescription最多180字，保留图片分析快照由程序完成，不重复输出。\n脚本：${JSON.stringify(featuredVlogForAssetSelection(input.script))}\n素材：${JSON.stringify(candidates.map(assetMetadata))}\n返回 {"overallDirection":"整片方向","shots":[{"order":1,"source":"asset或generate","assetKey":"选中标识或空串","selectionReason":"匹配依据","sceneDescription":"场景参考要求"}]}`
+    input: `${ASSET_SELECTION_RULES}\n${VLOG_ASSET_SELECTION_RULES}\n${VLOG_GENERATION_REFERENCE_RULES}\n图片是场景参考，不是首帧，不需要已含主角。直接asset用途每图最多选一次，generationReference可复用；仅返回候选assetKey，禁止虚构URL。只在没有匹配场景时generate。保留已确认镜头职责、人数、时长、转场；脚本摄影意图不能作为拒绝可用场景的苛刻条件。场景图不先加入林川，人物由Omni主体加入。generate写无人环境生成要求，并返回generationReference={assetKey,relationship,reason,preserve:[],changes:[]}；reason≤30字，preserve/changes各1-3条短句。没有合适参考时返回generationReference:null和noGenerationReference={reason,allowGeneric}，仅脚本明确允许虚构的通用环境可allowGeneric:true，具体房间/设施/同一空间无参考必须false并说明。asset只写保留空间事实的参考要求，不虚构可行走区域、光向或设施；实际图由智能体查看细化。\n每镜selectionReason最多60字、sceneDescription最多180字，保留图片分析快照由程序完成，不重复输出。\n脚本：${JSON.stringify(featuredVlogForAssetSelection(input.script))}\n素材：${JSON.stringify(candidates.map(assetMetadata))}\n返回 {"overallDirection":"整片方向","shots":[{"order":1,"source":"asset或generate","assetKey":"选中标识或空串","selectionReason":"匹配依据","sceneDescription":"场景参考要求"}]}`
   });
   if (!response.ok) throw new Error(`场景参考选图失败：${response.error}`);
   const parsed = extractJson(response.text);
@@ -368,7 +369,9 @@ async function planOmniScenes(input: { script: FeaturedVlogScript; template: Fea
     const asset = candidates.find(a => a.assetKey === s.assetKey);
     if (s.order !== i+1 || !text(s.selectionReason) || !text(s.sceneDescription) || !["asset", "generate"].includes(String(s.source)) || (s.source === "asset" ? !asset || used.has(asset.assetKey) : !!text(s.assetKey))) throw new Error(`镜头${i+1}场景参考映射无效。`);
     if (asset) used.add(asset.assetKey);
-    return { order: i+1, role: input.script.shots[i].role, description: input.script.shots[i].description,
+    const generationReference = s.source === "generate" ? readGenerationReference(s.generationReference, candidates) : undefined;
+    const noGenerationReference = s.source === "generate" && !generationReference ? validateNoGenerationReference(s.noGenerationReference) : undefined;
+    return { sceneGenerationVersion: 1, generationReference, noGenerationReference, order: i+1, role: input.script.shots[i].role, description: input.script.shots[i].description,
       frameSource: s.source as "asset" | "generate", assetUrl: asset?.fileUrl || "", framePrompt: text(s.sceneDescription), aiAnalysis: asset?.aiAnalysis || "", selectionReason: text(s.selectionReason) };
   });
   return { framePlan: frames, overallDirection: text(parsed.overallDirection), model: response.model, calls: calls + 1 };
@@ -431,13 +434,17 @@ ${input.expertRules || "暂无。"}
 }
 
 export async function selectFeaturedVlogMusic(input: {
+  excludedMusicId?: number;
   accountId: number;
   script: FeaturedVlogScript;
   credentials: BackendAiCredentials;
 }) {
   const candidates = await fetchMusicCandidatesFromBackend(input.accountId, input.credentials);
   if (!candidates.length) throw new Error("平台配乐库没有可用且具备 HTTPS 下载地址的曲目，请联系管理员上传并启用配乐。");
-  const musicCandidates = candidates.map((item) => ({
+  if (input.excludedMusicId !== undefined && (!Number.isSafeInteger(input.excludedMusicId) || input.excludedMusicId <= 0)) throw new Error("待排除配乐ID无效。");
+  const eligible = candidates.filter(item => item.id !== input.excludedMusicId);
+  if (!eligible.length) throw new Error("没有其他可用配乐，已保留当前曲目。请联系管理员补充配乐。");
+  const musicCandidates = eligible.map((item) => ({
     id: item.id,
     name: item.name,
     tags: item.tags,
@@ -450,6 +457,7 @@ export async function selectFeaturedVlogMusic(input: {
     input: `为该精选vlog选择一首整片配乐。
 
 选曲规则：
+${input.excludedMusicId !== undefined ? "- 本次是重新选曲：之前的曲目已从候选中移除，请在剩余曲目中按标签语义匹配度选择最高的一首，不随机选择。" : ""}
 - 下方是平台配乐库提供的全部有效候选，已经通过可用状态与下载地址校验；从中比较并选择最优的一首，不设置“足够适合才选择”的门槛。
 - 优先根据曲目标签与视频主题、整体风格、情绪和节奏的语义匹配度排序，不要求标签完全相同或覆盖每一个镜头。
 - 若没有完全匹配的曲目，仍须选择相对匹配度最高的一首；标签较少时结合曲目名称判断，不得因此返回空选择。
@@ -470,7 +478,7 @@ ${JSON.stringify(musicCandidates, null, 2)}
   const musicId = typeof rawMusicId === "number" || (typeof rawMusicId === "string" && rawMusicId.trim())
     ? Number(rawMusicId)
     : NaN;
-  const selected = candidates.find((candidate) => candidate.id === musicId && isHttpsUrl(candidate.audioUrl));
+  const selected = eligible.find((candidate) => candidate.id === musicId && isHttpsUrl(candidate.audioUrl));
   if (!Number.isInteger(musicId) || !selected) throw new Error("后端 AI 未返回候选曲库中的有效配乐 ID，请重试自动选曲。");
   return { music: selected, reason: text(parsed?.reason), model: response.model };
 }

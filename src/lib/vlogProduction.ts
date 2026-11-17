@@ -1,3 +1,4 @@
+import { validateGenerationReference, validateNoGenerationReference } from "./vlogGenerationReference";
 import type { FeaturedVlogScript, FeaturedVlogFramePlan, FeaturedVlogResolution, MusicCandidate } from "./featuredVlog";
 import type { VlogCharacterSelection } from "./vlogCharacters";
 import { VLOG_CHARACTERS } from "./vlogCharacters";
@@ -12,6 +13,7 @@ type Stage = { fingerprint: string; status: "pending" | "completed" | "failed" |
 export type VlogProductionDraft = {
   schemaVersion: 1; key: string; sourceHash: string; taskId: number; sourceScript: FeaturedVlogScript;
   choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; stages: Partial<Record<ProductionStage, Stage>>;
+  excludedMusicId?: number;
   confirmedFingerprint?: string; waitingConfirmation?: boolean; updatedAt: string; localSaveError?: string;
   lastSuccess?: { taskId: number; script: FeaturedVlogScript; result: VlogTaskResult; at: string };
 };
@@ -80,9 +82,15 @@ export async function runVlogProduction(input: {
     }
     const context = input.context || await input.getContext?.();
     if (!context) throw new Error("制作资源检查失败。");
+    if (input.options?.force === "music") {
+      const previous = draft.stages.music?.result as { music?: MusicCandidate } | undefined;
+      const excluded = previous?.music?.id ?? draft.excludedMusicId;
+      if (!context.music.some(m => m.id !== excluded)) throw new Error("没有其他可用配乐，已保留当前曲目。请联系管理员补充配乐。");
+      draft.excludedMusicId = excluded;
+    }
     if (input.options?.force) { delete draft.stages[input.options.force]; delete draft.stages.build; delete draft.stages.save; }
     async function stage<T>(name: ProductionStage, deps: unknown, action: string, body: Record<string, unknown>, valid: (r: T) => void): Promise<T> {
-      const fingerprint = await productionHash({ ruleVersion: name === "adapt" ? "vlog-photography-3" : name === "build" ? "vlog-skill-prepare-2" : "vlog-production-1", modelPolicy: "backend-default", name, deps });
+      const fingerprint = await productionHash({ ruleVersion: name === "adapt" ? "vlog-photography-3" : name === "build" ? "vlog-scene-reference-1" : name === "frames" && input.source.productionVersion === 3 ? "vlog-scene-reference-1" : "vlog-production-1", modelPolicy: "backend-default", name, deps });
       let record = draft.stages[name];
       if (record?.fingerprint === fingerprint && record.status === "completed") {
         try { valid(record.result as T); return record.result as T; } catch { record = undefined; }
@@ -125,10 +133,17 @@ export async function runVlogProduction(input: {
     if (!frameRecord.assetIds) frameRecord.assetIds = frames.framePlan.map(f => f.frameSource === "asset" ? assetIdentity(context.assets.find(a => a.fileUrl === f.assetUrl) || { fileUrl: f.assetUrl }) : "");
     frames.framePlan.forEach((f,i) => {
       if (f.frameSource === "asset") { const a = context.assets.find(a => assetIdentity(a) === frameRecord.assetIds![i]); if (!a) { delete draft.stages.frames; throw new Error("已选素材失效，请重新选图。"); } f.assetUrl = a.fileUrl; }
+      if (f.generationReference) {
+        const ref = validateGenerationReference(f.generationReference);
+        const a = context.assets.find(a=>String(a.id)===ref.assetId || a.fileUrl.split("?")[0]===ref.imageUrl.split("?")[0]);
+        if (!a) { delete draft.stages.frames; throw new Error("补图参考已失效，请重新选图。"); }
+        f.generationReference.imageUrl = a.fileUrl;
+      }
+      if (f.sceneGenerationVersion === 1 && f.frameSource === "generate" && !f.generationReference) validateNoGenerationReference(f.noGenerationReference);
     });
     await checkpoint();
     const musicDeps = context.music.map(m => ({ ...m, audioUrl: m.audioUrl.split("?")[0] })).sort((a,b)=>a.id-b.id);
-    const music = await stage<{ music: MusicCandidate }>("music", [{ title: input.source.title, summary: input.source.summary, mood: script.moodTags, music: script.musicTags, timing: script.shots.map(s=>[s.duration,s.transitionToNext?.type,s.transitionToNext?.duration]), roles: script.shots.map(s=>s.role) }, musicDeps], "select_featured_vlog_music", { featuredVlogScript: script }, r => { if (!context.music.some(m => m.id === r.music?.id)) throw new Error("配乐缓存失效"); });
+    const music = await stage<{ music: MusicCandidate }>("music", [{ title: input.source.title, summary: input.source.summary, mood: script.moodTags, music: script.musicTags, timing: script.shots.map(s=>[s.duration,s.transitionToNext?.type,s.transitionToNext?.duration]), roles: script.shots.map(s=>s.role) }, musicDeps, ...(draft.excludedMusicId === undefined ? [] : [draft.excludedMusicId])], "select_featured_vlog_music", { featuredVlogScript: script, excludedMusicId: draft.excludedMusicId }, r => { if (r.music?.id === draft.excludedMusicId) throw new Error("重新选曲不能返回之前的曲目，请重试。"); if (!context.music.some(m => m.id === r.music?.id)) throw new Error("配乐缓存失效"); });
     music.music = context.music.find(m=>m.id===music.music.id)!;
     const result = await stage<VlogTaskResult>("build", [script, frames, music, input.choice, input.resolution, context.template], "build_featured_vlog_task", { featuredVlogScript: script, framePlan: frames.framePlan, motionPlan: [], selectedMusic: music.music, overallDirection: frames.overallDirection }, r => {
       if (!r.videoPrompt?.content || r.videoPrompt.content !== r.openclawTask?.content) throw new Error("任务缓存无效");

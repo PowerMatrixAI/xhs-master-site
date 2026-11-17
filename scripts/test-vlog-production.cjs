@@ -36,7 +36,7 @@ async function main(){
       if(failMusic)throw new production.VlogStageFailedError('选曲失败');
       if(pendingMusic){await pending('music-uuid');pendingMusic=false;throw Error('网络中断');}
       if(lost)throw new production.VlogTaskLostError('任务状态已丢失');
-      return{music:context.music[0]};
+      return{music:context.music.find(m=>m.id!==body.excludedMusicId)};
     }
     const content=omni.buildOmniTask({script:body.featuredVlogScript,characterSelection:options.choice,resolution:options.resolution,template:context.template,framePlan:body.framePlan,music:body.selectedMusic,noteTask:{id:7},overallDirection:'自然'});
     return{videoPrompt:{content,title:'任务'},openclawTask:{content,title:'任务'}};
@@ -48,6 +48,15 @@ async function main(){
   assert.equal(counts.build_featured_vlog_task,2);
   options.choice='shenhe';await run();assert.equal(counts.plan_featured_vlog_frames,first.plan_featured_vlog_frames);assert.equal(counts.select_featured_vlog_music,first.select_featured_vlog_music);
   failSave=true;options.resolution='720p';await assert.rejects(()=>run(),/保存失败/);const beforeSave=clone(counts);failSave=false;await run({context:undefined,getContext:async()=>{throw Error('must not query resources during save retry')},options:{saveOnly:true}});assert.deepEqual(counts,beforeSave);
+  const musicBefore=clone(persisted.stages.music);
+  await assert.rejects(()=>run({options:{force:'music'}}),/没有其他可用配乐/);
+  assert.deepEqual(persisted.stages.music,musicBefore);
+  context.music.push({...context.music[0],id:2,name:'另一首',audioUrl:'https://example.com/other.mp3'});
+  await run({options:{force:'music'}});
+  assert.equal(persisted.stages.music.result.music.id,2);
+  assert.equal(persisted.excludedMusicId,1);
+  const afterReselect=clone(counts); await run(); assert.deepEqual(counts,afterReselect);
+  await run({options:{force:'music'}}); assert.equal(persisted.stages.music.result.music.id,1);
   failMusic=true;await assert.rejects(()=>run({options:{force:'music'}}),/选曲失败/);const beforeRetry=counts.plan_featured_vlog_frames;failMusic=false;await run();assert.equal(counts.plan_featured_vlog_frames,beforeRetry);
   options.choice='none';draft=await run();assert.equal(draft.waitingConfirmation,true);const beforeConfirm=clone(counts);
   await run({options:{confirm:persisted.stages.adapt.fingerprint}});assert.equal(counts.adapt_featured_vlog_character,beforeConfirm.adapt_featured_vlog_character);assert.equal(persisted.lastSuccess.script.characters.length,0);assert.equal(source.characters.length,1);

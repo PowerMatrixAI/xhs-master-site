@@ -178,7 +178,9 @@ async function buildFeaturedVlogMotionResult(body: Record<string, unknown>, cred
 
 async function buildFeaturedVlogMusicResult(body: Record<string, unknown>, credentials: BackendAiCredentials) {
   const input = await featuredVlogContext(body, credentials);
-  const result = await selectFeaturedVlogMusic({ accountId: Number(input.account.id), script: input.script, credentials });
+  const excludedMusicId = body.excludedMusicId;
+  if (excludedMusicId !== undefined && (typeof excludedMusicId !== "number" || !Number.isSafeInteger(excludedMusicId) || excludedMusicId <= 0)) throw new Error("待排除配乐ID无效。");
+  const result = await selectFeaturedVlogMusic({ accountId: Number(input.account.id), script: input.script, credentials, excludedMusicId: excludedMusicId as number | undefined });
   return { ...result, ai: { used: true, calls: 1, stage: "featured_vlog_music" } };
 }
 
