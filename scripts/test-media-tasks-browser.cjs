@@ -13,7 +13,8 @@ const video = {type:'video',name:'成片.webm',url:cdn+'/final.webm',cosPath:'/x
 const tasks = [
   {id:'image-done',accountId:1,noteTaskId:11,title:'周末咖啡配图',kind:'image',status:'completed',stage:'completed',progress:100,artifacts:[image],createdAt:stamp,updatedAt:stamp},
   {id:'video-done',accountId:1,noteTaskId:12,title:'咖啡店成片',kind:'video',status:'completed',stage:'completed',progress:100,artifacts:[video],createdAt:stamp,updatedAt:stamp},
-  {id:'failed-upload',accountId:1,noteTaskId:12,title:'等待补传的视频',kind:'video',status:'failed',stage:'uploading',progress:90,artifacts:[],error:'上传失败，请重试',createdAt:stamp,updatedAt:stamp}
+  {id:'failed-upload',accountId:1,noteTaskId:12,title:'等待补传的视频',kind:'video',status:'failed',stage:'uploading',progress:90,artifacts:[],error:'上传失败，请重试',createdAt:stamp,updatedAt:stamp},
+  {id:'failed-image',accountId:1,noteTaskId:11,title:'废弃图片任务',kind:'image',status:'failed',stage:'submitting',progress:40,artifacts:[],error:'制作失败',createdAt:stamp,updatedAt:stamp}
 ];
 const account = {id:1,name:'验收咖啡店',accountParam:'test-account',accountType:'food',stage:'初期',personaBase:'咖啡店',city:'杭州',referenceAccounts:'',assets:[{id:101,filePath:'/xhs/image/a.png',fileUrl:cdn+'/source.png',fileType:'image',sourceType:'真实素材',tags:'咖啡',suitableTypes:'',coverReady:true,used:false,riskNotes:''},{id:102,filePath:'/xhs/video/a.mp4',fileUrl:cdn+'/source.mp4',fileType:'video',sourceType:'真实素材',tags:'咖啡',suitableTypes:'',coverReady:true,used:false,riskNotes:''}],weeklyPlans:[{id:10,weekStart:'2026-11-15',theme:'咖啡日常',frequency:2,noteTasks:[{id:11,type:'image_text',topicTitle:'周末咖啡配图',bodyDraft:'周末到店喝咖啡',status:'待生成'},{id:12,type:'video_text',topicTitle:'咖啡店成片',status:'待生成'}]}]};
 
@@ -31,7 +32,7 @@ async function main(){
     page.setDefaultTimeout(45_000);
     // A tiny synthetic VP8 clip, verified playable when authored; no external media/network needed.
     const clip=fs.readFileSync(path.join(__dirname,'fixtures/media-preview.webm'));
-    const errors=[]; const generated=[]; const retries=[]; const submissions=[]; const promptCalls=[]; const savedNotes=[];
+    const errors=[]; const generated=[]; const retries=[]; const submissions=[]; const promptCalls=[]; const savedNotes=[]; const deletions=[];
     const imagePrompt={imagePrompt:{content:'图片方案',title:'配图方案',path:''},openclawTask:{content:'完整图片执行任务：使用当前 Skill 生成咖啡配图。',title:'图片任务'},commands:[],referenceStyle:''};
     const videoPrompt={videoPrompt:{content:'视频方案',title:'成片方案'},openclawTask:{content:'完整视频执行任务：下载所选素材并制作成片。',title:'视频任务'},commands:[]};
     page.on('pageerror',error=>errors.push(error.message));
@@ -48,10 +49,15 @@ async function main(){
           const body=req.postDataJSON();savedNotes.push(body);return json(body.noteTask);
         }
         if(url.pathname.endsWith('/media/v1/tasks')){
-          const filtered=tasks.filter(t=>(!url.searchParams.get('kind')||t.kind===url.searchParams.get('kind'))&&(!url.searchParams.get('status')||t.status===url.searchParams.get('status')));
+          const filtered=tasks.filter(t=>t.status!=='deleted'&&(!url.searchParams.get('kind')||t.kind===url.searchParams.get('kind'))&&(!url.searchParams.get('status')||t.status===url.searchParams.get('status')));
           return json({items:filtered,total:filtered.length,page:1,pageSize:12});
         }
         if(url.pathname.endsWith('/media/v1/task'))return json(tasks.find(t=>t.id===url.searchParams.get('id')));
+        if(url.pathname.endsWith('/media/v1/delete')){
+          const body=req.postDataJSON();deletions.push(body);
+          if(deletions.length===1)return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:false,message:'模拟删除失败',code:'TEST_FAILURE'})});
+          const target=tasks.find(t=>t.id===body.id);assert.equal(target.status,'failed');target.status='deleted';return json(null);
+        }
         if(url.pathname.endsWith('/media/v1/retry')){
           const body=req.postDataJSON();retries.push(body);
           const child={...tasks.find(t=>t.id===body.id),id:'upload-retry',status:'uploading',stage:'uploading',retryOf:body.id,error:''};
@@ -82,6 +88,7 @@ async function main(){
     await page.goto(base);
     await page.getByRole('button',{name:'生成任务',exact:true}).first().click();
     await page.getByRole('heading',{name:'周末咖啡配图',exact:true}).waitFor();
+    assert.equal(await page.locator('article').filter({has:page.getByRole('heading',{name:'周末咖啡配图',exact:true})}).getByRole('button',{name:/删除/}).count(),0);
     await page.getByRole('button',{name:'预览周末咖啡配图',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'任务详情'});
     await dialog.getByRole('img',{name:'配图.png'}).waitFor();
@@ -96,8 +103,32 @@ async function main(){
     await page.getByRole('button',{name:'重试上传',exact:true}).click();
     await page.getByRole('alertdialog').getByRole('button',{name:'确认',exact:true}).click();
     await dialog.getByText('上传到云端 · 任务 upload-retry').waitFor();
+    assert.equal(await dialog.getByRole('button',{name:'删除任务',exact:true}).count(),0,'An uploading task must not offer deletion');
     assert.deepEqual(retries,[{id:'failed-upload'}]);
     await page.getByRole('button',{name:'关闭任务详情'}).click();
+    page.once('dialog',dialog=>dialog.dismiss());
+    await page.getByRole('button',{name:'删除任务废弃图片任务',exact:true}).click();
+    assert.equal(deletions.length,0,'Cancelling deletion must not call the API');
+    await page.locator('article').filter({has:page.getByRole('heading',{name:'废弃图片任务',exact:true})}).getByRole('button',{name:'查看详情',exact:true}).click();
+    await dialog.getByRole('heading',{name:'废弃图片任务',exact:true}).waitFor();
+    page.once('dialog',dialog=>dialog.accept());
+    await dialog.getByRole('button',{name:'删除任务',exact:true}).click();
+    await page.getByRole('alertdialog').getByText('模拟删除失败',{exact:true}).waitFor();
+    assert.equal(tasks.find(t=>t.id==='failed-image').status,'failed');
+    await page.getByRole('alertdialog').getByRole('button',{name:'确认',exact:true}).click();
+    page.once('dialog',dialog=>dialog.accept());
+    await dialog.getByRole('button',{name:'删除任务',exact:true}).click();
+    await page.getByRole('alertdialog').getByText('失败任务已删除。',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('dialog',{name:'任务详情'}).count(),0,'Deleting the open task must close its detail');
+    await page.getByRole('alertdialog').getByRole('button',{name:'确认',exact:true}).click();
+    await page.getByRole('heading',{name:'废弃图片任务',exact:true}).waitFor({state:'hidden'});
+    page.once('dialog',dialog=>dialog.accept());
+    await page.getByRole('button',{name:'删除任务等待补传的视频',exact:true}).click();
+    await page.getByRole('alertdialog').getByText('失败任务已删除。',{exact:true}).waitFor();
+    await page.getByRole('alertdialog').getByRole('button',{name:'确认',exact:true}).click();
+    await page.getByText('共 3 个任务',{exact:true}).waitFor();
+    assert.equal(tasks.find(t=>t.id==='upload-retry').status,'uploading','Deleting the parent must preserve an active retry');
+    assert.deepEqual(deletions,[{id:'failed-image'},{id:'failed-image'},{id:'failed-upload'}]);
     await page.getByRole('combobox',{name:'筛选类型'}).selectOption('image');
     await page.getByText('共 1 个任务',{exact:true}).waitFor();
     await page.getByRole('button',{name:'图片方案',exact:true}).first().click();
@@ -137,7 +168,7 @@ async function main(){
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'mobile layout overflows');
     if(process.env.MEDIA_TEST_SCREENSHOT)await page.screenshot({path:process.env.MEDIA_TEST_SCREENSHOT,fullPage:true});
     assert.deepEqual(errors,[]);
-    console.log('Media tasks browser checks passed: page prepares image/video prompts before submission, prompt failure stops submission, submission retry reuses prompt/key, missing randomUUID, CDN playback, upload retry and mobile layout.');
+    console.log('Media tasks browser checks passed: failed-task deletion from list/detail, cancel/error handling, retry preservation, page-generated prompts, idempotent submission retry, CDN playback and mobile layout.');
   } finally {await browser.close();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

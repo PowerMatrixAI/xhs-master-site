@@ -3712,7 +3712,7 @@ export function XhsMasterApp() {
           )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
-          {activeTab === "mediaTasks" && <MediaTasksPanel accounts={accounts} focusId={mediaFocusId} onGenerate={kind => setActiveTab(kind === "image" ? "images" : "videos")} notify={showToast} />}
+          {activeTab === "mediaTasks" && <MediaTasksPanel accounts={accounts} focusId={mediaFocusId} onGenerate={kind => setActiveTab(kind === "image" ? "images" : "videos")} onDeleted={id => setMediaFocusId(current => current === id ? undefined : current)} notify={showToast} />}
           {activeTab === "images" && (
             <ImagesPanel
               selected={selected}

@@ -38,3 +38,7 @@ export async function retryMediaTask(id: string) {
   if (!result.status) throw new Error(result.message || "重试失败");
   return result.data;
 }
+export async function deleteMediaTask(id: string) {
+  const result = await authRequest("/media/v1/delete", { method: "POST", body: { id } });
+  if (!result.status) throw new Error(result.message || "删除任务失败");
+}
