@@ -21,11 +21,15 @@ async function main(){
   const browser=await chromium.launch({channel:'chrome',headless:true});
   try {
     const context=await browser.newContext({viewport:{width:1440,height:1000}});
-    await context.addInitScript(({user})=>{localStorage.setItem('xhs_token',user.signature);localStorage.setItem('xhs_user',JSON.stringify(user));}, {user});
+    await context.addInitScript(({user})=>{
+      localStorage.setItem('xhs_token',user.signature);localStorage.setItem('xhs_user',JSON.stringify(user));
+      // Reproduce browsers/HTTP origins without the secure-context randomUUID API.
+      Object.defineProperty(globalThis.crypto,'randomUUID',{value:undefined,configurable:true});
+    }, {user});
     const page=await context.newPage();
     // A tiny synthetic VP8 clip, verified playable when authored; no external media/network needed.
     const clip=fs.readFileSync(path.join(__dirname,'fixtures/media-preview.webm'));
-    const errors=[]; const generated=[]; const retries=[];
+    const errors=[]; const generated=[]; const retries=[]; const submissions=[];
     page.on('pageerror',error=>errors.push(error.message));
     await page.route('**/*',async route=>{
       const req=route.request(),url=new URL(req.url());
@@ -47,7 +51,9 @@ async function main(){
           tasks.unshift(child);return json(child);
         }
         if(url.pathname.endsWith('/media/v1/generate')){
-          const body=req.postDataJSON();generated.push(body);
+          const body=req.postDataJSON();submissions.push(body);
+          if(submissions.length===1)return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:false,message:'模拟提交失败，请重试',code:'TEST_FAILURE'})});
+          generated.push(body);
           const job={id:'created-'+generated.length,...body,title:'新媒体任务',status:'queued',stage:'queued',progress:0,artifacts:[],createdAt:stamp,updatedAt:stamp};
           tasks.unshift(job);return json(job);
         }
@@ -81,7 +87,12 @@ async function main(){
     await page.getByRole('button',{name:'图片方案',exact:true}).first().click();
     await page.getByRole('button',{name:/^AI 辅助图/}).click();
     await page.getByRole('button',{name:'生成图片并保存',exact:true}).first().click();
+    await page.getByRole('alertdialog').getByText('模拟提交失败，请重试',{exact:true}).waitFor();
+    await page.getByRole('alertdialog').getByRole('button',{name:'确认',exact:true}).click();
+    await page.getByRole('button',{name:'生成图片并保存',exact:true}).first().click();
     await page.getByRole('dialog',{name:'任务详情'}).getByText('排队中 · 任务 created-1').waitFor();
+    assert.equal(submissions[0].requestId,submissions[1].requestId,'Retrying submission must reuse the original idempotency key');
+    assert.match(generated[0].requestId,/^\d+-[a-z0-9]+$/);
     assert.equal(generated[0].kind,'image');assert.equal(generated[0].accountId,1);assert.equal(generated[0].noteTaskId,11);assert.ok(generated[0].requestId);
     assert.ok(!('account' in generated[0].options));assert.ok(!('openclawImagePaths' in generated[0].options));
     await page.getByRole('button',{name:'关闭任务详情'}).click();
@@ -90,6 +101,7 @@ async function main(){
     await page.getByRole('button',{name:'生成视频并保存',exact:true}).click();
     await page.getByRole('dialog',{name:'任务详情'}).getByText('排队中 · 任务 created-2').waitFor();
     assert.equal(generated[1].kind,'video');assert.equal(generated[1].noteTaskId,12);assert.deepEqual(generated[1].assetIds,[102]);
+    assert.notEqual(generated[0].requestId,generated[1].requestId);
     const running=tasks.find(t=>t.id==='created-2');running.status='running';running.stage='generating';running.progress=50;
     await page.getByRole('dialog',{name:'任务详情'}).getByText('媒体制作中 · 任务 created-2').waitFor();
     running.status='completed';running.stage='completed';running.progress=100;running.artifacts=[video];
@@ -99,7 +111,7 @@ async function main(){
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'mobile layout overflows');
     if(process.env.MEDIA_TEST_SCREENSHOT)await page.screenshot({path:process.env.MEDIA_TEST_SCREENSHOT,fullPage:true});
     assert.deepEqual(errors,[]);
-    console.log('Media tasks browser checks passed: CDN image/video playback, upload retry, filters, image/video submission, mobile layout.');
+    console.log('Media tasks browser checks passed: missing randomUUID, submission retry with the same key, CDN image/video playback, upload retry, filters, image/video submission, mobile layout.');
   } finally {await browser.close();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

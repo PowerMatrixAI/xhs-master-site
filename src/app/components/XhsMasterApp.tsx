@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { MediaTasksPanel } from "@/app/components/MediaTasksPanel";
 import { submitMediaGeneration, type MediaGenerationInput } from "@/lib/mediaTasks";
+import { createXhsRequestId } from "@/lib/xhs-signature";
 import {
   Activity,
   ArrowDown,
@@ -3408,10 +3409,10 @@ export function XhsMasterApp() {
     if (mediaSubmitting.current) return;
     mediaSubmitting.current = true;
     setLoading(true); setLoadingAction("submitMediaGeneration");
-    const fingerprint = JSON.stringify(input);
-    const requestId = mediaRequestKeys.current.get(fingerprint) || crypto.randomUUID();
-    mediaRequestKeys.current.set(fingerprint, requestId);
     try {
+      const fingerprint = JSON.stringify(input);
+      const requestId = mediaRequestKeys.current.get(fingerprint) || createXhsRequestId();
+      mediaRequestKeys.current.set(fingerprint, requestId);
       const job = await submitMediaGeneration(input, requestId);
       mediaRequestKeys.current.delete(fingerprint);
       setMediaFocusId(job.id); setActiveTab("mediaTasks");
