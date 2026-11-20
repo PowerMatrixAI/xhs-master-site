@@ -10,6 +10,7 @@ function load(file, overrides = {}) {
 }
 const scene = load('src/lib/vlogScene.ts');
 const timing = load('src/lib/videoTimeline.ts');
+const generationReference = load('src/lib/vlogGenerationReference.ts');
 let response, request;
 let responseQueue = [];
 let requestCount = 0;
@@ -20,7 +21,8 @@ const prompts = load('src/lib/featuredVlogPrompts.ts', {
   '@/lib/featuredVlogTemplateRules': load('src/lib/featuredVlogTemplateRules.ts'),
   '@/lib/featuredVlogAssetSelection': load('src/lib/featuredVlogAssetSelection.ts', { './featuredVlogTemplateRules': load('src/lib/featuredVlogTemplateRules.ts') }),
   '@/lib/videoAssetSelection': load('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': {} }),
-  '@/lib/featuredVlogOmni': load('src/lib/featuredVlogOmni.ts', { './vlogCharacters': load('src/lib/vlogCharacters.ts'), './videoTimeline': timing, './vlogScene': scene, './featuredVlogTemplateRules': load('src/lib/featuredVlogTemplateRules.ts') }),
+  '@/lib/featuredVlogOmni': load('src/lib/featuredVlogOmni.ts', { './vlogGenerationReference': generationReference, './vlogCharacters': load('src/lib/vlogCharacters.ts'), './videoTimeline': timing, './vlogScene': scene, './featuredVlogTemplateRules': load('src/lib/featuredVlogTemplateRules.ts') }),
+  './vlogGenerationReference': generationReference,
   '@/lib/videoPhotography': load('src/lib/videoPhotography.ts'),
   '@/lib/videoPromptBudget': load('src/lib/videoPromptBudget.ts'),
   '@/lib/videoDelivery': load('src/lib/videoDelivery.ts'),

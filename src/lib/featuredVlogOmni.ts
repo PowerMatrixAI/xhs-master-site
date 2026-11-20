@@ -1,3 +1,4 @@
+import { validateGenerationReference, validateNoGenerationReference } from "./vlogGenerationReference";
 import type { FeaturedVlogScript, FeaturedVlogFramePlan, FeaturedVlogTemplate, MusicCandidate, FeaturedVlogResolution } from "./featuredVlog";
 import { validateVideoTimeline, videoTimelineDuration } from "./videoTimeline";
 import { validateVlogScenes } from "./vlogScene";
@@ -37,7 +38,7 @@ export function styleVideoForTemplate(template: Pick<FeaturedVlogTemplate, "refe
 }
 export const OMNI_SCRIPT_RULES = `本脚本使用productionVersion:3、timingVersion:2、sceneVersion:1、characterSelection:unassigned。第一步只规划通用游客A是否出镜、动作与时间线，不绑定具体人物，不指定姓名、性别、年龄、五官、发型或服装。appearance写“游客A，具体外观在第二步选择”；props仅写真正服务动作的道具，不预设肩包。全篇使用游客A，不写具体人物身份。环境镜头可无人，characters为空或只含A，不强制每镜出人。第二步才按用户选择适配人物或无人模式。
 每镜增加direction，结构为 {"focus":"观看重点","photography":{"scale":"景别","height":"机位高度","angle":"观察角度","composition":"主体位置/构图","depth":"前中远景意图"},"camera":{"type":"fixed|pan|track|push|pull|follow","direction":"运动方向或固定朝向","speed":"速度","extent":"运动范围"},"action":"人物动作或纯环境变化","timing":[{"start":0,"end":2,"action":"开始到完成的动作"}],"ending":"结束画面"}。
-timing用秒，连续覆盖0到本镜duration，最多3段；每项action不超过20字。其余direction短句每项最多25字。人物动作与摄影机运动分开，fixed不得同时跟随位移。每镜一个可完成的主要动作，避免统一走停转头。
+timing用秒，连续覆盖0到本镜duration，最多3段；每项action不超过20字。其余direction短句每项最多25字。人物动作与摄影机运动分开，fixed不得同时跟随位移。每镜一个可完成的主要事件，可包含必需动作链；动作完成与后续观察分段表达，不拉长短动作填满镜头，避免统一走停转头。
 先按模板主要内容判断出镜需要：风景、地点建立、远景/航拍类环境展示默认environment无人；仅在体验动作、情绪或模板明确要求体现人物尺度时安排A，不设人物镜头比例。environment起止characters与characterChanges均为[]；人物中途进入不能标environment；POV不代表人物可见，仅可见手部等局部时记A。
 运镜服务观看重点：空间充分时主动设计中等幅度推进、拉远、横移或跟随，camera.extent与ending写明起幅到终幅的可辨识构图变化，不默认小幅微动。细节、阅读、静观可fixed，不设运镜配额；不编造米数、绕行角度、隐藏空间或航拍路线。
 direction是未读图的暂定拍法，不是用户确认后的摄影硬约束。内容、核心动作及时间线先确定；具体景别、机位、构图和运镜读图后可采用、部分采用或替换，不捏造通道、障碍或光源。不要在description、suggestedMaterial、起止状态及mainAction中重复这些摄影指令。按主题变化景别、主体位置和节奏，不强制航拍。相邻切点说明主题承接，摄影方向与构图可适配实际图；时间光线变化需有理由。结束状态不能包含下一镜场景或剪辑效果；cut/dissolve仅由transitionToNext定义。`;
@@ -123,14 +124,16 @@ export function buildOmniTask(input: {
   const shots = input.script.shots.map((shot, i) => {
     const frame = input.framePlan[i];
     if (frame.order !== shot.order || !frame.framePrompt || !frame.selectionReason || !["asset", "generate"].includes(frame.frameSource) || (frame.frameSource === "asset" ? !frame.assetUrl.startsWith("https://") : !!frame.assetUrl)) throw new Error(`镜头 ${i+1} 场景参考无效。`);
+    const generationReference = frame.frameSource === "generate" && frame.generationReference ? validateGenerationReference(frame.generationReference) : undefined;
+    const noGenerationReference = frame.frameSource === "generate" && frame.sceneGenerationVersion === 1 && !generationReference ? validateNoGenerationReference(frame.noGenerationReference) : undefined;
     return { order: shot.order, role: shot.role, description: shot.description, duration: shot.duration, subjectPresence: shot.subjectPresence,
-      sceneReference: { source: frame.frameSource, imageUrl: frame.assetUrl || undefined, description: frame.framePrompt, analysis: frame.aiAnalysis || "" },
+      sceneReference: { source: frame.frameSource, imageUrl: frame.assetUrl || undefined, description: frame.framePrompt, analysis: frame.aiAnalysis || "", generationReference, noGenerationReference },
       direction: executionDirection(shot.direction!), startState: executionState(shot.startState!), mainAction: shot.mainAction, endState: executionState(shot.endState!),
       characterChanges: shot.characterChanges!.map(c => ({ id: c.id, type: c.type, reason: c.reason })), continuityNote: shot.continuityNote,
       transitionToNext: shot.transitionToNext ? { type: shot.transitionToNext.type, duration: shot.transitionToNext.duration, reason: shot.transitionToNext.reason, outgoingState: shot.transitionToNext.outgoingState, incomingState: shot.transitionToNext.incomingState } : null };
   });
   const anchor = input.framePlan.find(f => f.frameSource === "asset");
-  const plan = { version: 3, kind: "featured_vlog", photographyVersion:input.script.photographyVersion,
+  const plan = { version: 3, kind: "featured_vlog", sceneGenerationVersion: input.framePlan.every(f=>f.sceneGenerationVersion===1) ? 1 : undefined, photographyVersion:input.script.photographyVersion,
     template: { id: input.template.id, name: input.template.name, version: input.template.version, referenceVideoId: styleVideo.id },
     generation: { provider: "kling_cli", tool: "omni_ref_video", model: "kling-video-v3_0_omni", resolution, aspect_ratio: "9:16", imageCount: "1", prefer_multi_shots: "false", enable_audio: "false", keepOriginalSound: "false" },
     output: { width: 1080, height: 1920, fps: 24 },
@@ -143,6 +146,7 @@ export function buildOmniTask(input: {
   return `# 精选Vlog Omni全能参考制作任务
 任务：${input.noteTask.id} · ${input.script.title}
 ${shots.length}镜，预计${videoTimelineDuration(input.script.shots, 2)}秒，9:16，${resolution}生成；输出1080×1920/24fps${resolution === "720p" ? "（非原生1080p）" : "（原生1080p生成，不得以720p放大替代）"}，仅整片配乐。
+总长=镜头合计−叠化重叠；与标题差值≤3秒不阻塞、不询问，按原计划执行，不改镜头时长。
 参考地址见plan.styleVideo.url；--video使用prepare返回路径。
 在xiaohongshu_auto_op工作区执行，目录 $PWD/${dir}。只制作，不发布。
 
@@ -153,17 +157,17 @@ ${JSON.stringify(plan)}
 \`\`\`
 
 ## 准备与读图细化
-environment无人，不传elements或主体引用；原图有人先处理或报告。其余镜头仅可见人物/手部或入场时绑定。主体只锁定身份外观，不要求居中、全身、露脸或始终清晰；按本镜观看重点允许小比例、偏侧、局部、合理遮挡及虚化前景。
+environment无人，不传elements或主体引用；原图有人先处理或报告。仅可见人物/手部或入场时绑定。主体仅锁定身份外观，允许小比例、偏侧、局部、遮挡、虚化，不要求居中全身或露脸。
 plan.shots[].direction仅为暂定拍法；不改原始plan.json及sourceHash，最终设计记resolved-plan.json的refinement。
-1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载模板参考视频及场景/配乐，参考视频3–10秒直接使用，超过10秒截前10秒，不足3秒报错；不回退静态视频，不生成首帧或调用Turbo。
-2. generate先用generate-image制作9:16无人场景图到scenePath；sceneStyleReference可经edit-image统一AI背景质感，不复制建筑人物。asset不先加人或重绘场地；纯环境原图有人时仅去人保场地或停止报告，处理后重新读图。
-3. 准备全部场景图后实际读图，核对空间、人员、光向和画幅；工具失败可使用其他已配置查看能力。确实无法查看才报告，文件尺寸/亮度/哈希不能替代读图。
+1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载参考视频、场景及配乐；参考视频3–10秒保留，超过截前10秒，不足3秒报错；禁用静态回退/Turbo。
+2. generate缺图非阻塞：${plan.sceneGenerationVersion === 1 && shots.some(s=>s.sceneReference.source === "generate") ? "按Skill逐镜generationReference实际读图后必须edit-image传参考图；遵循relationship及preserve/changes，生成无人场景。无参考仅allowGeneric=true可文生图，失败不降级。记录sceneGeneration真实输入/输出哈希与请求；全片风格锚点不替代场景参考。" : "按描述generate-image生成无人场景；sceneStyleReference可经edit-image统一背景质感。"}结果local_path复制到scenePath，无需询问。asset不先加人或重绘场地；纯环境原图有人时仅去人保场地或停止报告，处理后重新读图。
+3. 备齐后实际读图，核对空间/人员/光向/画幅；工具失败换已配置查看能力，均不可用才报告；尺寸/亮度/哈希不能替代读图。
 4. 看完本片全部实际图片再统筹人物作用、比例、景别、焦点和节奏，避免重复人像或无理由固定。拍法可调整，不锁死原图裁切与机位，不补造未知房间、建筑背面或路线。核心动作无法成立时停止报告；保留主题、事件、顺序、时长、身份、人数和转场。
-5. imageObservations记实际空间；cameraMovement分别写起幅、方向/速度/范围、终幅、变化及理由。pan原地摇摄，track平移；人物运动不代替运镜，慢不等于微动，固定说明目的。细化透视/接触/遮挡/光向/投影/景深；constraints仅写适用边界。分写动作、时间、endingState，prompt只用最终设计。
+5. 人物默认正常实时速度，明确慢动作要求除外；按图细化动机、必要动作链、完成时间和后续状态，不拉长短动作填满镜头，不新增活动或改时长。情绪与运镜速度不代替人物速度。imageObservations记实际空间；cameraMovement分别写起幅、方向/速度/范围、终幅、变化及理由。pan原地摇摄，track平移；人物运动不代替运镜，慢不等于微动，固定说明目的。细化透视/接触/遮挡/光向/投影/景深；constraints仅写适用边界。分写动作、时间、endingState，prompt只用最终设计。
 
 ## Kling CLI生成与记录
-按需一次确认官方CLI版本、授权与实时参数，可复用已确认信息。主体仅校验ID和类型，不核对名称、引用格式或脚本人物代号，不增加逐镜审核。
-填好refinement、拟提交request和sceneSha256，以photographySummary简述全片摄影。执行 uv run python scripts/cli.py featured-vlog preflight --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。此步骤免费，不调用AI/Kling；通过后才提交。可据实补齐的问题自主修复，正常流程无需用户回复“继续”。
+按需一次确认官方CLI版本、授权与实时参数，可复用已确认信息。主体仅校验ID和类型，不审计名称、引用格式或人物代号。
+填好refinement、拟提交request和sceneSha256，photographySummary简述全片摄影。执行 uv run python scripts/cli.py featured-vlog preflight --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。免费检查，不调用AI/Kling；据实修复并通过后提交，不等待“继续”。
 每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath、--video传styleVideoPath，本地自动上传。${hasPeople && character ? `A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${character.id}>>>，无人省略。主体约束身份服装；` : "全片无人，不绑定人物，不生成其他人物或手部。"}${VLOG_REFERENCE_STYLE_RULE} 显式传resolution=${resolution}、9:16、单条、关闭音频/原声/智能分镜；不支持停止，不降级。时长max(3,ceil(duration))<=10，动作按时完成，内部切镜不通过。
 --poll 0单次提交，保存CLI回执；ok=true后立即记录body.generationId及creditsConsumed，再用 kling query_tasks 实际ID查询，从成功works取视频地址。失败/超时续查原ID，不重投、不改模型；报价以当前入口为准。
 request.arguments.prompt必须等于refinement.prompt，不直接执行或拼接plan.direction。按Skill记录model、arguments/inputs、argv、submitResponse；elements为数组，输入为实际CLI路径，argv从kling、omni_ref_video开始，不记凭据。
@@ -171,7 +175,7 @@ request.arguments.prompt必须等于refinement.prompt，不直接执行或拼接
 
 ## 后期与交付
 全部镜头验收后执行 uv run python scripts/cli.py featured-vlog render --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}" --output "$PWD/${dir}/final.mp4" --size 1080x1920。
-执行器接收外部片段并裁切、转场、统一帧率、配乐，无TTS。重置前确认生成终态；视觉不合格可在用户批准后重做，不因查询超时重投。reset使用同一plan/work-dir及--shots两位镜号，保留原片审计。
-连续观看成片核对主题、动作、转场、身份道具与连续性。通过后将实际MP4经飞书发送；失败报告，不能只发本机路径声称交付。
+执行器接收外部片段并裁切、转场、统一帧率、配乐，无TTS。重置前确认生成终态；reset使用同一plan/work-dir及--shots两位镜号，保留原片。
+连续观看成片核对主题、动作、转场及身份道具。通过后飞书发送MP4；失败报告，不以路径代交付。
 整片方向：${input.overallDirection}`;
 }

@@ -473,8 +473,8 @@ const mainTabs = [
   ["dashboard", "工作台", LayoutDashboard],
   ["accounts", "客户账号", ShieldCheck],
   ["weekly", "本周内容", CalendarDays],
-  ["images", "图片方案", ImageIcon],
   ["videos", "视频方案", Video],
+  ["images", "图片方案", ImageIcon],
   ["mediaTasks", "生成任务", Activity],
   ["prompts", "笔记草稿", Wand2],
   ["assets", "素材库", Library],
@@ -3493,8 +3493,9 @@ export function XhsMasterApp() {
                 activeTab === id ? "bg-teal/15 font-medium text-teal shadow-sm" : "text-ink/75 hover:bg-white/70 hover:text-teal"
               )}
             >
-              <Icon size={17} />
+              <Icon size={17} aria-hidden="true" />
               {label}
+              {id === "videos" && <span className="sidebar-hot-badge">Hot</span>}
             </button>
           ))}
           {visiblePlatformManagementTabs.length > 0 && (
@@ -6418,7 +6419,7 @@ function VideosPanel(props: {
       </div>
       <div className="panel">
         <div className="mb-3 flex items-center justify-between"><div><h2 className="section-title">智能体视频任务</h2><p className="mt-1 text-sm text-ink/60">复制后交给智能体准备最终视频和 video-path.txt。</p></div><IconButton title="复制视频任务" onClick={() => copy(videoTaskContent)} icon={<Clipboard size={17} />} /></div>
-        {mode === "featured_vlog" && featuredVlogTask && results[featuredVlogTask.id]?.sceneReferences && <details className="mb-4 rounded border border-ink/10 p-3"><summary className="cursor-pointer text-sm font-semibold">场景参考与选图依据</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">{results[featuredVlogTask.id].sceneReferences!.map(s => <div key={s.order} className="text-xs leading-5">{s.assetUrl && <img src={s.assetUrl} alt={`镜头${s.order}场景参考`} className="mb-2 h-36 w-full rounded object-contain" />}<p>镜头{s.order} · {s.frameSource === "asset" ? "素材库场景参考" : "AI场景补图"}</p><p>{s.selectionReason}</p>{s.aiAnalysis && <p className="text-ink/60">图片分析：{s.aiAnalysis}</p>}</div>)}</div></details>}
+        {mode === "featured_vlog" && featuredVlogTask && results[featuredVlogTask.id]?.sceneReferences && <details className="mb-4 rounded border border-ink/10 p-3"><summary className="cursor-pointer text-sm font-semibold">场景参考与选图依据</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">{results[featuredVlogTask.id].sceneReferences!.map(s => <div key={s.order} className="text-xs leading-5">{s.assetUrl && <img src={s.assetUrl} alt={`镜头${s.order}场景参考`} className="mb-2 h-36 w-full rounded object-contain" />}<p>镜头{s.order} · {s.frameSource === "asset" ? "素材库场景参考" : "AI场景补图"}</p><p>{s.selectionReason}</p>{s.generationReference && <div><img src={s.generationReference.imageUrl} alt={`镜头${s.order}补图实景参考`} className="my-2 h-36 w-full rounded object-contain" /><p>补图参考：{s.generationReference.relationship === "same_space" ? "同一空间延续" : "同类场景参考"} · {s.generationReference.reason}</p><p>图片分析：{s.generationReference.analysis || "暂无，依据其他元数据匹配"}</p><p>保留：{s.generationReference.preserve.join("、")}</p><p>调整：{s.generationReference.changes.join("、")}</p></div>}{s.noGenerationReference && <p>无实景参考（通用环境）：{s.noGenerationReference.reason}</p>}{s.aiAnalysis && <p className="text-ink/60">图片分析：{s.aiAnalysis}</p>}</div>)}</div></details>}
         {resolutionChanged && <p role="status" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-800">清晰度设置已变化，请重新生成任务。下方仍为上次生成的指令。</p>}
         {characterChanged && <p role="status" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-800">人物形象设置已变化，请重新生成任务。下方仍为上次生成的指令。</p>}
         <textarea className="code-textarea min-h-[560px]" value={videoTaskContent || "生成后显示视频执行任务。"} readOnly />

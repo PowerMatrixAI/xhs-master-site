@@ -1,11 +1,13 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
 function load(file, overrides = {}) {
   const mod = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  vm.runInNewContext(code, { module: mod, exports: mod.exports, require: id => overrides[id] || require(id) });
+  vm.runInNewContext(code, { module: mod, exports: mod.exports, require: id => overrides[id]
+    || (id.startsWith('.') ? load(path.join(path.dirname(file), id + '.ts'), overrides) : require(id)) });
   return mod.exports;
 }
 const { templateVlogResolution: resolution, vlogTaskResolutionChanged: changed } = load('src/lib/templateVideoDrafts.ts');
@@ -40,7 +42,10 @@ assert.throws(() => catalog.vlogCharacterSelection('custom-id'), /有效人物/)
 assert.throws(() => catalog.vlogCharacterSelection(null), /有效人物/);
 let picked = 'linchuan';
 const characterTree = Characters({ value: picked, disabled: false, onChange: v => picked = v });
-assert.equal(nodes(characterTree).filter(n => n.type === 'option').length, 3);
+assert.equal(nodes(characterTree).filter(n => n.type === 'option').length, 4);
+assert.ok(nodes(characterTree).some(n => n.type === 'option' && n.props.value === 'xucheng'));
+assert.equal(catalog.vlogCharacterSelection('xucheng'), 'xucheng');
+assert.equal(choice({ A: 'xucheng' }, 'A'), 'xucheng');
 nodes(characterTree).find(n => n.type === 'select').props.onChange({ target: { value: 'none' } });
 assert.equal(picked, 'none');
 assert.equal(characterChanged('旧任务', 'linchuan'), false);

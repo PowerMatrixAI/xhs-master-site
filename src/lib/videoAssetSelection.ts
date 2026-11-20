@@ -3,13 +3,13 @@ import type { VideoSourceAsset } from "./videoPrompts";
 import type { BackendAiCredentials } from "./backendAiClient";
 
 export type VideoAssetReference = {
-  assetKey: string; fileUrl: string; fileName: string; fileType: string;
+  assetId?: string; assetKey: string; fileUrl: string; fileName: string; fileType: string;
   tags: string; suitableTypes: string; aiAnalysis: string; aiAnalysisStatus?: string;
 };
 export const ASSET_SELECTION_RULES = "优先依据图片分析中的场景、人物、物体和空间关系选图，标签、文件名和适用类型补充。分析缺失、失败或删除不排除素材；分析只是可修正的文字描述，不等于看过实际图片或证明场地归属。优先匹配素材，确无匹配再生成场景图。";
 export function videoAssetReferences(assets: VideoSourceAsset[]): VideoAssetReference[] {
   return assets.filter(a => a.fileUrl.startsWith("https://") && (a.fileType.toLowerCase().startsWith("image") || /\.(jpe?g|png|webp|avif)(?:\?|$)/i.test(a.fileUrl))).map((a, i) => ({
-    assetKey: `A${String(i + 1).padStart(2, "0")}`, fileUrl: a.fileUrl,
+    assetId: String(a.id), assetKey: `A${String(i + 1).padStart(2, "0")}`, fileUrl: a.fileUrl,
     fileName: a.filePath.split(/[\\/]/).pop() || `asset-${a.id}`, fileType: a.fileType,
     tags: a.tags || "", suitableTypes: a.suitableTypes || "",
     aiAnalysis: a.aiAnalysisStatus === "deleted" ? "" : a.aiAnalysis || "", aiAnalysisStatus: a.aiAnalysisStatus

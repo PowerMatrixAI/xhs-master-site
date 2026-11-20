@@ -1,16 +1,17 @@
 import type { FeaturedVlogResolution } from "./featuredVlog";
-import type { VlogCharacterSelection } from "./vlogCharacters";
+import { isVlogCharacterKey, VLOG_CHARACTERS, type VlogCharacterSelection } from "./vlogCharacters";
 
 export function templateVlogCharacter(records: Record<string, VlogCharacterSelection> | undefined, templateId: string): VlogCharacterSelection {
   const value = records?.[templateId];
-  return value === "none" || value === "shenhe" ? value : "linchuan";
+  return value === "none" || isVlogCharacterKey(value) ? value : "linchuan";
 }
 
 export function vlogTaskCharacterChanged(content: string, choice: VlogCharacterSelection): boolean {
   if (!content) return false;
   try {
     const plan = JSON.parse(content.match(/```json\s*([\s\S]*?)```/)?.[1] || "{}");
-    return (plan.characterSelection || (plan.character?.id === "325994250221723" ? "shenhe" : "linchuan")) !== choice;
+    const storedCharacter = Object.entries(VLOG_CHARACTERS).find(([, person]) => person.id === plan.character?.id);
+    return (plan.characterSelection ?? storedCharacter?.[0] ?? "linchuan") !== choice;
   } catch { return choice !== "linchuan"; }
 }
 

@@ -5,6 +5,7 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const calls = [];
 let reply;
+let musicFixtures=[];
 const ai = { completeWithBackendAi: async r => { calls.push(r); return { ok: true, text: JSON.stringify(await reply(r)), model: 'test' }; } };
 const cache = new Map();
 function load(file) {
@@ -13,7 +14,7 @@ function load(file) {
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(code, { module: mod, exports: mod.exports, process, URL, require: id => {
     if (id.endsWith('backendAiServerClient')) return ai;
-    if (id === '@/lib/featuredVlog') return { isHttpsUrl: s => s.startsWith('https://') };
+    if (id === '@/lib/featuredVlog') return { isHttpsUrl: s => s.startsWith('https://'), fetchMusicCandidatesFromBackend: async()=>musicFixtures };
     if (id === '@/lib/storyCharacters') return { characterDownloadUrl: () => '' };
     if (id.startsWith('@/')) return load(`src/${id.slice(2)}.ts`);
     if (id.startsWith('.')) return load(path.join(path.dirname(file), `${id}.ts`));
@@ -43,6 +44,20 @@ const script = { productionVersion: 3, timingVersion: 2, sceneVersion: 1, title:
 })) };
 
 async function main() {
+  musicFixtures=[{id:15,name:'Old',tags:['自然'],audioUrl:'https://example.com/old.mp3'},{id:16,name:'Next',tags:['自然'],audioUrl:'https://example.com/next.mp3'}];
+  reply=()=>({musicId:16,reason:'remaining best'});
+  const changedMusic=await prompts.selectFeaturedVlogMusic({accountId:1,script:{shots:[]},credentials:{},excludedMusicId:15});
+  assert.equal(changedMusic.music.id,16);
+  assert.ok(!calls.at(-1).input.includes('"name": "Old"'));
+  reply=()=>({musicId:15});
+  await assert.rejects(()=>prompts.selectFeaturedVlogMusic({accountId:1,script:{shots:[]},credentials:{},excludedMusicId:15}),/有效配乐 ID/);
+  musicFixtures=musicFixtures.slice(0,1); const beforeEmpty=calls.length;
+  await assert.rejects(()=>prompts.selectFeaturedVlogMusic({accountId:1,script:{shots:[]},credentials:{},excludedMusicId:15}),/没有其他可用配乐/);
+  assert.equal(calls.length,beforeEmpty);
+  await assert.rejects(()=>prompts.selectFeaturedVlogMusic({accountId:1,script:{shots:[]},credentials:{},excludedMusicId:-1}),/ID无效/);
+  reply=()=>({musicId:15});
+  assert.equal((await prompts.selectFeaturedVlogMusic({accountId:1,script:{shots:[]},credentials:{}})).music.id,15);
+  calls.length=0;
   process.env.FEATURED_VLOG_OMNI_ENABLED = 'true';
   const template = { id: 't', name: '测试', version: 2, outline: '从空间到自然', perspectiveGuidance: '第三人称观察', visualGuidance: '自然摄影质感', musicTags: ['舒缓'],
     beats: [{ name: '发现', shotDuty: '展现住宿与自然的关系', visualGuidance: 'RETIRED_SHOT_CAMERA_INSTRUCTION', required: true }], requiredScenes: ['RETIRED_REQUIRED_SCENE'],
@@ -80,6 +95,13 @@ async function main() {
   assert.equal(generated.script.characterSelection, 'unassigned');
   assert.equal(generated.script.characters[0].appearance, '游客A，具体外观在第二步选择');
   assert.equal(generated.script.photographyVersion,1);
+  const actionRulesInput = calls.at(-1).input;
+  assert.ok(actionRulesInput.includes('人物默认正常实时速度'));
+  assert.ok(actionRulesInput.includes('timing区分主要事件完成时间与后续观察时间'));
+  assert.ok(actionRulesInput.includes('允许完成它必需的自然动作链'));
+  assert.ok(!actionRulesInput.includes('mainAction只描述一个可执行主要动作'));
+  assert.ok(!actionRulesInput.includes('每镜一个主要动作'));
+  assert.ok(!actionRulesInput.includes('mainAction可写观察、聆听或自然保持'));
   assert.ok(!calls.at(-1).input.includes('主角倾向为20-30岁成年女性'));
   const planningTemplate = JSON.parse(calls.at(-1).input.split('平台模板：\n')[1].split('\n\n用户补充要求：')[0]);
   assert.equal(planningTemplate.beats[0].mainContent, template.beats[0].shotDuty);
@@ -126,11 +148,19 @@ async function main() {
     else assert.equal((await generate()).script.shots.length, durations.length);
   }
   const assets = [0,1,2].map(i => ({ id: i+1, filePath: `${i}.png`, fileUrl: `https://example.com/${i}.png`, fileType: 'image', tags: '庭院', aiAnalysis: `分析${i}：左侧树木右侧通道`, aiAnalysisStatus: i === 2 ? 'deleted' : 'completed' }));
-  reply = () => ({ overallDirection: '自然', shots: script.shots.map((s,i) => ({ order: s.order, source: i < 3 ? 'asset' : 'generate', assetKey: i < 3 ? `A0${i+1}` : '', sceneDescription: '保留场景结构', selectionReason: '通道与观察主题匹配' })) });
+  reply = () => ({ overallDirection: '自然', shots: script.shots.map((s,i) => ({ order: s.order, source: i < 3 ? 'asset' : 'generate', assetKey: i < 3 ? `A0${i+1}` : '', generationReference: i<3 ? null : {assetKey:'A01',relationship:'similar_scene',reason:'庭院同类',preserve:['树木与通道'],changes:['移除人员']}, sceneDescription: '保留场景结构', selectionReason: '通道与观察主题匹配' })) });
   const frames = await prompts.planFeaturedVlogFrames({ script, assets, template: {}, credentials: {} });
   assert.ok(calls.at(-1).input.includes('分析0'));
   assert.ok(!calls.at(-1).input.includes('分析2'));
   assert.equal(frames.framePlan[0].aiAnalysis, assets[0].aiAnalysis);
+  assert.equal(frames.framePlan[3].generationReference.imageUrl,assets[0].fileUrl);
+  assert.equal(frames.framePlan[3].generationReference.analysis,assets[0].aiAnalysis);
+  assert.equal(frames.framePlan[3].generationReference.assetId,'1');
+  const refRules=load('src/lib/vlogGenerationReference.ts');
+  assert.throws(()=>refRules.readGenerationReference({assetKey:'bad'},selection.videoAssetReferences(assets)),/素材标识/);
+  assert.throws(()=>refRules.validateNoGenerationReference({reason:'没有客房',allowGeneric:false}),/具体客房/);
+  assert.throws(()=>refRules.validateNoGenerationReference(undefined),/具体客房/);
+  assert.throws(()=>refRules.validateGenerationReference({...frames.framePlan[3].generationReference,imageUrl:'http://bad'}),/补图参考/);
   assert.ok(!frames.framePlan[0].framePrompt.includes('front'));
   const count = calls.length;
   assert.equal((await prompts.planFeaturedVlogMotion({ script, framePlan: frames.framePlan })).motionPlan.length, 0);
@@ -216,6 +246,9 @@ async function main() {
   assert.ok(!JSON.stringify(plan).includes('endingTransitionPrompt'));
   assert.ok(!JSON.stringify(plan).includes('framePrompt'));
   assert.ok(task.length < 18000, task.length);
+  assert.ok(task.includes('人物默认正常实时速度'));
+  assert.ok(task.includes('不拉长短动作填满镜头'));
+  assert.ok(task.includes('不新增活动或改时长'));
   const cachedLong = clone(script);
   cachedLong.shots.forEach(s => { s.duration = 7; s.direction.timing = [{ start: 0, end: 7, action: '观察' }]; });
   assert.doesNotThrow(() => omni.buildOmniTask({ script: cachedLong, template, framePlan: frames.framePlan, noteTask: { id: 99 }, music: { audioUrl: 'https://example.com/music.mp3' } }), 'existing cached scripts keep their confirmed timeline');
@@ -333,7 +366,7 @@ async function main() {
     assert.ok(r.input.includes('不能仅因不符合参考拍法拒绝图片'));
     assert.ok(r.input.includes('不能勉强使用内容不相关的图片'));
     return { overallDirection: '按实际平视图片读图适配', shots: cached.shots.map((s,i) => ({ order: s.order,
-      source: i === 0 ? 'asset' : 'generate', assetKey: i === 0 ? 'A01' : '',
+      source: i === 0 ? 'asset' : 'generate', assetKey: i === 0 ? 'A01' : '', noGenerationReference:{reason:'通用虚构环境没有同类素材',allowGeneric:true},
       sceneDescription: i === 0 ? '保留原图平视透视、建筑与山谷关系' : '内容无匹配素材时生成无人环境',
       selectionReason: i === 0 ? '建筑与山谷同框，可承接内容' : '缺少内容匹配素材' })) };
   };
