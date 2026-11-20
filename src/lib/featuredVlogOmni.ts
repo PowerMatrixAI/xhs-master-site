@@ -19,7 +19,9 @@ export type ShotDirection = {
   timing: Array<{ start: number; end: number; action: string }>;
   ending: string;
 };
-export function omniEnabled() { return process.env.FEATURED_VLOG_OMNI_ENABLED === "true"; }
+export function omniEnabled() {
+  return (process.env.FEATURED_VLOG_OMNI_ENABLED || "true").trim().toLowerCase() === "true";
+}
 export function vlogResolution(value: unknown): FeaturedVlogResolution {
   if (value === undefined) return "720p";
   if (value !== "720p" && value !== "1080p") throw new Error("精选Vlog生成清晰度仅支持720p或1080p。");

@@ -39,6 +39,7 @@ const script = { sceneVersion: 1, timingVersion: 2, title: '慢下来', summary:
 const clone = value => JSON.parse(JSON.stringify(value));
 
 async function main() {
+  process.env.FEATURED_VLOG_OMNI_ENABLED = 'false'; // Exercise stored legacy scripts explicitly.
   scene.validateVlogScenes(script);
   const two = clone(script);
   two.characters.push({ ...person, id: 'B', appearance: '另一位游客' });

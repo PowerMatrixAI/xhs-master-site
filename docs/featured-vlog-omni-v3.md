@@ -22,6 +22,8 @@ site Docker 镜像默认设置 `FEATURED_VLOG_OMNI_ENABLED=true`，环境切换�
 
 ## 协议
 
+未设置 `FEATURED_VLOG_OMNI_ENABLED` 时，服务端默认启用 Omni；显式设置 `false` 才使用旧版生成入口。人物形象、清晰度与制作进度界面依据当前脚本的 `productionVersion=3` 显示，摄影概览还需要 `photographyVersion=1`。历史 v1/v2 脚本不自动改写；页面提示重新生成脚本后进入新版，原有笔记和制作结果保留。在线制作按钮复用制作阶段缓存并传递当前人物和清晰度；尚待用户采用制作脚本时不提交旧的生成指令。
+
 `plan.json version=3 kind=featured_vlog`：generation.provider=kling_cli、tool=omni_ref_video，显式指定kling-video-v3_0_omni、9:16、720p或1080p、单条静音；output为1080x1920/24fps。每镜sceneReference含source、imageUrl或生成描述和选中分析快照；direction含摄影、运镜、动作、分段秒数及结束画面。transitionToNext继续cut/dissolve，最后为null。旧provider=kling_mcp计划及已完成片段仍兼容后期；需要新生成时重新组装CLI任务，不静默换通道或自动重提旧任务。
 
 ### 制作草稿与阶段恢复

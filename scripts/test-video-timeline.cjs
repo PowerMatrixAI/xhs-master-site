@@ -21,7 +21,8 @@ overrides['@/lib/videoPhotography'] = load('src/lib/videoPhotography.ts');
 overrides['@/lib/videoAssetSelection'] = load('src/lib/videoAssetSelection.ts', { '@/lib/backendAiServerClient': ai });
 overrides['@/lib/vlogCharacters'] = load('src/lib/vlogCharacters.ts');
 overrides['@/lib/vlogCharacterAdaptation'] = load('src/lib/vlogCharacterAdaptation.ts', { './vlogCharacters': overrides['@/lib/vlogCharacters'] });
-overrides['@/lib/featuredVlogOmni'] = load('src/lib/featuredVlogOmni.ts', { './vlogCharacters': overrides['@/lib/vlogCharacters'], './videoTimeline': timing, './vlogScene': scenes, './featuredVlogTemplateRules': overrides['@/lib/featuredVlogTemplateRules'] });
+overrides['./vlogGenerationReference'] = load('src/lib/vlogGenerationReference.ts');
+overrides['@/lib/featuredVlogOmni'] = load('src/lib/featuredVlogOmni.ts', { './vlogGenerationReference': overrides['./vlogGenerationReference'], './vlogCharacters': overrides['@/lib/vlogCharacters'], './videoTimeline': timing, './vlogScene': scenes, './featuredVlogTemplateRules': overrides['@/lib/featuredVlogTemplateRules'] });
 const storyLib = load('src/lib/videoPrompts.ts', { ...overrides, '@/lib/storyCharacters': { characterDownloadUrl: () => '' } });
 const vlogLib = load('src/lib/featuredVlogPrompts.ts', { ...overrides, '@/lib/featuredVlog': { isHttpsUrl: url => url.startsWith('https://') } });
 const shots = [2, 3.5, 2.5].map((duration, i) => ({ order: i+1, beat: '抵达', role: '体验', description: '沿路看窗景', suggestedMaterial: '窗景', subjectPresence: 'pov', narrationText: '我们终于来到这里', duration, transitionToNext: i === 2 ? null : { type: i === 0 ? 'dissolve' : 'cut', duration: i === 0 ? .5 : 0, reason: '构图衔接', outgoingState: '向右移动', incomingState: '向右延续' } }));
@@ -33,6 +34,7 @@ const motionPlan = shots.map(s => ({ order: s.order, mainVideoPrompt: '缓慢推
 const base = { account: { name: '账号', accountParam: 'test' }, noteTask: { id: 1, topicTitle: '旅途' }, framePlan, motionPlan };
 
 async function main() {
+  process.env.FEATURED_VLOG_OMNI_ENABLED = 'false'; // These fixtures verify v1/v2 compatibility.
   timing.validateVideoTimeline(2, shots, true);
   assert.equal(timing.videoTimelineDuration(shots, 2), 7.5);
   for (const duration of [undefined, NaN, Infinity, 1, 2.3, 11]) {

@@ -58,7 +58,7 @@ async function main() {
   reply=()=>({musicId:15});
   assert.equal((await prompts.selectFeaturedVlogMusic({accountId:1,script:{shots:[]},credentials:{}})).music.id,15);
   calls.length=0;
-  process.env.FEATURED_VLOG_OMNI_ENABLED = 'true';
+  delete process.env.FEATURED_VLOG_OMNI_ENABLED;
   const template = { id: 't', name: '测试', version: 2, outline: '从空间到自然', perspectiveGuidance: '第三人称观察', visualGuidance: '自然摄影质感', musicTags: ['舒缓'],
     beats: [{ name: '发现', shotDuty: '展现住宿与自然的关系', visualGuidance: 'RETIRED_SHOT_CAMERA_INSTRUCTION', required: true }], requiredScenes: ['RETIRED_REQUIRED_SCENE'],
     referenceVideoId: 8, referenceVideo: { id: 8, name: '后端参考', version: 3, videoUrl: 'https://cdn.example.com/backend-reference.mp4', description: 'REFERENCE_CONTENT_NOT_FOR_SCRIPT' } };
@@ -464,7 +464,7 @@ async function main() {
   await assert.rejects(() => prompts.adaptFeaturedVlogCharacter({ script, characterSelection: 'shenhe' }), /不允许修改/);
   assert.equal(JSON.stringify(script), originalScript, 'production adaptation must not overwrite the confirmed script');
   console.log('Vlog characters: preset binding, environment-only adaptation, timeline locks and unchanged source script passed.');
-  delete process.env.FEATURED_VLOG_OMNI_ENABLED;
+  process.env.FEATURED_VLOG_OMNI_ENABLED = 'false';
   assert.throws(() => omni.buildOmniTask({ script }), /未启用/);
   console.log(`Omni v3: script, analysis selection, full-library batching, task contract and legacy gate passed. Task ${task.length} chars.`);
 }
