@@ -70,7 +70,8 @@ try {
   const config = environments[env];
   const baseEnv = parseEnvFile(envPath);
   const passthroughKeys = [
-    "AI_MODEL"
+    "AI_MODEL",
+    "FEATURED_VLOG_OMNI_ENABLED"
   ];
   const extraLines = passthroughKeys
     .map((key) => {

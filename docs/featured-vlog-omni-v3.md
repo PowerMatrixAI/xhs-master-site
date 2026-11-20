@@ -12,7 +12,9 @@
 FEATURED_VLOG_OMNI_ENABLED=true
 ```
 
-默认开关配置不自动修改；启用前需模板已关联可下载的HTTP/HTTPS地址，并部署含 `scripts/xhs/featured_vlog_omni.py` 的执行器。已移除VIDEO_REFERENCE_PUBLIC_ORIGIN依赖，旧静态文件保留给历史任务。Hermes已安装官方CLI；执行前确认版本>=0.2.3及其OAuth登录，林川image主体324475410205532需在该账号中可访问。无需配置宿主MCP工具；CLI处理传输与授权，不读取/复制凭据。
+site Docker 镜像默认设置 `FEATURED_VLOG_OMNI_ENABLED=true`，环境切换脚本保留 `.env` 或构建环境中显式设置的同名值；可显式设置为 `false` 关闭。启用前需模板已关联可下载的HTTP/HTTPS地址，并部署含 `scripts/xhs/featured_vlog_omni.py` 的执行器。已移除VIDEO_REFERENCE_PUBLIC_ORIGIN依赖，旧静态文件保留给历史任务。Hermes已安装官方CLI；执行前确认版本>=0.2.3及其OAuth登录，所选人物主体须在该账号中可访问。无需配置宿主MCP工具；CLI处理传输与授权，不读取/复制凭据。
+
+部署顺序：先更新 Hermes 镜像，确认 `featured-vlog --help` 包含 `preflight` 且可导入 `xhs.featured_vlog_omni`；再更新后端镜像，允许 `mode=featured_vlog` 的 `productionVersion=3` 请求；最后更新 site 镜像开启入口。旧后端明确拒绝 v3，不能仅给 site 打开开关。已有 Kubernetes 配置若显式设置开关为 false，需在前两项兼容更新完成后改为 true。图片渠道仍沿用现有平台和当前用户 Key，视频使用共享可灵 CLI OAuth；后台任务由后端上传 COS/CDN。
 
 先启用兼容执行器再开控制台开关。关闭开关不删除旧脚本，但拒绝继续为v3脚本组装新任务；既有v1/v2任务走原流程。新脚本记录productionVersion=3/timingVersion=2/sceneVersion=1，旧缓存不自动升级。
 
