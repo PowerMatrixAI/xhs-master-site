@@ -311,7 +311,7 @@ ${VLOG_ASSET_SELECTION_RULES}
 - 输出骨架中的 generate 只是待填写的默认值；有画面匹配素材时须改为 asset 并填写对应 assetKey。选用素材只代表画面匹配，不等于确认它是该民宿实拍；不得在 framePrompt 中据此补造本店招牌、房型、设施或具体地点。
 - 若素材标签无法证明场地归属，在 overallDirection 中提示发布前人工核验素材与民宿的关系；不要把通用素材描述成已核验的本店现场。
 - 脚本涉及尚未核实的活动时，允许从“登山、玩水、徒步”中选一种拍成不指向具体地点或民宿服务的通用体验画面；不要因缺少已核实活动而留空、暂停镜头，也不得把 AI 画面表述为真实活动记录。
-- asset 的 framePrompt 保留原图空间，只补充本镜起始瞬间的游客姿态；generate 同样只描述一个起始瞬间的主体、构图、光线和摄影质感。完整动作不能写成同屏多个状态。
+- asset 的 framePrompt 保留原图空间，只补充本镜起始瞬间的游客姿态；generate 是没有场景图附件的文生图，只描述一个起始瞬间的主体、构图、光线和摄影质感，不写复用原图人物、保留原图空间或等待上传参考图的编辑要求。完整动作不能写成同屏多个状态。
 - 按实际图片条件适配暂定摄影视角，再安排人物朝向，正面、侧面、背面均可；第三人称画面可以自然呈现虚构游客正脸与表情。POV保持第一人称视点，不为展示脸而凭空新增人物；人物数量与身份始终遵循脚本。
 - 使用全片人物表中的固定外观，同id不能在不同首帧换脸、换性别或年龄。startState.view=front时应能清晰看到正脸和五官，不因空间场景默认改为侧影。人物与场地构图兼顾，不以增加室内镜头来凑正脸。
 
@@ -344,10 +344,10 @@ ${JSON.stringify(candidates.map(({ fileUrl: _url, ...item }) => item), null, 2)}
       const asset = byKey.get(assetKey);
       if (!asset || used.has(assetKey)) return null;
       used.add(assetKey);
-      return { order: index + 1, role: expected.role, description: expected.description, frameSource, assetUrl: asset.fileUrl, framePrompt: vlogFrameContext(expected, input.script.characters || []) + framePrompt };
+      return { order: index + 1, role: expected.role, description: expected.description, frameSource, assetUrl: asset.fileUrl, framePrompt: vlogFrameContext(expected, input.script.characters || [], frameSource) + framePrompt };
     }
     if (assetKey) return null;
-    return { order: index + 1, role: expected.role, description: expected.description, frameSource, assetUrl: "", framePrompt: vlogFrameContext(expected, input.script.characters || []) + framePrompt };
+    return { order: index + 1, role: expected.role, description: expected.description, frameSource, assetUrl: "", framePrompt: vlogFrameContext(expected, input.script.characters || [], frameSource) + framePrompt };
   });
   if (framePlan.some((shot) => !shot)) throw new Error("精选vlog首帧规划包含无效素材映射，请重试。");
   return { overallDirection: text(parsed?.overallDirection) || "按脚本形成真实、连贯的民宿体验 Vlog。", framePlan: framePlan as FeaturedVlogFramePlan, model: response.model, calls: selection.calls + 1 };

@@ -75,9 +75,12 @@ function stateText(state?: VlogSceneState) {
   return `${state.location}；${state.characters.map(c => `${c.id}@${c.position}/${c.pose}/${c.view}`).join("；") || "无人出镜"}；道具：${state.props.join("、") || "无"}`;
 }
 
-export function vlogFrameContext(shot: VlogShotScene, characters: VlogCharacter[]) {
+export function vlogFrameContext(shot: VlogShotScene, characters: VlogCharacter[], frameSource: "asset" | "generate" = "asset") {
   if (!shot.startState) return "首帧仅呈现动作开始的一个瞬间，不同时画出同一人的起始与结束位置。";
-  return `首帧：${stateText(shot.startState)}。本首帧仅出镜 ${shot.startState.characters.length} 位人物；${characters.filter(c => shot.startState!.characters.some(p => p.id === c.id)).map(c => `${c.id}:${c.appearance}`).join("；")}。同id全片同一五官、发型、服装；front清晰正脸，不能自动改侧脸。不复制、不提前画结束位置。素材已有目标人物则复用或调整现有人物；按设计处理其他人，标签不能证明无人。`;
+  const sourceInstruction = frameSource === "asset"
+    ? "素材已有目标人物则复用或调整现有人物；按设计处理其他人，标签不能证明无人。"
+    : "本镜场景根据文字描述创作，人物数量、外观与姿态以本镜起始状态为准。";
+  return `首帧：${stateText(shot.startState)}。本首帧仅出镜 ${shot.startState.characters.length} 位人物；${characters.filter(c => shot.startState!.characters.some(p => p.id === c.id)).map(c => `${c.id}:${c.appearance}`).join("；")}。同id全片同一五官、发型、服装；front清晰正脸，不能自动改侧脸。不复制、不提前画结束位置。${sourceInstruction}`;
 }
 
 export function vlogMotionPrompt(shot: VlogShotScene, main: string, ending: string, duration: number, characters: VlogCharacter[] = []) {

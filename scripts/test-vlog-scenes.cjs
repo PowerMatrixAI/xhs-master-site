@@ -117,6 +117,14 @@ async function main() {
   assert.ok(!request.input.includes('下一镜专属动作'));
   assert.ok(frames.framePlan[0].framePrompt.includes('本首帧仅出镜 1 位人物'));
   assert.ok(frames.framePlan[0].framePrompt.includes('复用或调整现有人物'));
+  assert.equal(frames.framePlan[0].assetUrl, 'https://example.com/room.jpg');
+  for (const frame of frames.framePlan.slice(1)) {
+    assert.equal(frame.frameSource, 'generate');
+    assert.equal(frame.assetUrl, '');
+    assert.ok(!frame.framePrompt.includes('素材已有目标人物'));
+    assert.ok(frame.framePrompt.includes('本首帧仅出镜 1 位人物'));
+    assert.ok(frame.framePrompt.includes('A:白裙游客'));
+  }
   const motionPlan = shots.map(s => ({ order: s.order, mainVideoPrompt: '首帧中的游客缓步走到窗边', endingTransitionPrompt: '在窗边停步' }));
   response = { shots: motionPlan };
   await prompts.planFeaturedVlogMotion({ script, framePlan: frames.framePlan, credentials: {} });
