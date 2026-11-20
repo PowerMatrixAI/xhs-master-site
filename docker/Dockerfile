@@ -1,4 +1,4 @@
-FROM node:20-bullseye-slim
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
@@ -7,8 +7,8 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV FEATURED_VLOG_OMNI_ENABLED=true
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
+RUN apt-get -o Acquire::Retries=3 update --error-on=any \
+  && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system nodejs && useradd --system --gid nodejs nextjs
