@@ -469,8 +469,8 @@ const mainTabs = [
   ["dashboard", "工作台", LayoutDashboard],
   ["accounts", "客户账号", ShieldCheck],
   ["weekly", "本周内容", CalendarDays],
-  ["images", "图片方案", ImageIcon],
   ["videos", "视频方案", Video],
+  ["images", "图片方案", ImageIcon],
   ["prompts", "笔记草稿", Wand2],
   ["assets", "素材库", Library],
   ["knowledgeBase", "知识库", Database],
@@ -3430,8 +3430,9 @@ export function XhsMasterApp() {
                 activeTab === id ? "bg-teal/15 font-medium text-teal shadow-sm" : "text-ink/75 hover:bg-white/70 hover:text-teal"
               )}
             >
-              <Icon size={17} />
+              <Icon size={17} aria-hidden="true" />
               {label}
+              {id === "videos" && <span className="sidebar-hot-badge">Hot</span>}
             </button>
           ))}
           {visiblePlatformManagementTabs.length > 0 && (
