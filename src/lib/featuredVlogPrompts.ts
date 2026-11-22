@@ -6,7 +6,7 @@ import { VLOG_CHARACTERS, vlogCharacterSelection, type VlogCharacterSelection } 
 import { featuredVlogTemplateForPlanning, VLOG_REFERENCE_STYLE_RULE, VLOG_CAMERA_REFERENCE_RULE } from "@/lib/featuredVlogTemplateRules";
 import { featuredVlogForAssetSelection, VLOG_ASSET_SELECTION_RULES } from "@/lib/featuredVlogAssetSelection";
 import { videoAssetReferences, shortlistVideoAssets, assetMetadata, ASSET_SELECTION_RULES, type VideoAssetReference } from "@/lib/videoAssetSelection";
-import { omniEnabled, styleVideoForTemplate, OMNI_SCRIPT_RULES, validateOmniScript, normalizeOmniCast, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
+import { omniEnabled, OMNI_SCRIPT_RULES, validateOmniScript, normalizeOmniCast, buildOmniTask, type ShotDirection } from "@/lib/featuredVlogOmni";
 import {
   fetchMusicCandidatesFromBackend,
   isHttpsUrl,
@@ -86,7 +86,6 @@ export async function generateFeaturedVlogScript(input: {
   knowledgeSourceKeys?: string[];
 }) {
   const omni = omniEnabled();
-  if (omni) styleVideoForTemplate(input.template);
   const timed = omni || videoTimelineV2Enabled();
   const response = await completeWithBackendAi({
     instructions: "你是住宿与目的地旅行纪录片、Vlog 编导。围绕所选模板主题，将民宿体验与目的地环境编排为3-6镜头脚本，室内外比重服务主题，不默认写成客房展示。只返回合法JSON。",
@@ -110,7 +109,7 @@ ${omni ? VIDEO_SHOT_DESIGN.replace("简写在现有description/startState/主要
 - suggestedMaterial 只描述镜头需要的画面类型（如入口、客房、林间步道），不要把“素材必须能证明属于本民宿或拍摄当日现场”写成选图前提。画面素材可以承接氛围和体验叙事，但不能据此宣称未核实的房型、设施或服务是本店事实。
 - 如模板需要户外活动但账号资料没有已核实的具体活动，可从“登山、玩水、徒步”中选择一种作为游客视角的通用体验画面；不要称其为民宿提供的项目、已举办的活动或附近真实可达的路线/水域，不添加地点、距离、价格或开放信息。
 - 遵循模板的叙事视角与视觉方向。允许采用主观镜头，或按照模板安排虚构游客角色；人物入镜时保持场景描述连贯。正面、侧面、背面均可按动作与情绪需要使用，没有统一禁止正脸的限制，不将所有人物镜头默认设计为背影。
-- ${VLOG_REFERENCE_STYLE_RULE} 脚本阶段未读取实际视频，不声称已观看；制作阶段由Omni接收参考视频。参考内容不能作为当前账号的业务事实。
+- ${VLOG_REFERENCE_STYLE_RULE} 脚本阶段未读取实际视频，不声称已观看；仅在制作任务启用参考视频时由Omni接收。参考内容不能作为当前账号的业务事实。
 - 每镜描述需可视化，给出体验阶段、镜头职责、事件动作和适合使用的素材，不写生成图片或视频的技术操作步骤。
 - 输出整片情绪标签和配乐氛围标签，供后续从平台曲库匹配；不得指定、编造曲名或 URL。
 - noteTask 是现有周计划笔记字段，主题应描述这条视频的体验内容；writingStyleName 必须从可选文风中选一个精确名称。
@@ -517,6 +516,7 @@ export function buildFeaturedVlogVideoTask(input: {
   music: MusicCandidate;
   overallDirection: string;
   resolution?: import("./featuredVlog").FeaturedVlogResolution;
+  useReferenceVideo?: boolean;
   characterSelection?: VlogCharacterSelection;
 }) {
   if (input.script.productionVersion === 3) return buildOmniTask(input);

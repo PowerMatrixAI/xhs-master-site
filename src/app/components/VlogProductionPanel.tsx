@@ -7,8 +7,8 @@ import { readVlogProduction, writeVlogProduction, VLOG_PRODUCTION_EVENT } from "
 import { authenticatedFetch } from "@/lib/api";
 import { VlogPhotographyOverview } from "./VlogPhotographyOverview";
 
-export function VlogProductionPanel({ scope, script, choice, resolution, disabled, onContinue }: {
-  scope: string; script: FeaturedVlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution;
+export function VlogProductionPanel({ scope, script, choice, resolution, useReferenceVideo, disabled, onContinue }: {
+  scope: string; script: FeaturedVlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo: boolean;
   disabled: boolean; onContinue: (options: ProductionOptions) => void;
 }) {
   const [draft, setDraft] = useState<VlogProductionDraft>();
@@ -46,12 +46,13 @@ export function VlogProductionPanel({ scope, script, choice, resolution, disable
   const sameChoice = draft?.choice === choice;
   const adaptation = sameScript && sameChoice ? productionScript(draft) : undefined;
   const needsConfirmation = adaptation?.requiresConfirmation && draft?.confirmedFingerprint !== draft?.stages.adapt?.fingerprint;
-  const saveOnly = sameScript && sameChoice && draft?.resolution === resolution && draft?.stages.save?.status === "failed";
+  const sameReferenceVideo = draft?.useReferenceVideo === useReferenceVideo;
+  const saveOnly = sameScript && sameChoice && sameReferenceVideo && draft?.resolution === resolution && draft?.stages.save?.status === "failed";
   const lost = sameScript && Object.values(draft!.stages).some(s => s?.status === "lost");
   return <div className="mt-4 rounded border border-teal/20 bg-teal/5 p-4 text-sm">
     <h4 className="font-semibold">本次制作脚本与进度</h4>
     {(error || draft?.localSaveError) && <p role="alert" className="mt-2 text-coral">{error || draft?.localSaveError}</p>}
-    {draft && (!sameScript || !sameChoice || draft.resolution !== resolution) && <p className="mt-2 text-ink/60">设置或脚本已变化，继续时仅更新受影响的阶段。</p>}
+    {draft && (!sameScript || !sameChoice || !sameReferenceVideo || draft.resolution !== resolution) && <p className="mt-2 text-ink/60">设置或脚本已变化，继续时仅更新受影响的阶段。</p>}
     {!adaptation ? <p className="mt-2 text-ink/60">生成任务后在此查看实际使用的制作脚本，阶段结果会自动保存。</p> : <>
       <p className="mt-2 font-medium">{adaptation.script.title}</p><p className="mt-1">{adaptation.script.summary}</p>
       <VlogPhotographyOverview script={adaptation.script} />

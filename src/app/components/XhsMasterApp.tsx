@@ -335,7 +335,7 @@ type VideoPromptResult = {
 };
 
 type VideoSourceMode = "direct_video" | "story_video" | "featured_vlog";
-type FeaturedVlogPromptOptions = { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution; characterSelection?: VlogCharacterSelection; productionOptions?: ProductionOptions };
+type FeaturedVlogPromptOptions = { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution; characterSelection?: VlogCharacterSelection; useReferenceVideo?: boolean; productionOptions?: ProductionOptions };
 type VideoStorySourceType = "template";
 
 type VideoStoryDraft = {
@@ -400,6 +400,7 @@ type PersistedFeaturedVlogDraft = {
 };
 
 type VideoDraftWorkspace = {
+  featuredVlogUseReferenceVideoByTemplate?: Record<string, boolean>;
   featuredVlogResolutionByTemplate?: Record<string, FeaturedVlogResolution>;
   featuredVlogCharacterByTemplate?: Record<string, VlogCharacterSelection>;
   lastMode?: VideoSourceMode;
@@ -2927,7 +2928,7 @@ export function XhsMasterApp() {
         if (!uid) throw new Error("请重新登录后继续。");
         const scope = productionScope(uid, getBackendApiBaseUrl(), selected.id, featuredVlog.templateId);
         const finished = await runVlogProduction({ key: scope, taskId: task.id, source: featuredVlog.script,
-          choice: featuredVlog.characterSelection || "linchuan", resolution: featuredVlog.resolution || "720p",
+          choice: featuredVlog.characterSelection || "linchuan", useReferenceVideo: featuredVlog.useReferenceVideo, resolution: featuredVlog.resolution || "720p",
           getContext:()=>requestVideoAction<ProductionContext>("featured_vlog_context", {}, "制作资源检查失败"), load:()=>readVlogProduction(scope), options: featuredVlog.productionOptions, persist: writeVlogProduction,
           progress: stage => setLoadingAction(({ adapt:"adaptFeaturedVlogCharacter",frames:"generateFeaturedVlogFrames",music:"selectFeaturedVlogMusic",build:"buildFeaturedVlogTask",save:"buildFeaturedVlogTask" })[stage]),
           request: async (action, extra, pending, resume) => {
@@ -3449,12 +3450,8 @@ export function XhsMasterApp() {
   }
   async function generateVideoMedia(task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: FeaturedVlogPromptOptions) {
     if (!selected) return;
-    if (featuredVlog && (featuredVlog.script.productionVersion || 1) > 2) {
-      showToast("当前执行服务暂不支持 Omni v3 在线生成。", "error");
-      return;
-    }
     await generateOnlineMedia({ accountId: selected.id, noteTaskId: task.id, kind: "video", mode, assetIds: assets.map(asset => asset.id),
-      options: mode === "story_video" ? { story } : mode === "featured_vlog" && featuredVlog ? { featuredVlogTemplateId: featuredVlog.templateId, featuredVlogTemplateVersion: featuredVlog.templateVersion, featuredVlogScript: featuredVlog.script, featuredVlogResolution: featuredVlog.resolution || "720p", featuredVlogCharacter: featuredVlog.characterSelection || "linchuan" } : {}
+      options: mode === "story_video" ? { story } : mode === "featured_vlog" && featuredVlog ? { featuredVlogTemplateId: featuredVlog.templateId, featuredVlogTemplateVersion: featuredVlog.templateVersion, featuredVlogScript: featuredVlog.script, featuredVlogResolution: featuredVlog.resolution || "720p", ...(featuredVlog.script.productionVersion === 3 ? { featuredVlogUseReferenceVideo: featuredVlog.useReferenceVideo === true } : {}), featuredVlogCharacter: featuredVlog.characterSelection || "linchuan" } : {}
     }, async () => {
       const generated = await generateVideoPrompt(task, mode, assets, story, featuredVlog, { manageLoading: false, showSuccessToast: false });
       return generated ? { prompt: generated.openclawTask?.content || "" } : null;
@@ -5914,7 +5911,7 @@ function VideosPanel(props: {
   videoWorkspaceReady: boolean;
   generateVideoMedia: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: FeaturedVlogPromptOptions) => Promise<void>;
   updateVideoDraftWorkspace: (accountId: number, update: (workspace: VideoDraftWorkspace) => VideoDraftWorkspace) => void;
-  generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution; characterSelection?: VlogCharacterSelection; productionOptions?: ProductionOptions }) => void;
+  generateVideoPrompt: (task: NoteTask, mode: VideoSourceMode, assets: Asset[], story?: VideoStoryDraft, featuredVlog?: { templateId: string; templateVersion?: number; script: FeaturedVlogScript; resolution?: FeaturedVlogResolution; characterSelection?: VlogCharacterSelection; useReferenceVideo?: boolean; productionOptions?: ProductionOptions }) => void;
   generateStandaloneVideoStory: (input: { templateId: string; characterId: string; sourceType: VideoStorySourceType; sourceContent: string; extraRequirements: string }) => Promise<VideoStoryResult | null>;
   createStoryVideoNoteTask: (story: VideoStoryDraft, knowledgeSnapshotId: string) => Promise<NoteTask | null>;
   generateStandaloneFeaturedVlog: (input: { template: FeaturedVlogTemplate; extraRequirements: string }) => Promise<FeaturedVlogResult | null>;
@@ -5962,6 +5959,8 @@ function VideosPanel(props: {
   const result = activeTask ? results[activeTask.id] : null;
   const videoTaskContent = result?.openclawTask.content || activeTask?.plan || "";
   const featuredVlogResolution = templateVlogResolution(videoDraftWorkspace.featuredVlogResolutionByTemplate, featuredVlogTemplateId);
+  const useReferenceVideo = videoDraftWorkspace.featuredVlogUseReferenceVideoByTemplate?.[featuredVlogTemplateId] === true;
+  const referenceVideoChanged = mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 && /"version":3/.test(videoTaskContent) && /"styleVideo":\{/.test(videoTaskContent) !== useReferenceVideo;
   const resolutionChanged = mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 && vlogTaskResolutionChanged(videoTaskContent, featuredVlogResolution);
   const featuredVlogCharacter = templateVlogCharacter(videoDraftWorkspace.featuredVlogCharacterByTemplate, featuredVlogTemplateId);
   const characterChanged = mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 && vlogTaskCharacterChanged(videoTaskContent, featuredVlogCharacter);
@@ -6390,18 +6389,27 @@ function VideosPanel(props: {
         {mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 && <FeaturedVlogCharacterSettings value={featuredVlogCharacter} disabled={loading} onChange={choice => selected && updateVideoDraftWorkspace(selected.id, workspace => ({ ...workspace, featuredVlogCharacterByTemplate: { ...workspace.featuredVlogCharacterByTemplate, [featuredVlogTemplateId]: choice } }))} />}
         {mode === "featured_vlog" && featuredVlogDraft && featuredVlogDraft.script.productionVersion !== 3 && <p role="status" className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">当前显示的是旧版 Vlog 脚本。请在第一步点击“重新生成 Vlog 脚本”；新版 Omni 脚本会显示人物形象、720P / 1080P、本次制作进度和全片摄影概览。已有脚本与任务仍可使用。</p>}
         {mode === "featured_vlog" && <FeaturedVlogResolutionSettings omni={featuredVlogDraft?.script.productionVersion === 3} value={featuredVlogResolution} disabled={loading} onChange={resolution => selected && updateVideoDraftWorkspace(selected.id, workspace => ({ ...workspace, featuredVlogResolutionByTemplate: { ...workspace.featuredVlogResolutionByTemplate, [featuredVlogTemplateId]: resolution } }))} />}
-        {mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 && selected && <VlogProductionPanel scope={productionScope(getUser()?.uid || "", getBackendApiBaseUrl(), selected.id, featuredVlogTemplateId)} script={featuredVlogDraft.script} choice={featuredVlogCharacter} resolution={featuredVlogResolution} disabled={loading || !canGenerate} onContinue={async productionOptions => {
+        {mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 && (
+          <label className="mt-3 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={useReferenceVideo} disabled={loading} onChange={event => {
+              const checked = event.target.checked;
+              if (selected) updateVideoDraftWorkspace(selected.id, workspace => ({ ...workspace, featuredVlogUseReferenceVideoByTemplate: { ...workspace.featuredVlogUseReferenceVideoByTemplate, [featuredVlogTemplateId]: checked } }));
+            }} />
+            使用模板参考视频（默认关闭）
+          </label>
+        )}
+        {mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 && selected && <VlogProductionPanel scope={productionScope(getUser()?.uid || "", getBackendApiBaseUrl(), selected.id, featuredVlogTemplateId)} script={featuredVlogDraft.script} choice={featuredVlogCharacter} resolution={featuredVlogResolution} useReferenceVideo={useReferenceVideo} disabled={loading || !canGenerate} onContinue={async productionOptions => {
           if (productionStarting.current) return;
           productionStarting.current = true;
           try {
             const task = featuredVlogTask || await confirmAndCreateFeaturedVlogTask();
-            if (task) await generateVideoPrompt(task, "featured_vlog", imageAssets, undefined, { templateId:featuredVlogTemplateId, templateVersion:featuredVlogDraft.templateVersion, script:featuredVlogDraft.script, resolution:featuredVlogResolution, characterSelection:featuredVlogCharacter, productionOptions });
+            if (task) await generateVideoPrompt(task, "featured_vlog", imageAssets, undefined, { templateId:featuredVlogTemplateId, templateVersion:featuredVlogDraft.templateVersion, script:featuredVlogDraft.script, resolution:featuredVlogResolution, useReferenceVideo, characterSelection:featuredVlogCharacter, productionOptions });
           } finally { productionStarting.current = false; }
         }} />}
         {!(mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3) && <button type="button" disabled={loading || !canGenerate} onClick={async () => {
           const task = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask || await confirmAndCreateFeaturedVlogTask() : note;
           if (!task) return;
-          generateVideoPrompt(task, mode, mode === "story_video" || mode === "featured_vlog" ? imageAssets : selectedAssets, storyDraft || undefined, featuredVlogDraft ? { templateId: featuredVlogTemplateId, templateVersion: featuredVlogDraft.templateVersion, script: featuredVlogDraft.script, resolution: featuredVlogDraft.script.productionVersion === 3 ? featuredVlogResolution : "720p", characterSelection: featuredVlogDraft.script.productionVersion === 3 ? featuredVlogCharacter : "linchuan" } : undefined);
+          generateVideoPrompt(task, mode, mode === "story_video" || mode === "featured_vlog" ? imageAssets : selectedAssets, storyDraft || undefined, featuredVlogDraft ? { templateId: featuredVlogTemplateId, templateVersion: featuredVlogDraft.templateVersion, script: featuredVlogDraft.script, resolution: featuredVlogDraft.script.productionVersion === 3 ? featuredVlogResolution : "720p", useReferenceVideo, characterSelection: featuredVlogDraft.script.productionVersion === 3 ? featuredVlogCharacter : "linchuan" } : undefined);
         }} className="primary-button mt-4">
           <ActionButtonContent
             loading={isGeneratingVideoTask}
@@ -6414,13 +6422,14 @@ function VideosPanel(props: {
           const task = mode === "story_video" ? storyTask : mode === "featured_vlog" ? featuredVlogTask || await confirmAndCreateFeaturedVlogTask() : note;
           if (!task || !selected) return;
           await props.generateVideoMedia(task, mode, mode === "direct_video" ? selectedAssets : imageAssets, storyDraft || undefined,
-            featuredVlogDraft ? { templateId: featuredVlogTemplateId, templateVersion: featuredVlogDraft.templateVersion, script: featuredVlogDraft.script, resolution: featuredVlogDraft.script.productionVersion === 3 ? featuredVlogResolution : "720p", characterSelection: featuredVlogDraft.script.productionVersion === 3 ? featuredVlogCharacter : "linchuan" } : undefined);
+            featuredVlogDraft ? { templateId: featuredVlogTemplateId, templateVersion: featuredVlogDraft.templateVersion, script: featuredVlogDraft.script, resolution: featuredVlogDraft.script.productionVersion === 3 ? featuredVlogResolution : "720p", useReferenceVideo, characterSelection: featuredVlogDraft.script.productionVersion === 3 ? featuredVlogCharacter : "linchuan" } : undefined);
         }} className="primary-button ml-2 mt-4"><Video size={17} />{loadingAction === "submitMediaGeneration" ? "正在提交…" : isGeneratingVideoTask ? videoTaskLoadingText : "生成视频并保存"}</button>
-        <p className="mt-2 text-xs text-ink/55">{mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 ? "按已选人物和清晰度使用 Omni 制作视频，复用已有制作阶段结果，可在“生成任务”中查看进度与成片。" : "自动完成方案和媒体制作，可在“生成任务”中查看进度与成片。"}</p>
+        <p className="mt-2 text-xs text-ink/55">{mode === "featured_vlog" && featuredVlogDraft?.script.productionVersion === 3 ? "按已选人物和清晰度提交 Omni 制作任务。若制作脚本需确认，请采用后再次提交。进度与成片可在“生成任务”中查看。" : "自动完成方案和媒体制作，可在“生成任务”中查看进度与成片。"}</p>
       </div>
       <div className="panel">
         <div className="mb-3 flex items-center justify-between"><div><h2 className="section-title">智能体视频任务</h2><p className="mt-1 text-sm text-ink/60">复制后交给智能体准备最终视频和 video-path.txt。</p></div><IconButton title="复制视频任务" onClick={() => copy(videoTaskContent)} icon={<Clipboard size={17} />} /></div>
         {mode === "featured_vlog" && featuredVlogTask && results[featuredVlogTask.id]?.sceneReferences && <details className="mb-4 rounded border border-ink/10 p-3"><summary className="cursor-pointer text-sm font-semibold">场景参考与选图依据</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">{results[featuredVlogTask.id].sceneReferences!.map(s => <div key={s.order} className="text-xs leading-5">{s.assetUrl && <img src={s.assetUrl} alt={`镜头${s.order}场景参考`} className="mb-2 h-36 w-full rounded object-contain" />}<p>镜头{s.order} · {s.frameSource === "asset" ? "素材库场景参考" : "AI场景补图"}</p><p>{s.selectionReason}</p>{s.generationReference && <div><img src={s.generationReference.imageUrl} alt={`镜头${s.order}补图实景参考`} className="my-2 h-36 w-full rounded object-contain" /><p>补图参考：{s.generationReference.relationship === "same_space" ? "同一空间延续" : "同类场景参考"} · {s.generationReference.reason}</p><p>图片分析：{s.generationReference.analysis || "暂无，依据其他元数据匹配"}</p><p>保留：{s.generationReference.preserve.join("、")}</p><p>调整：{s.generationReference.changes.join("、")}</p></div>}{s.noGenerationReference && <p>无实景参考（通用环境）：{s.noGenerationReference.reason}</p>}{s.aiAnalysis && <p className="text-ink/60">图片分析：{s.aiAnalysis}</p>}</div>)}</div></details>}
+        {referenceVideoChanged && <p role="status" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-800">参考视频设置已变化，请重新生成任务。下方仍为上次生成的指令。</p>}
         {resolutionChanged && <p role="status" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-800">清晰度设置已变化，请重新生成任务。下方仍为上次生成的指令。</p>}
         {characterChanged && <p role="status" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-800">人物形象设置已变化，请重新生成任务。下方仍为上次生成的指令。</p>}
         <textarea className="code-textarea min-h-[560px]" value={videoTaskContent || "生成后显示视频执行任务。"} readOnly />

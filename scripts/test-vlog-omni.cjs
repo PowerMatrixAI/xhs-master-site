@@ -165,7 +165,7 @@ async function main() {
   const count = calls.length;
   assert.equal((await prompts.planFeaturedVlogMotion({ script, framePlan: frames.framePlan })).motionPlan.length, 0);
   assert.equal(calls.length, count, 'v3 must not replan confirmed motion');
-  const task = prompts.buildFeaturedVlogVideoTask({ account: { name: '账号', accountParam: 'test' }, noteTask: { id: 1, topicTitle: '测试' }, template, script, framePlan: frames.framePlan, motionPlan: [], music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' });
+  const task = prompts.buildFeaturedVlogVideoTask({ account: { name: '账号', accountParam: 'test' }, noteTask: { id: 1, topicTitle: '测试' }, template, useReferenceVideo: true, script, framePlan: frames.framePlan, motionPlan: [], music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3' }, overallDirection: '自然' });
   const plan = JSON.parse(task.match(/```json\n([\s\S]*?)\n```/)[1]);
   assert.equal(plan.version, 3); assert.equal(plan.generation.aspect_ratio, '9:16');
   assert.equal(plan.generation.provider, 'kling_cli');
@@ -239,8 +239,14 @@ async function main() {
   assert.ok(!task.includes('/video-references/'));
   assert.ok(!task.includes('obsolete.example.com'));
   assert.ok(task.includes('--video传styleVideoPath'));
+  const noReferenceTask = omni.buildOmniTask({ template: { id: template.id }, script, framePlan: frames.framePlan, noteTask: { id: 1 }, music: { audioUrl: 'https://example.com/music.mp3' } });
+  const noReferencePlan = JSON.parse(noReferenceTask.match(/```json\n(.*?)\n```/)[1]);
+  assert.ok(!('styleVideo' in noReferencePlan));
+  assert.ok(!('referenceVideoId' in noReferencePlan.template));
+  assert.ok(noReferenceTask.includes('省略--video及request.inputs.video_1'));
+  assert.ok(!noReferenceTask.includes('--video传styleVideoPath'));
   const changedTemplate = { ...template, referenceVideo: { ...template.referenceVideo, version: 4, videoUrl: 'https://cdn.example.com/new-reference.mp4' } };
-  const changedTask = omni.buildOmniTask({ account: {}, noteTask: { id: 2 }, template: changedTemplate, script, framePlan: frames.framePlan, music: { audioUrl: 'https://example.com/music.mp3' } });
+  const changedTask = omni.buildOmniTask({ account: {}, noteTask: { id: 2 }, template: changedTemplate, useReferenceVideo: true, script, framePlan: frames.framePlan, music: { audioUrl: 'https://example.com/music.mp3' } });
   assert.ok(changedTask.includes(changedTemplate.referenceVideo.videoUrl) && !changedTask.includes(template.referenceVideo.videoUrl));
   assert.equal(plan.shots[0].sceneReference.analysis, assets[0].aiAnalysis);
   assert.ok(!JSON.stringify(plan).includes('endingTransitionPrompt'));
@@ -270,7 +276,7 @@ async function main() {
   const richTask = prompts.buildFeaturedVlogVideoTask({
     account: { id: 5, name: '账号', accountParam: 'test', strategy: { markdown: internal }, referenceAccounts: internal, assets: assets.map(a => ({ ...a, aiAnalysis: internal })), weeklyPlans: [{ markdown: internal }], expertRules: [{ rule: internal }] },
     noteTask: { id: 1, topicTitle: '测试', plan: task, writingStyleReference: internal, knowledgeSourceKeys: [internal] },
-    template: { ...template, internalContext: internal }, script: richScript,
+    template: { ...template, internalContext: internal }, useReferenceVideo: true, script: richScript,
     framePlan: frames.framePlan.map(f => ({ ...f, fullAssetLibrary: internal })), motionPlan: [],
     music: { id: 1, name: '配乐', tags: [], audioUrl: 'https://example.com/music.mp3', library: internal }, overallDirection: '自然'
   });

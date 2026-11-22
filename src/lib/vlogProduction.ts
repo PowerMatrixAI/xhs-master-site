@@ -12,7 +12,7 @@ export type VlogTaskResult = { openclawTask: { content: string; title: string };
 type Stage = { fingerprint: string; status: "pending" | "completed" | "failed" | "lost"; uuid?: string; result?: unknown; error?: string; assetIds?: string[]; model?: string };
 export type VlogProductionDraft = {
   schemaVersion: 1; key: string; sourceHash: string; taskId: number; sourceScript: FeaturedVlogScript;
-  choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; stages: Partial<Record<ProductionStage, Stage>>;
+  choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo?: boolean; stages: Partial<Record<ProductionStage, Stage>>;
   excludedMusicId?: number;
   confirmedFingerprint?: string; waitingConfirmation?: boolean; updatedAt: string; localSaveError?: string;
   lastSuccess?: { taskId: number; script: FeaturedVlogScript; result: VlogTaskResult; at: string };
@@ -40,7 +40,7 @@ export class VlogTaskLostError extends Error {}
 export class VlogStageFailedError extends Error {}
 const active = new Set<string>();
 export async function runVlogProduction(input: {
-  key: string; taskId: number; source: FeaturedVlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution;
+  key: string; taskId: number; source: FeaturedVlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo?: boolean;
   context?: ProductionContext; getContext?: () => Promise<ProductionContext>; existing?: VlogProductionDraft; options?: ProductionOptions;
   load?: () => Promise<VlogProductionDraft | undefined>;
   persist: (draft: VlogProductionDraft) => Promise<void>;
@@ -62,8 +62,8 @@ export async function runVlogProduction(input: {
     const old = input.load ? await input.load() : input.existing;
     const draft: VlogProductionDraft = old?.schemaVersion === 1 && old.sourceHash === sourceHash && old.taskId === input.taskId
       ? structuredClone(old) : { schemaVersion: 1, key: input.key, sourceHash, taskId: input.taskId, sourceScript: input.source, choice: input.choice, resolution: input.resolution, stages: {}, updatedAt: "", lastSuccess: old?.lastSuccess };
-    if (draft.choice !== input.choice || draft.resolution !== input.resolution) { delete draft.stages.build; delete draft.stages.save; }
-    draft.choice = input.choice; draft.resolution = input.resolution;
+    if (draft.choice !== input.choice || draft.resolution !== input.resolution || draft.useReferenceVideo !== (input.useReferenceVideo === true)) { delete draft.stages.build; delete draft.stages.save; }
+    draft.choice = input.choice; draft.resolution = input.resolution; draft.useReferenceVideo = input.useReferenceVideo === true;
     const checkpoint = async () => {
       draft.updatedAt = new Date().toISOString();
       try { delete draft.localSaveError; await input.persist(draft); }
@@ -145,7 +145,7 @@ export async function runVlogProduction(input: {
     const musicDeps = context.music.map(m => ({ ...m, audioUrl: m.audioUrl.split("?")[0] })).sort((a,b)=>a.id-b.id);
     const music = await stage<{ music: MusicCandidate }>("music", [{ title: input.source.title, summary: input.source.summary, mood: script.moodTags, music: script.musicTags, timing: script.shots.map(s=>[s.duration,s.transitionToNext?.type,s.transitionToNext?.duration]), roles: script.shots.map(s=>s.role) }, musicDeps, ...(draft.excludedMusicId === undefined ? [] : [draft.excludedMusicId])], "select_featured_vlog_music", { featuredVlogScript: script, excludedMusicId: draft.excludedMusicId }, r => { if (r.music?.id === draft.excludedMusicId) throw new Error("重新选曲不能返回之前的曲目，请重试。"); if (!context.music.some(m => m.id === r.music?.id)) throw new Error("配乐缓存失效"); });
     music.music = context.music.find(m=>m.id===music.music.id)!;
-    const result = await stage<VlogTaskResult>("build", [script, frames, music, input.choice, input.resolution, context.template], "build_featured_vlog_task", { featuredVlogScript: script, framePlan: frames.framePlan, motionPlan: [], selectedMusic: music.music, overallDirection: frames.overallDirection }, r => {
+    const result = await stage<VlogTaskResult>("build", [script, frames, music, input.choice, input.resolution, input.useReferenceVideo === true, context.template], "build_featured_vlog_task", { featuredVlogScript: script, framePlan: frames.framePlan, motionPlan: [], featuredVlogUseReferenceVideo: input.useReferenceVideo === true, selectedMusic: music.music, overallDirection: frames.overallDirection }, r => {
       if (!r.videoPrompt?.content || r.videoPrompt.content !== r.openclawTask?.content) throw new Error("任务缓存无效");
     });
     const saveFingerprint = await productionHash([input.taskId, result.videoPrompt.content]);

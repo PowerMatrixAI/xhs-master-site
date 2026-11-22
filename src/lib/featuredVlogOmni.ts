@@ -112,7 +112,7 @@ export function buildOmniTask(input: {
   resolution?: FeaturedVlogResolution;
   characterSelection?: VlogCharacterSelection;
   script: FeaturedVlogScript; framePlan: FeaturedVlogFramePlan; music: MusicCandidate;
-  template: Pick<FeaturedVlogTemplate, "id" | "name" | "version" | "referenceVideoId" | "referenceVideo">; overallDirection: string;
+  template: Pick<FeaturedVlogTemplate, "id" | "name" | "version" | "referenceVideoId" | "referenceVideo">; overallDirection: string; useReferenceVideo?: boolean;
 }) {
   validateOmniScript(input.script);
   const resolution = vlogResolution(input.resolution);
@@ -121,7 +121,7 @@ export function buildOmniTask(input: {
   const character = choice === "none" ? null : VLOG_CHARACTERS[choice];
   const hasPeople = input.script.shots.some(s => s.startState!.characters.length || s.endState!.characters.length);
   if (!omniEnabled()) throw new Error("Omni v3 尚未启用，请先完成参考资源与执行器验证。");
-  const styleVideo = styleVideoForTemplate(input.template);
+  const styleVideo = input.useReferenceVideo ? styleVideoForTemplate(input.template) : undefined;
   if (input.framePlan.length !== input.script.shots.length || !input.music.audioUrl.startsWith("https://")) throw new Error("Omni 场景参考或配乐缺失。");
   const shots = input.script.shots.map((shot, i) => {
     const frame = input.framePlan[i];
@@ -136,11 +136,11 @@ export function buildOmniTask(input: {
   });
   const anchor = input.framePlan.find(f => f.frameSource === "asset");
   const plan = { version: 3, kind: "featured_vlog", sceneGenerationVersion: input.framePlan.every(f=>f.sceneGenerationVersion===1) ? 1 : undefined, photographyVersion:input.script.photographyVersion,
-    template: { id: input.template.id, name: input.template.name, version: input.template.version, referenceVideoId: styleVideo.id },
+    template: { id: input.template.id, name: input.template.name, version: input.template.version, ...(styleVideo ? { referenceVideoId: styleVideo.id } : {}) },
     generation: { provider: "kling_cli", tool: "omni_ref_video", model: "kling-video-v3_0_omni", resolution, aspect_ratio: "9:16", imageCount: "1", prefer_multi_shots: "false", enable_audio: "false", keepOriginalSound: "false" },
     output: { width: 1080, height: 1920, fps: 24 },
     characterSelection: choice,
-    ...(hasPeople && character ? { character } : {}), styleVideo,
+    ...(hasPeople && character ? { character } : {}), ...(styleVideo ? { styleVideo } : {}),
     sceneStyleReference: anchor ? { imageUrl: anchor.assetUrl } : undefined,
     script: { title: input.script.title, summary: input.script.summary, perspective: input.script.perspective },
     music: { id: input.music.id, name: input.music.name, tags: input.music.tags, durationSeconds: input.music.durationSeconds, audioUrl: input.music.audioUrl }, shots };
@@ -149,7 +149,7 @@ export function buildOmniTask(input: {
 任务：${input.noteTask.id} · ${input.script.title}
 ${shots.length}镜，预计${videoTimelineDuration(input.script.shots, 2)}秒，9:16，${resolution}生成；输出1080×1920/24fps${resolution === "720p" ? "（非原生1080p）" : "（原生1080p生成，不得以720p放大替代）"}，仅整片配乐。
 总长=镜头合计−叠化重叠；与标题差值≤3秒不阻塞、不询问，按原计划执行，不改镜头时长。
-参考地址见plan.styleVideo.url；--video使用prepare返回路径。
+${styleVideo ? "参考地址见plan.styleVideo.url；--video使用prepare返回路径。" : "本任务关闭参考视频，仅使用场景图及适用的人物主体。"}
 在xiaohongshu_auto_op工作区执行，目录 $PWD/${dir}。只制作，不发布。
 
 ## 原始计划
@@ -161,7 +161,7 @@ ${JSON.stringify(plan)}
 ## 准备与读图细化
 environment无人，不传elements或主体引用；原图有人先处理或报告。仅可见人物/手部或入场时绑定。主体仅锁定身份外观，允许小比例、偏侧、局部、遮挡、虚化，不要求居中全身或露脸。
 plan.shots[].direction仅为暂定拍法；不改原始plan.json及sourceHash，最终设计记resolved-plan.json的refinement。
-1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载参考视频、场景及配乐；参考视频3–10秒保留，超过截前10秒，不足3秒报错；禁用静态回退/Turbo。
+1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载场景及配乐；${styleVideo ? "参考视频3–10秒保留，超过截前10秒，不足3秒报错；" : ""}禁用静态回退/Turbo。
 2. generate缺图非阻塞：${plan.sceneGenerationVersion === 1 && shots.some(s=>s.sceneReference.source === "generate") ? "按Skill逐镜generationReference实际读图后必须edit-image传参考图；遵循relationship及preserve/changes，生成无人场景。无参考仅allowGeneric=true可文生图，失败不降级。记录sceneGeneration真实输入/输出哈希与请求；全片风格锚点不替代场景参考。" : "按描述generate-image生成无人场景；sceneStyleReference可经edit-image统一背景质感。"}结果local_path复制到scenePath，无需询问。asset不先加人或重绘场地；纯环境原图有人时仅去人保场地或停止报告，处理后重新读图。
 3. 备齐后实际读图，核对空间/人员/光向/画幅；工具失败换已配置查看能力，均不可用才报告；尺寸/亮度/哈希不能替代读图。
 4. 看完本片全部实际图片再统筹人物作用、比例、景别、焦点和节奏，避免重复人像或无理由固定。拍法可调整，不锁死原图裁切与机位，不补造未知房间、建筑背面或路线。核心动作无法成立时停止报告；保留主题、事件、顺序、时长、身份、人数和转场。
@@ -170,7 +170,7 @@ plan.shots[].direction仅为暂定拍法；不改原始plan.json及sourceHash，
 ## Kling CLI生成与记录
 按需一次确认官方CLI版本、授权与实时参数，可复用已确认信息。主体仅校验ID和类型，不审计名称、引用格式或人物代号。
 填好refinement、拟提交request和sceneSha256，photographySummary简述全片摄影。执行 uv run python scripts/cli.py featured-vlog preflight --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。免费检查，不调用AI/Kling；据实修复并通过后提交，不等待“继续”。
-每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath、--video传styleVideoPath，本地自动上传。${hasPeople && character ? `A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${character.id}>>>，无人省略。主体约束身份服装；` : "全片无人，不绑定人物，不生成其他人物或手部。"}${VLOG_REFERENCE_STYLE_RULE} 显式传resolution=${resolution}、9:16、单条、关闭音频/原声/智能分镜；不支持停止，不降级。时长max(3,ceil(duration))<=10，动作按时完成，内部切镜不通过。
+每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath${styleVideo ? "、--video传styleVideoPath" : "；省略--video及request.inputs.video_1"}，本地自动上传。${hasPeople && character ? `A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${character.id}>>>，无人省略。主体约束身份服装；` : "全片无人，不绑定人物，不生成其他人物或手部。"}${styleVideo ? VLOG_REFERENCE_STYLE_RULE : ""} 显式传resolution=${resolution}、9:16、单条、关闭音频/原声/智能分镜；不支持停止，不降级。时长max(3,ceil(duration))<=10，动作按时完成，内部切镜不通过。
 --poll 0单次提交，保存CLI回执；ok=true后立即记录body.generationId及creditsConsumed，再用 kling query_tasks 实际ID查询，从成功works取视频地址。失败/超时续查原ID，不重投、不改模型；报价以当前入口为准。
 request.arguments.prompt必须等于refinement.prompt，不直接执行或拼接plan.direction。按Skill记录model、arguments/inputs、argv、submitResponse；elements为数组，输入为实际CLI路径，argv从kling、omni_ref_video开始，不记凭据。
 下载片段到clipPath并写clipSha256，批次观察人物/动作/运镜/起终构图变化及场景稳定。轻微偏差记录后继续，visualReview.passed=true表示可用于本片，不代表逐字实现。关键缺陷保留passed=false，继续处理其他独立镜头；超出授权的付费重做合并询问一次。用户接受偏差仍保留说明，以acceptedDeviation={reason,source}记录明确接受，不豁免技术错误。远景、局部、虚化前景按本镜目的判断，不设统一清晰正脸要求。实际起始抽帧经飞书交付，标注镜号及“视频起始画面预览”，不等待逐镜批准。

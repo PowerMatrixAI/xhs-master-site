@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { vlogCharacterSelection } from "@/lib/vlogCharacters";
-import { omniEnabled, styleVideoForTemplate, validateOmniScript, vlogResolution } from "@/lib/featuredVlogOmni";
+import { omniEnabled, validateOmniScript, vlogResolution } from "@/lib/featuredVlogOmni";
 import { validateVideoTimeline, videoTimelineV2Enabled } from "@/lib/videoTimeline";
 import { resolveStoryCharacter } from "@/lib/storyCharacters";
 import { createAsyncRouteTask, getAsyncRouteTask } from "@/lib/asyncRouteTask";
@@ -155,7 +155,6 @@ async function featuredVlogContext(body: Record<string, unknown>, credentials: B
   if (submittedVersion && template.version && submittedVersion !== template.version) {
     throw new Error("精选vlog模板在脚本生成后发生了修改，请重新生成脚本。");
   }
-  if (script.productionVersion === 3) styleVideoForTemplate(template);
   if (assets.some((asset) => !String(asset.fileUrl || "").startsWith("https://"))) {
     throw new Error("精选vlog候选素材中存在不可公开访问的图片地址。");
   }
@@ -207,6 +206,7 @@ async function buildFeaturedVlogTaskResult(body: Record<string, unknown>, creden
     motionPlan: motionPlan as FeaturedVlogMotionPlan,
     music: selectedMusic,
     resolution,
+    useReferenceVideo: body.featuredVlogUseReferenceVideo === true,
     characterSelection: vlogCharacterSelection(body.featuredVlogCharacter),
     overallDirection: String(body.overallDirection || "")
   });
