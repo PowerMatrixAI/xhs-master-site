@@ -1,9 +1,9 @@
-import type { FeaturedVlogScript } from "./featuredVlog";
+import type { VlogScript } from "./featuredVlog";
 import { VLOG_CHARACTERS, type VlogCharacterSelection } from "./vlogCharacters";
 
-export type VlogAdaptation = { script: FeaturedVlogScript; calls: number; changes: string[]; requiresConfirmation: boolean; model?: string };
+export type VlogAdaptation = { script: VlogScript; calls: number; changes: string[]; requiresConfirmation: boolean; model?: string };
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
-export function directVlogBinding(source: FeaturedVlogScript, choice: VlogCharacterSelection): VlogAdaptation | null {
+export function directVlogBinding(source: VlogScript, choice: VlogCharacterSelection): VlogAdaptation | null {
   const same = choice === (source.characterSelection || "linchuan");
   const empty = !source.shots.some(s => s.startState!.characters.length || s.endState!.characters.length);
   // Clothing-dependent actions need explicit adaptation even in a newer script.
@@ -18,7 +18,7 @@ export function directVlogBinding(source: FeaturedVlogScript, choice: VlogCharac
 }
 
 /** Only these text/state fields may be patched; immutable timeline and role never come from AI. */
-export function applyVlogCharacterPatch(source: FeaturedVlogScript, choice: VlogCharacterSelection, raw: Record<string, unknown>): VlogAdaptation {
+export function applyVlogCharacterPatch(source: VlogScript, choice: VlogCharacterSelection, raw: Record<string, unknown>): VlogAdaptation {
   const allowed = (obj: Record<string, unknown>, keys: string[]) => {
     if (Object.keys(obj).some(k => !keys.includes(k))) throw new Error("人物适配包含不允许修改的字段。");
   };

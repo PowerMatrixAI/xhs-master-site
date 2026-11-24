@@ -435,6 +435,13 @@ async function publicRequest<T = unknown>(
  * 注意: 本地开发环境通过 Xhs-Test: 1 跳过签名校验
  * 生产环境需通过 Next.js API Route 在服务端计算 MD5 签名
  */
+export class ApiResponseFormatError extends Error {
+  constructor(public readonly status: number, public readonly path: string) {
+    super(`接口返回了非 JSON 内容（HTTP ${status}）。`);
+    this.name = "ApiResponseFormatError";
+  }
+}
+
 export async function authRequest<T = unknown>(
   path: string,
   options: { method?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
@@ -461,7 +468,12 @@ export async function authRequest<T = unknown>(
     signal: options.signal,
     body: bodyStr || undefined
   });
-  const res = (await response.json()) as ApiResponse<T>;
+  let res: ApiResponse<T>;
+  try {
+    res = await response.json() as ApiResponse<T>;
+  } catch {
+    throw new ApiResponseFormatError(response.status, path);
+  }
   if (isUnauthorizedCode(res.code)) {
     requireManualLogin(res.message || "登录已过期，请重新登录");
     throw new AuthenticationExpiredError(res.message || undefined);

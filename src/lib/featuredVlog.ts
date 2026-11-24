@@ -60,19 +60,7 @@ export type PlatformMusic = {
 
 export type MusicCandidate = Pick<PlatformMusic, "id" | "name" | "tags" | "durationSeconds" | "mimeType" | "audioUrl">;
 
-export type FeaturedVlogScript = {
-  genericCharacterVersion?: 1;
-  photographyVersion?: 1;
-  characterSelection?: import("./vlogCharacters").VlogCharacterSelection | "unassigned";
-  productionVersion?: 3;
-  sceneVersion?: 1;
-  characters?: import("./vlogScene").VlogCharacter[];
-  timingVersion?: 1 | 2;
-  title: string;
-  summary: string;
-  perspective: string;
-  moodTags: string[];
-  musicTags: string[];
+export type FeaturedVlogScript = VlogScript & {
   noteTask: {
     topicTitle: string;
     contentType: string;
@@ -89,6 +77,22 @@ export type FeaturedVlogScript = {
     writingStyleReference: string;
     knowledgeSourceKeys: string[];
   };
+};
+
+export type VlogScript = {
+  genericCharacterVersion?: 1;
+  photographyVersion?: 1;
+  characterSelection?: import("./vlogCharacters").VlogCharacterSelection | "unassigned";
+  productionVersion?: 3;
+  sceneVersion?: 1;
+  characters?: import("./vlogScene").VlogCharacter[];
+  timingVersion?: 1 | 2;
+  title: string;
+  summary: string;
+  perspective: string;
+  moodTags: string[];
+  musicTags: string[];
+
   shots: Array<import("./vlogScene").VlogShotScene & {
     order: number;
     beat: string;

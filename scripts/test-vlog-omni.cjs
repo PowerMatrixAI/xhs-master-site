@@ -88,6 +88,15 @@ async function main() {
   invalid.shots[0].direction = undefined;
   assert.throws(() => omni.validateOmniScript(invalid), /摄影/);
   reply = () => photographyScript(script);
+  const independentReply = photographyScript(script);
+  delete independentReply.noteTask;
+  reply = () => independentReply;
+  const independent = await prompts.generateFeaturedVlogScript({ standalone: true, account: { name: "山居" }, noteTask: {}, template, availableWritingStyles: [] });
+  assert.ok(!("noteTask" in independent.script));
+  const standaloneInput = calls.at(-1).input;
+  assert.ok(!standaloneInput.includes("当前周计划视频笔记"));
+  assert.ok(!standaloneInput.includes("可选文风名称"));
+  reply = () => photographyScript(script);
   const generated = await prompts.generateFeaturedVlogScript({ account: {}, noteTask: {}, template, availableWritingStyles: ['测试'] });
   assert.equal(generated.script.productionVersion, 3);
   assert.ok(!calls.at(-1).input.includes('林川'));
@@ -240,6 +249,9 @@ async function main() {
   assert.ok(!task.includes('obsolete.example.com'));
   assert.ok(task.includes('--video传styleVideoPath'));
   const noReferenceTask = omni.buildOmniTask({ template: { id: template.id }, script, framePlan: frames.framePlan, noteTask: { id: 1 }, music: { audioUrl: 'https://example.com/music.mp3' } });
+  const productionTask = omni.buildOmniTask({ productionId: 17, overallDirection: "自然", script, template, framePlan: frames.framePlan, music: { name: "曲目", audioUrl: 'https://example.com/music.mp3' } });
+  assert.ok(productionTask.includes(".tasks/xhs-featured-vlog-production-17"));
+  assert.ok(!productionTask.includes("undefined"));
   const noReferencePlan = JSON.parse(noReferenceTask.match(/```json\n(.*?)\n```/)[1]);
   assert.ok(!('styleVideo' in noReferencePlan));
   assert.ok(!('referenceVideoId' in noReferencePlan.template));

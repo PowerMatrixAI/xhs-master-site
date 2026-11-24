@@ -131,7 +131,14 @@ async function main(){
     assert.deepEqual(deletions,[{id:'failed-image'},{id:'failed-image'},{id:'failed-upload'}]);
     await page.getByRole('combobox',{name:'筛选类型'}).selectOption('image');
     await page.getByText('共 1 个任务',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'账号运营',exact:true}).first().click();
     await page.getByRole('button',{name:'图片方案',exact:true}).first().click();
+    await page.getByRole('heading',{name:'先确定一篇笔记，再决定图片怎么来',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'单篇任务结果',exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'行业学习',exact:true}).count(),0);
+    for(const label of ['图片生成帖子','批量自动模式','单篇精修模式']){
+      assert.equal(await page.getByText(label,{exact:true}).count(),0);
+    }
     await page.getByRole('button',{name:/^AI 辅助图/}).click();
     await page.getByRole('button',{name:'生成图片并保存',exact:true}).first().click();
     await page.getByRole('alertdialog').getByText('模拟图片方案生成失败',{exact:true}).waitFor();
@@ -151,7 +158,7 @@ async function main(){
     assert.equal(generated[0].kind,'image');assert.equal(generated[0].accountId,1);assert.equal(generated[0].noteTaskId,11);assert.ok(generated[0].requestId);
     assert.ok(!('account' in generated[0].options));assert.ok(!('openclawImagePaths' in generated[0].options));
     await page.getByRole('button',{name:'关闭任务详情'}).click();
-    await page.getByRole('button',{name:'视频方案',exact:true}).first().click();
+    await page.getByRole('button',{name:'视频方案 Hot',exact:true}).nth(1).click();
     await page.locator('button').filter({has:page.locator('video[src="'+cdn+'/source.mp4"]')}).click();
     await page.getByRole('button',{name:'生成视频并保存',exact:true}).click();
     await page.getByRole('dialog',{name:'任务详情'}).getByText('排队中 · 任务 created-2').waitFor();

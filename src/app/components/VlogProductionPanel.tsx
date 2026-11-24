@@ -1,14 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { FeaturedVlogScript, FeaturedVlogResolution } from "@/lib/featuredVlog";
+import type { VlogScript, FeaturedVlogResolution } from "@/lib/featuredVlog";
 import type { VlogCharacterSelection } from "@/lib/vlogCharacters";
 import { productionScript, stableJson, type VlogProductionDraft, type ProductionOptions } from "@/lib/vlogProduction";
 import { readVlogProduction, writeVlogProduction, VLOG_PRODUCTION_EVENT } from "@/lib/vlogProductionStore";
 import { authenticatedFetch } from "@/lib/api";
 import { VlogPhotographyOverview } from "./VlogPhotographyOverview";
 
-export function VlogProductionPanel({ scope, script, choice, resolution, useReferenceVideo, disabled, onContinue }: {
-  scope: string; script: FeaturedVlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo: boolean;
+export function VlogProductionPanel({ scope, endpoint, script, choice, resolution, useReferenceVideo, disabled, onContinue }: {
+  scope: string; endpoint?: string; script: VlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo: boolean;
   disabled: boolean; onContinue: (options: ProductionOptions) => void;
 }) {
   const [draft, setDraft] = useState<VlogProductionDraft>();
@@ -27,7 +27,7 @@ export function VlogProductionPanel({ scope, script, choice, resolution, useRefe
     const timer = setTimeout(async () => {
       try {
         const [key, stage] = pending;
-        const res = await authenticatedFetch(`/api/note-tasks/${draft.taskId}/video-prompt?uuid=${encodeURIComponent(stage!.uuid!)}`, { method:"GET" });
+        const res = await authenticatedFetch(`${endpoint || `/api/note-tasks/${draft.taskId}/video-prompt`}?uuid=${encodeURIComponent(stage!.uuid!)}`, { method:"GET" });
         const data = await res.json();
         if (cancelled) return;
         const current = await readVlogProduction(scope);
@@ -41,7 +41,7 @@ export function VlogProductionPanel({ scope, script, choice, resolution, useRefe
       } catch { if (!cancelled) setError("查询进度暂时失败，已保留任务编号，可点击继续查询。"); }
     }, 5000);
     return ()=>{cancelled=true;clearTimeout(timer);};
-  }, [scope, draft, disabled]);
+  }, [scope, draft, disabled, endpoint]);
   const sameScript = !!draft && stableJson(draft.sourceScript) === stableJson(script);
   const sameChoice = draft?.choice === choice;
   const adaptation = sameScript && sameChoice ? productionScript(draft) : undefined;
@@ -61,7 +61,7 @@ export function VlogProductionPanel({ scope, script, choice, resolution, useRefe
         {adaptation.script.shots.map(s=><div key={s.order} className="mt-2 border-t border-ink/10 pt-2"><p>镜头{s.order} · {s.role} · {s.duration}秒 · {s.subjectPresence === "environment" ? "无人环境" : s.subjectPresence === "pov" ? "主观视角" : "人物入镜"}</p><p>{s.description}</p><p>动作：{s.mainAction}</p><p>起始：{s.startState?.location}，{s.startState?.characters.map(c=>`${c.id} ${c.pose}`).join("、") || "无人"} → 结束：{s.endState?.location}，{s.endState?.characters.map(c=>`${c.id} ${c.pose}`).join("、") || "无人"}</p><p>转场：{s.transitionToNext ? `${s.transitionToNext.type} ${s.transitionToNext.duration}秒 · ${s.transitionToNext.reason}` : "末镜收束"}</p></div>)}
       </details>
     </>}
-    {sameScript && draft && <ul className="mt-3 space-y-1 text-xs">{Object.entries(draft.stages).map(([key,stage])=><li key={key}>{({ adapt:"制作脚本",frames:"场景选图",music:"配乐选择",build:"任务指令",save:"保存笔记" } as Record<string,string>)[key]}：{({ pending:"处理中，可继续查询",completed:"已完成",failed:"失败，可重试",lost:"任务状态已丢失" })[stage!.status]}{stage!.error && ` · ${stage!.error}`}</li>)}</ul>}
+    {sameScript && draft && <ul className="mt-3 space-y-1 text-xs">{Object.entries(draft.stages).map(([key,stage])=><li key={key}>{({ adapt:"制作脚本",frames:"场景选图",music:"配乐选择",build:"任务指令",save:endpoint ? "保存作品" : "保存笔记" } as Record<string,string>)[key]}：{({ pending:"处理中，可继续查询",completed:"已完成",failed:"失败，可重试",lost:"任务状态已丢失" })[stage!.status]}{stage!.error && ` · ${stage!.error}`}</li>)}</ul>}
     <div className="mt-3 flex flex-wrap gap-2">
       {needsConfirmation ? <button className="primary-button" disabled={disabled} onClick={()=>onContinue({confirm:draft?.stages.adapt?.fingerprint})}>采用此制作脚本并继续</button> : <button className="primary-button" disabled={disabled} onClick={()=>onContinue({retryLost:!!lost,saveOnly})}>{disabled ? "正在处理…" : !sameScript ? "生成精选Vlog任务" : lost ? "重新执行丢失阶段" : saveOnly ? "重试保存" : "继续生成 / 更新任务指令"}</button>}
       {adaptation && !needsConfirmation && <><button className="secondary-button" disabled={disabled} onClick={()=>onContinue({force:"frames"})}>重新选图</button><button className="secondary-button" disabled={disabled} onClick={()=>onContinue({force:"music"})}>重新选曲</button></>}

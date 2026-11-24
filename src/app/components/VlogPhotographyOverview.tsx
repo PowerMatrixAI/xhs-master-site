@@ -1,7 +1,7 @@
-import type { FeaturedVlogScript } from "@/lib/featuredVlog";
+import type { VlogScript } from "@/lib/featuredVlog";
 import { CAMERA_LABELS, SUBJECT_ROLES, photographyHints } from "@/lib/vlogPhotography";
 
-export function VlogPhotographyOverview({ script }: { script: FeaturedVlogScript }) {
+export function VlogPhotographyOverview({ script }: { script: VlogScript }) {
   if (script.productionVersion !== 3) return null;
   if (script.photographyVersion !== 1) return <p className="mt-3 text-xs text-ink/60">此为旧版摄影设计，重新生成脚本后可查看完整人物关系与起终构图。</p>;
   const hints = photographyHints(script);

@@ -1,5 +1,7 @@
 "use client";
 
+import { ConsoleNavigation } from "./ConsoleNavigation";
+import { ContentProductionPanel } from "./ContentProductionPanel";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { MediaTasksPanel } from "@/app/components/MediaTasksPanel";
@@ -9,7 +11,6 @@ import {
   Activity,
   ArrowDown,
   ArrowUp,
-  BookOpen,
   CalendarDays,
   CircleCheck,
   CircleX,
@@ -426,11 +427,6 @@ type StoryVideoMotionPlan = Array<{
   narrationText: string;
 }>;
 
-type BatchImagePostsResult = {
-  planningPrompt: { content: string; title: string; path: string };
-  commands: Array<{ category: string; command: string; description: string; safetyNote: string }>;
-};
-
 type SingleImageSourceMode = "ai_auto_select" | "remote_images" | "ai_generate" | "mixed";
 
 const DEFAULT_REAL_IMAGE_REFINEMENT_REQUIREMENT = "保留真实主体、空间结构和业务事实，只做自然光、构图、色彩、清晰度和必要背景整理的保守精修。";
@@ -482,7 +478,6 @@ const mainTabs = [
   ["knowledgeBase", "知识库", Database],
   ["interactions", "发布后互动", MessageCircle],
   ["reports", "专家复盘", Activity],
-  ["learning", "行业学习", BookOpen]
 ] as const;
 
 const advancedTabs = [
@@ -498,7 +493,7 @@ const platformManagementTabs = [
   ["platformReferenceVideos", "参考视频", Video]
 ] as const;
 
-const tabs = [...mainTabs, ...advancedTabs, ...platformManagementTabs] as const;
+const tabs = [["productionVideos", "视频方案", Video], ...mainTabs, ...advancedTabs, ...platformManagementTabs] as const;
 
 const sourceTypes = [
   "真实素材",
@@ -1620,7 +1615,8 @@ export function XhsMasterApp() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("dashboard");
+  const [productionFocusId, setProductionFocusId] = useState<number>();
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("productionVideos");
   const [mediaFocusId, setMediaFocusId] = useState<string>();
   const mediaSubmitting = useRef(false);
   const mediaPendingRequests = useRef(new Map<string, { requestId: string; input: MediaGenerationInput }>());
@@ -1632,7 +1628,13 @@ export function XhsMasterApp() {
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const copyNoticeTimerRef = useRef<number | null>(null);
   const [currentUser, setCurrentUser] = useState<LoginResponse | null>(null);
-  const visibleMainTabs = mainTabs;
+  const [navigationReady, setNavigationReady] = useState(false);
+  useEffect(() => {
+    const saved = localStorage.getItem("xhs-active-page");
+    if (tabs.some(([id]) => id === saved)) setActiveTab(saved as (typeof tabs)[number][0]);
+    setNavigationReady(true);
+  }, []);
+  useEffect(() => { if (navigationReady) localStorage.setItem("xhs-active-page", activeTab); }, [activeTab, navigationReady]);
   const visiblePlatformManagementTabs = currentUser && isPlatformAdmin(currentUser) ? platformManagementTabs : [];
   const [promptResults, setPromptResults] = useState<Record<number, PromptResult>>({});
   // 三版文案仅保存在当前页面会话中，不同步到浏览器工作区或后端。
@@ -1640,7 +1642,6 @@ export function XhsMasterApp() {
   const [imagePromptResults, setImagePromptResults] = useState<Record<number, ImagePromptResult>>({});
   const [videoPromptResults, setVideoPromptResults] = useState<Record<number, VideoPromptResult>>({});
   const [videoDrafts, setVideoDrafts] = useState<Record<number, VideoDraftWorkspace>>({});
-  const [batchImagePostResults, setBatchImagePostResults] = useState<Record<number, BatchImagePostsResult>>({});
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null);
   const [manifest, setManifest] = useState<{ content: string; validation: string; path: string } | null>(null);
   const [referenceDraft, setReferenceDraft] = useState<{
@@ -1650,23 +1651,12 @@ export function XhsMasterApp() {
     researchPrompt?: string;
     summary?: { summaryMarkdown: string; contentFeatures: string; personaInsights: string; strategyInsights: string; writingStyleInsights: string };
   }>({});
-  const [imageStyleDraft, setImageStyleDraft] = useState<{
-    study?: ImageStyleStudy;
-    commands?: Array<{ category: string; command: string; description: string; safetyNote: string }>;
-    researchPrompt?: string;
-    summary?: { summaryMarkdown: string; styleBrief: string[] };
-  }>({});
   const [interactionDraft, setInteractionDraft] = useState<{
     plan?: InteractionPlan;
     commands?: Array<{ category: string; command: string; description: string; safetyNote: string }>;
     discoveryPrompt?: string;
     commentPrompt?: string;
     summary?: { targetUsersMarkdown: string; commentDraftsMarkdown: string };
-  }>({});
-  const [industryLearningDraft, setIndustryLearningDraft] = useState<{
-    research?: IndustryKnowledgeResearch;
-    commands?: Array<{ category: string; command: string; description: string; safetyNote: string }>;
-    researchPrompt?: string;
   }>({});
   const [browserReady, setBrowserReady] = useState(false);
 
@@ -1731,11 +1721,8 @@ export function XhsMasterApp() {
         setImagePromptResults((snapshot.imagePromptResults as Record<number, ImagePromptResult>) || {});
         setVideoPromptResults((snapshot.videoPromptResults as Record<number, VideoPromptResult>) || {});
         setVideoDrafts((snapshot.videoDrafts as Record<number, VideoDraftWorkspace>) || {});
-        setBatchImagePostResults((snapshot.batchImagePostResults as Record<number, BatchImagePostsResult>) || {});
         setReferenceDraft((snapshot.referenceDraft as typeof referenceDraft) || {});
-        setImageStyleDraft((snapshot.imageStyleDraft as typeof imageStyleDraft) || {});
         setInteractionDraft((snapshot.interactionDraft as typeof interactionDraft) || {});
-        setIndustryLearningDraft((snapshot.industryLearningDraft as typeof industryLearningDraft) || {});
         return snapshot;
       })
       .then(async (snapshot) => {
@@ -1773,11 +1760,8 @@ export function XhsMasterApp() {
       imagePromptResults,
       videoPromptResults,
       videoDrafts,
-      batchImagePostResults,
       referenceDraft,
-      imageStyleDraft,
       interactionDraft,
-      industryLearningDraft
     }).catch(() => {
       // 工作区缓存写失败时不打断当前操作，仅在后续用户动作中继续使用内存态。
     });
@@ -1790,11 +1774,8 @@ export function XhsMasterApp() {
     imagePromptResults,
     videoPromptResults,
     videoDrafts,
-    batchImagePostResults,
     referenceDraft,
-    imageStyleDraft,
     interactionDraft,
-    industryLearningDraft
   ]);
 
   useEffect(() => {
@@ -1932,11 +1913,8 @@ export function XhsMasterApp() {
       setSelectedNoteId(null);
       setPromptResults({});
       setImagePromptResults({});
-      setBatchImagePostResults({});
       setReferenceDraft({});
-      setImageStyleDraft({});
       setInteractionDraft({});
-      setIndustryLearningDraft({});
       setActiveTab(nextAccountId ? "dashboard" : "accounts");
       showToast("账号已删除。", "success");
     } catch (error) {
@@ -2327,65 +2305,6 @@ export function XhsMasterApp() {
     } finally {
       setLoading(false);
       setLoadingAction(null);
-    }
-  }
-
-  async function prepareImageStyleStudy() {
-    if (!selected) return;
-    setLoading(true);
-    try {
-      const res = await authenticatedFetch(`/api/accounts/${selected.id}/image-style-study`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "prepare", account: selected })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "生成图片风格研究包失败。");
-      setImageStyleDraft({ study: data.study, commands: data.commands, researchPrompt: data.researchPrompt });
-      showToast("图片风格研究已生成。", "success");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成图片风格研究包失败。", "error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function saveImageStyleStudy(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selected) return;
-    const form = new FormData(event.currentTarget);
-    const payload = Object.fromEntries(form.entries());
-    setLoading(true);
-    try {
-      const res = await authenticatedFetch(`/api/accounts/${selected.id}/image-style-study`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "save-results",
-          studyId: imageStyleDraft.study?.id || selected.imageStyleStudies?.[0]?.id,
-          account: selected,
-          ...payload
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "保存图片风格研究失败。");
-      const resolved = data.async && data.uuid
-        ? await waitForAsyncRouteResult<{
-            study: ImageStyleStudy;
-            summary: { summaryMarkdown: string; styleBrief: string[] };
-            warning?: string;
-          }>(`/api/accounts/${selected.id}/image-style-study`, data.uuid)
-        : data;
-      setImageStyleDraft((current) => ({ ...current, study: resolved.study, summary: resolved.summary }));
-      updateSelectedAccount((account) => ({
-        ...account,
-        imageStyleStudies: [resolved.study, ...(account.imageStyleStudies || []).filter((item) => item.id !== resolved.study.id)]
-      }));
-      showToast(resolved.warning || "图片风格研究已总结，后续图片方案会自动引用。", resolved.warning ? "error" : "success");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存图片风格研究失败。", "error");
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -3153,31 +3072,6 @@ export function XhsMasterApp() {
     }
   }
 
-  async function generateBatchImagePosts(options?: { weeks?: string; openclawImagePaths?: string; planningGoal?: string }) {
-    if (!selected) return;
-    setLoading(true);
-    setLoadingAction("generateBatchImagePosts");
-    try {
-      const res = await authenticatedFetch(`/api/accounts/${selected.id}/batch-image-posts`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...(options || {}),
-          account: selected
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "生成批量图片帖子失败。");
-      setBatchImagePostResults((current) => ({ ...current, [selected.id]: data }));
-      showToast("批量图片帖子任务已生成。", "success");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "生成批量图片帖子失败。", "error");
-    } finally {
-      setLoading(false);
-      setLoadingAction(null);
-    }
-  }
-
   async function generatePostReview(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected) return;
@@ -3279,48 +3173,6 @@ export function XhsMasterApp() {
     } finally {
       setLoading(false);
       setLoadingAction(null);
-    }
-  }
-
-  async function prepareIndustryLearning(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    showToast("该功能即将上线，敬请期待", "error");
-  }
-
-  async function saveIndustryLearning(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selected) return;
-    const form = new FormData(event.currentTarget);
-    setLoading(true);
-    try {
-      const res = await authenticatedFetch(`/api/accounts/${selected.id}/industry-learning`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "save-results",
-          account: selected,
-          researchId: industryLearningDraft.research?.id || selected.industryKnowledgeResearches?.[0]?.id,
-          topic: form.get("topic"),
-          searchScope: form.get("searchScope"),
-          rawResults: form.get("rawResults"),
-          summaryMarkdown: form.get("summaryMarkdown")
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "保存行业学习失败。");
-      setIndustryLearningDraft((current) => ({ ...current, research: data.research }));
-      updateSelectedAccount((account) => ({
-        ...account,
-        industryKnowledgeResearches: [
-          data.research,
-          ...(account.industryKnowledgeResearches || []).filter((item) => item.id !== data.research.id)
-        ]
-      }));
-      showToast("行业学习材料已保存。", "success");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存行业学习失败。", "error");
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -3477,71 +3329,7 @@ export function XhsMasterApp() {
           </div>
         </div>
         <div className="sidebar-scroll scrollbar-thin min-h-0 flex-1 overflow-y-auto pr-1">
-        <nav className="space-y-1">
-          {visibleMainTabs.map(([id, label, Icon]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => {
-                setActiveTab(id);
-              }}
-              className={clsx(
-                "flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm transition",
-                activeTab === id ? "bg-teal/15 font-medium text-teal shadow-sm" : "text-ink/75 hover:bg-white/70 hover:text-teal"
-              )}
-            >
-              <Icon size={17} aria-hidden="true" />
-              {label}
-              {id === "videos" && <span className="sidebar-hot-badge">Hot</span>}
-            </button>
-          ))}
-          {visiblePlatformManagementTabs.length > 0 && (
-            <details className="pt-2" open={visiblePlatformManagementTabs.some(([id]) => id === activeTab)}>
-              <summary className="cursor-pointer rounded px-3 py-2 text-xs font-medium text-ink/55 transition hover:bg-ink/5 hover:text-teal">
-                平台管理
-              </summary>
-              <div className="mt-1 space-y-1 pl-2">
-                {visiblePlatformManagementTabs.map(([id, label, Icon]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setActiveTab(id)}
-                    className={clsx(
-                      "flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm transition",
-                      activeTab === id ? "bg-teal/15 font-medium text-teal" : "text-ink/75 hover:bg-white/70 hover:text-teal"
-                    )}
-                  >
-                    <Icon size={16} />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </details>
-          )}
-          <details className="pt-2">
-            <summary className="cursor-pointer rounded px-3 py-2 text-xs font-medium text-ink/55 transition hover:bg-ink/5">
-              高级设置
-            </summary>
-            <div className="mt-1 space-y-1">
-              {advancedTabs.map(([id, label, Icon]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => {
-                    setActiveTab(id);
-                  }}
-                  className={clsx(
-                    "flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm transition",
-                    activeTab === id ? "bg-teal/15 font-medium text-teal shadow-sm" : "text-ink/75 hover:bg-white/70 hover:text-teal"
-                  )}
-                >
-                  <Icon size={17} />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </details>
-        </nav>
+        <ConsoleNavigation active={activeTab} onSelect={id => setActiveTab(id as (typeof tabs)[number][0])} admin={isPlatformAdmin(currentUser)} platform={platformManagementTabs} />
         <div className="sidebar-landscape-copy pointer-events-none mt-6 flex min-h-[250px] flex-col justify-end pb-2 pt-7">
           <div className="rounded-xl border border-white/65 bg-white/55 p-4 shadow-sm backdrop-blur-sm">
             <p className="font-serif text-sm font-semibold leading-6 tracking-[0.08em] text-ink/75">让好内容<br />点亮更多目的地</p>
@@ -3596,18 +3384,7 @@ export function XhsMasterApp() {
               )}
             </div>
           </div>
-          <div className="mt-3 flex gap-2 overflow-x-auto lg:hidden">
-            {visibleMainTabs.map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setActiveTab(id)} className={clsx("shrink-0 rounded px-3 py-2 text-sm", activeTab === id ? "bg-ink text-white" : "bg-white")}>
-                {label}
-              </button>
-            ))}
-            {visiblePlatformManagementTabs.map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setActiveTab(id)} className={clsx("shrink-0 rounded px-3 py-2 text-sm", activeTab === id ? "bg-ink text-white" : "bg-white")}>
-                {label}
-              </button>
-            ))}
-          </div>
+          <details className="mt-3 lg:hidden"><summary>导航</summary><ConsoleNavigation active={activeTab} onSelect={id => setActiveTab(id as (typeof tabs)[number][0])} admin={isPlatformAdmin(currentUser)} platform={platformManagementTabs} /></details>
         </header>
 
         <section className="app-content px-4 py-6 lg:px-8">
@@ -3639,6 +3416,7 @@ export function XhsMasterApp() {
               </div>
             </div>
           )}
+          {activeTab === "productionVideos" && <ContentProductionPanel focusId={productionFocusId} key={selected?.id || "empty"} account={selected} onAccount={() => setActiveTab("accounts")} onSubmitted={id => { setMediaFocusId(id); setActiveTab("mediaTasks"); }} />}
           {activeTab === "dashboard" && (
             <Dashboard
               selected={selected}
@@ -3710,7 +3488,7 @@ export function XhsMasterApp() {
           )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
-          {activeTab === "mediaTasks" && <MediaTasksPanel accounts={accounts} focusId={mediaFocusId} onGenerate={kind => setActiveTab(kind === "image" ? "images" : "videos")} onDeleted={id => setMediaFocusId(current => current === id ? undefined : current)} notify={showToast} />}
+          {activeTab === "mediaTasks" && <MediaTasksPanel onOpenSource={task => { setSelectedId(task.accountId); if (task.source === "production") { setProductionFocusId(task.productionId); setActiveTab("productionVideos"); } else { if (task.noteTaskId) setSelectedNoteId(task.noteTaskId); setActiveTab("prompts"); } }} accounts={accounts} focusId={mediaFocusId} onGenerate={kind => setActiveTab(kind === "image" ? "images" : "productionVideos")} onDeleted={id => setMediaFocusId(current => current === id ? undefined : current)} notify={showToast} />}
           {activeTab === "images" && (
             <ImagesPanel
               selected={selected}
@@ -3726,15 +3504,9 @@ export function XhsMasterApp() {
                   ]
                 }))
               }
-              imageStyleDraft={imageStyleDraft}
-              prepareImageStyleStudy={prepareImageStyleStudy}
-              saveImageStyleStudy={saveImageStyleStudy}
               imagePromptResults={imagePromptResults}
               generateImagePrompt={generateImagePrompt}
               generateImageMedia={generateImageMedia}
-              batchImagePostResult={selected ? batchImagePostResults[selected.id] : null}
-              generateBatchImagePosts={generateBatchImagePosts}
-              showBatchImagePostsComingSoon={() => showToast("该功能即将上线，敬请期待", "error")}
               notify={showToast}
               copy={copy}
               loading={loading}
@@ -3803,17 +3575,6 @@ export function XhsMasterApp() {
               setSelectedNoteId={setSelectedNoteId}
               generatePostReview={generatePostReview}
               saveExpertRuleSelection={saveExpertRuleSelection}
-              loading={loading}
-              loadingAction={loadingAction}
-            />
-          )}
-          {activeTab === "learning" && (
-            <IndustryLearningPanel
-              selected={selected}
-              draft={industryLearningDraft}
-              prepareIndustryLearning={prepareIndustryLearning}
-              saveIndustryLearning={saveIndustryLearning}
-              copy={copy}
               loading={loading}
               loadingAction={loadingAction}
             />
@@ -4982,53 +4743,15 @@ function PlanPreview({ plan, changeNoteTaskType, loading }: { plan?: WeeklyPlan;
   );
 }
 
-function isWeddingUiAccount(account?: Account) {
-  if (!account) return false;
-  if (account.accountType === "wedding_planning") return true;
-  return /婚礼|婚庆|婚宴|婚纱|婚摄|婚照|备婚|新娘|新郎|新人|婚礼策划|婚礼布置|宴会设计|仪式区|甜品台|迎宾区/.test(
-    [account.name, account.personaBase, account.contentDirections, account.materialCondition, account.businessGoals, account.targetUsers].join(" ")
-  );
-}
-
-const weddingPlanningGoalPresets = [
-  {
-    label: "自动读图找选题",
-    value: "客户提供约 30 张婚礼现场图。请先逐张识别画面里的蛋糕、花艺、仪式区、迎宾区、桌花、席位卡、灯光布幔、纸品等细节，再结合同行热门笔记风格，自动挑出最适合小红书的一周或两周选题。"
-  },
-  {
-    label: "突出婚礼细节",
-    value: "重点挖掘婚礼蛋糕、花艺、仪式区、迎宾区、桌花、席位卡、菜单卡、灯光布幔等细节的高级感和可收藏价值，每篇笔记只聚焦一个细节。"
-  },
-  {
-    label: "提升备婚咨询",
-    value: "选题要服务备婚用户的咨询转化。请优先输出容易引发评论的问题，例如预算、风格、场地适配、档期、花材、仪式区落地效果和如何与策划师沟通。"
-  },
-  {
-    label: "参考爆款风格",
-    value: "请重点研究小红书婚礼公司、婚礼策划、婚礼布置、备婚灵感类爆款笔记，学习标题节奏、封面文字、图集顺序、情绪表达和收藏理由，但不得照搬原文。"
-  }
-];
-
 function ImagesPanel(props: {
   selected?: Account;
   plan?: WeeklyPlan;
   selectedNoteId: number | null;
   setSelectedNoteId: (id: number) => void;
   onAssetsAdded: (assets: Asset[]) => void;
-  imageStyleDraft: {
-    study?: ImageStyleStudy;
-    commands?: Array<{ category: string; command: string; description: string; safetyNote: string }>;
-    researchPrompt?: string;
-    summary?: { summaryMarkdown: string; styleBrief: string[] };
-  };
-  prepareImageStyleStudy: () => void;
-  saveImageStyleStudy: (event: React.FormEvent<HTMLFormElement>) => void;
   imagePromptResults: Record<number, ImagePromptResult>;
   generateImagePrompt: (task: NoteTask, options?: SingleImagePromptOptions) => void;
   generateImageMedia: (task: NoteTask, options?: SingleImagePromptOptions) => Promise<void>;
-  batchImagePostResult?: BatchImagePostsResult | null;
-  generateBatchImagePosts: (options?: { weeks?: string; openclawImagePaths?: string; planningGoal?: string }) => void;
-  showBatchImagePostsComingSoon: () => void;
   notify: (message: string, tone: FeedbackTone) => void;
   copy: (text: string) => void;
   loading: boolean;
@@ -5040,15 +4763,9 @@ function ImagesPanel(props: {
     selectedNoteId,
     setSelectedNoteId,
     onAssetsAdded,
-    imageStyleDraft,
-    prepareImageStyleStudy,
-    saveImageStyleStudy,
     imagePromptResults,
     generateImagePrompt,
     generateImageMedia,
-    batchImagePostResult,
-    generateBatchImagePosts,
-    showBatchImagePostsComingSoon,
     notify,
     copy,
     loading,
@@ -5057,15 +4774,6 @@ function ImagesPanel(props: {
   const imageTasks = plan?.noteTasks.filter((task) => task.type === "image_text") || [];
   const note = imageTasks.find((task) => task.id === selectedNoteId) ?? imageTasks[0];
   const result = note ? imagePromptResults[note.id] : null;
-  const latestStudy = imageStyleDraft.study || selected?.imageStyleStudies?.[0];
-  const latestStyleSummary = imageStyleDraft.summary?.summaryMarkdown || latestStudy?.summaryMarkdown || result?.referenceStyle || "";
-  const styleCommands = imageStyleDraft.commands || (latestStudy?.commandJson ? safeParseCommands(latestStudy.commandJson) : []);
-  const stylePrompt = imageStyleDraft.researchPrompt || latestStudy?.researchPrompt || "";
-  const copyText = assetUiCopy(selected?.accountType);
-  const isWedding = isWeddingUiAccount(selected);
-  const commandList = [...(batchImagePostResult?.commands || []), ...(result?.commands || [])];
-  const [weddingPlanningGoal, setWeddingPlanningGoal] = useState(weddingPlanningGoalPresets[0].value);
-  const [imageWorkflowMode, setImageWorkflowMode] = useState<"batch" | "single">("single");
   const [singleSourceMode, setSingleSourceMode] = useState<SingleImageSourceMode>("ai_auto_select");
   const [singleRealImageRequirement, setSingleRealImageRequirement] = useState(DEFAULT_REAL_IMAGE_REFINEMENT_REQUIREMENT);
   const [singleAiAssistantRequirement, setSingleAiAssistantRequirement] = useState(DEFAULT_AI_ASSISTANT_REQUIREMENT);
@@ -5074,9 +4782,8 @@ function ImagesPanel(props: {
   const [mixedAiImageCount, setMixedAiImageCount] = useState("1");
   const [mixedRealImageRequirement, setMixedRealImageRequirement] = useState(DEFAULT_REAL_IMAGE_REFINEMENT_REQUIREMENT);
   const [mixedAiAssistantRequirement, setMixedAiAssistantRequirement] = useState(DEFAULT_MIXED_AI_ASSISTANT_REQUIREMENT);
-  const [batchUploadFiles, setBatchUploadFiles] = useState<File[]>([]);
   const [singleUploadFiles, setSingleUploadFiles] = useState<File[]>([]);
-  const [imageSubmitting, setImageSubmitting] = useState<"batch" | "single" | null>(null);
+  const [imageSubmitting, setImageSubmitting] = useState(false);
 
   async function uploadFilesWithAuth(files: File[], options?: { suitableTypes?: string; tags?: string }) {
     const token = getToken();
@@ -5113,779 +4820,303 @@ function ImagesPanel(props: {
     } as { count?: number; assets?: Asset[] };
   }
 
-  {
-    const batchCommand = batchImagePostResult?.commands?.[0];
-    const singleTaskContent = result?.openclawTask?.content || result?.imagePrompt?.content || "";
-    const accountKindLabel = isWedding ? "婚礼已上传图片" : "已上传素材图片";
-    const batchTitle = isWedding ? "用婚礼素材库图片自动生成批量帖子" : "用素材库图片自动生成批量帖子";
-    const batchDescription = isWedding
-      ? "适合已经有一批婚礼素材库图片，但还没有想好每篇发什么。智能体会先读图，再结合全国同类型爆款，直接产出多篇帖子方案。"
-      : "适合已经有一批素材图，但还没有想好每篇发什么。智能体会先读图，再结合全国同类型爆款，直接产出多篇帖子方案。";
-    const defaultBatchGoal = isWedding
-      ? "例如：优先从婚礼蛋糕、花艺、仪式区、迎宾区、桌花中找高收藏选题。"
-      : "例如：优先从真实素材里找高收藏主题，直接生成一周内容。";
-    return (
-      <div className="space-y-5">
-        <div className="panel">
-          <div className="mb-4">
-            <h2 className="section-title">图片生成帖子</h2>
-            <p className="mt-1 text-sm text-ink/60">先选批量模式还是单篇模式。</p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
+  const singleTaskContent = result?.openclawTask?.content || result?.imagePrompt?.content || "";
+  return (
+    <div className="grid w-full min-w-0 gap-5 xl:grid-cols-[minmax(0,42fr)_minmax(0,58fr)]">
+      <form
+        className="panel min-w-0 overflow-hidden"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!note) return;
+          if (imageSubmitting) return;
+          setImageSubmitting(true);
+          const runMedia = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-generate-media") === "true";
+          const form = new FormData(event.currentTarget);
+          const run = async () => {
+            const isMixedMode = singleSourceMode === "mixed";
+            const acceptsManualImages = singleSourceMode === "remote_images" || isMixedMode;
+            const selectedUrls = collectRemoteImageUrls(form);
+            let selectedImageAssets = (selected?.assets || []).filter((asset) => asset.fileUrl && selectedUrls.includes(asset.fileUrl));
+            let imagePaths = selectedUrls.join("\n");
+            let candidateAssets = (selected?.assets || []).filter(isRemoteImageAsset);
+            const requestedImageCount = Math.max(1, Math.min(Number.parseInt(String(form.get("imageCount") || "5"), 10) || 5, 9));
+            const requestedAutoImageCount = Math.max(0, Math.min(Number.parseInt(String(form.get("autoImageCount") || "0"), 10) || 0, 9));
+            const requestedAiImageCount = Math.max(0, Math.min(Number.parseInt(String(form.get("aiImageCount") || "0"), 10) || 0, 9));
+            if (singleSourceMode === "ai_auto_select" && candidateAssets.length < requestedImageCount) {
+              throw new Error(`当前素材库只有 ${candidateAssets.length} 张可用图片，无法自动选择 ${requestedImageCount} 张。请补充素材或减少图片数量。`);
+            }
+            if (acceptsManualImages && singleUploadFiles.length) {
+              const uploadData = await uploadFilesWithAuth(singleUploadFiles, {
+                tags: "单篇精修上传",
+                suitableTypes: note.topicTitle
+              });
+              const uploadedUrls = (uploadData.assets || []).map((asset) => String(asset.fileUrl || "").trim());
+              if (!uploadedUrls.length || uploadedUrls.some((url) => !/^https?:\/\//i.test(url))) {
+                throw new Error("上传成功，但未返回智能体可访问的完整图片 URL。");
+              }
+              imagePaths = [imagePaths, uploadedUrls.join("\n")].filter(Boolean).join("\n");
+              selectedImageAssets = [...selectedImageAssets, ...(uploadData.assets || [])];
+              candidateAssets = [...candidateAssets, ...(uploadData.assets || [])];
+              onAssetsAdded(uploadData.assets || []);
+            }
+            const imageUrls = imagePaths.split("\n").map((url) => url.trim()).filter(Boolean);
+            if (singleSourceMode === "remote_images" && (!imageUrls.length || imageUrls.some((url) => !/^https?:\/\//i.test(url)))) {
+              throw new Error("请选择或上传至少一张具有完整 HTTP(S) URL 的图片。");
+            }
+            if (isMixedMode) {
+              const enabledSources = [imageUrls.length > 0, requestedAutoImageCount > 0, requestedAiImageCount > 0].filter(Boolean).length;
+              const totalCount = imageUrls.length + requestedAutoImageCount + requestedAiImageCount;
+              if (enabledSources < 2) throw new Error("混合模式至少需要启用手动素材、AI 自动选图、AI 辅助图中的两类来源。");
+              if (totalCount > 9) throw new Error(`混合模式共 ${totalCount} 张图片，超过单篇最多 9 张的限制。`);
+              const autoCandidates = candidateAssets.filter((asset) => {
+                const assetUrl = String(asset.fileUrl || "");
+                return Boolean(assetUrl) && !imageUrls.includes(assetUrl);
+              });
+              if (requestedAutoImageCount > autoCandidates.length) {
+                throw new Error(`排除手动素材后，素材库只有 ${autoCandidates.length} 张可供自动选择，无法选择 ${requestedAutoImageCount} 张。`);
+              }
+            }
+            await (runMedia ? generateImageMedia : generateImagePrompt)(note, {
+              imageSourceMode: singleSourceMode,
+              noteContent: String(form.get("noteContent") || ""),
+              singleGoal: String(form.get("singleGoal") || ""),
+              imageCount: String(form.get("imageCount") || ""),
+              autoImageCount: String(form.get("autoImageCount") || "0"),
+              aiImageCount: String(form.get("aiImageCount") || "0"),
+              realImageRefinementRequirement: String(form.get("realImageRefinementRequirement") || ""),
+              aiAssistantRequirement: String(form.get("aiAssistantRequirement") || ""),
+              removeWatermarks:
+                singleSourceMode !== "ai_generate"
+                && form.get("removeWatermarks") === "true",
+              openclawImagePaths: imagePaths,
+              candidateAssets: singleSourceMode === "ai_auto_select" || isMixedMode ? candidateAssets : undefined,
+              selectedAssets: imageUrls.map((url, index) => selectedImageAssets.find((asset) => asset.fileUrl === url) || {
+                id: index + 1,
+                filePath: url,
+                fileUrl: url,
+                fileType: "image",
+                sourceType: "真实素材",
+                tags: "",
+                suitableTypes: "",
+                coverReady: false,
+                used: false,
+                riskNotes: ""
+              })
+            });
+            if (acceptsManualImages) setSingleUploadFiles([]);
+          };
+          run()
+            .catch((error) => notify(error instanceof Error ? error.message : "生成单篇图片方案失败。", "error"))
+            .finally(() => setImageSubmitting(false));
+        }}
+      >
+        <div className="mb-4">
+          <h2 className="section-title">先确定一篇笔记，再决定图片怎么来</h2>
+          <p className="mt-1 text-sm text-ink/60">适合已经有明确选题，只想把这一篇的封面、图集、正文和风险边界打磨清楚。</p>
+        </div>
+
+        {plan && note ? (
+          <label className="field">
+            <span>选择笔记</span>
+            <select value={note.id} onChange={(event) => setSelectedNoteId(Number(event.target.value))}>
+              {imageTasks.map((task) => (
+                <option key={task.id} value={task.id}>{task.topicTitle}</option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <EmptyState text="先到“本周内容”生成计划，再回来精修单篇笔记。" />
+        )}
+
+        <div className="mt-4">
+          <div className="mb-2 text-sm font-medium text-ink/70">图片来源</div>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             {[
-              ["single", "单篇精修模式", "先确定一篇笔记，再处理这一篇的图片、图集顺序和正文。"],
-              ["batch", "批量自动模式", "给一批图片，直接生成一周或两周的多篇帖子。"]
+              ["ai_auto_select", "AI 自动选图", "根据本篇笔记和当前素材标签，自动选择并排序最匹配的图片。"],
+              ["remote_images", "多张素材库图片", "从素材库多选已经上传到后端的图片。"],
+              ["ai_generate", "AI 辅助图", "没有真实图时，生成自然、有画面感的补充图或必要信息卡。"],
+              ["mixed", "混合模式", "组合手动素材、AI 自动选图和 AI 辅助图，生成一份统一图集任务。"]
             ].map(([mode, title, desc]) => (
               <button
                 key={mode}
                 type="button"
-                onClick={() => setImageWorkflowMode(mode as "batch" | "single")}
-                className={clsx("rounded border p-4 text-left transition", imageWorkflowMode === mode ? "border-teal bg-teal/10 ring-2 ring-teal/15" : "border-ink/10 bg-white hover:border-teal/40")}
+                onClick={() => setSingleSourceMode(mode as SingleImageSourceMode)}
+                className={clsx("rounded border p-3 text-left transition", singleSourceMode === mode ? "border-teal bg-teal/10 text-teal" : "border-ink/10 bg-white text-ink/70 hover:border-teal/40")}
               >
-                <div className="font-semibold">{title}</div>
-                <div className="mt-1 text-sm leading-6 text-ink/60">{desc}</div>
+                <div className="text-sm font-semibold">{title}</div>
+                <div className="mt-1 text-xs leading-5 text-ink/60">{desc}</div>
               </button>
             ))}
           </div>
         </div>
 
-        {imageWorkflowMode === "batch" ? (
-          <div className="grid w-full min-w-0 gap-5 xl:grid-cols-[minmax(0,42fr)_minmax(0,58fr)]">
-            <form
-              className="panel min-w-0 overflow-hidden border-teal/30"
-              onSubmit={(event) => {
-                event.preventDefault();
-                showBatchImagePostsComingSoon();
-              }}
-            >
-              <div className="mb-4">
-                <div className="mb-2 inline-flex rounded bg-teal/10 px-3 py-1 text-xs font-semibold text-teal">批量自动模式</div>
-                <h2 className="section-title">{batchTitle}</h2>
-                <p className="mt-1 text-sm text-ink/60">{batchDescription}</p>
-              </div>
+        {note && (
+          <div className="mt-4 rounded border border-ink/10 bg-white p-3">
+            <div className="text-sm font-medium">当前笔记目标</div>
+            <div className="mt-2 text-sm leading-6 text-ink/65">
+              <div>封面方向：{note.coverCopyDirection || "未设置"}</div>
+              <div>所需素材：{note.requiredMaterials || "按选题准备素材"}</div>
+            </div>
+          </div>
+        )}
 
-              <div className="grid min-w-0 gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
-                <label className="field">
-                  <span>生成周期</span>
-                  <select name="weeks" defaultValue="1">
-                    <option value="1">一周，约 5-7 篇</option>
-                    <option value="2">两周，约 10-14 篇</option>
-                  </select>
-                </label>
+        <div className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
+          <Textarea
+            name="noteContent"
+            label="这篇笔记内容/方向"
+            defaultValue={note?.coreView || ""}
+            placeholder="写清楚这一篇要表达什么，例如：围绕婚礼蛋糕细节，拆解为什么它能提升整场婚礼高级感。"
+          />
+          {singleSourceMode === "mixed" ? (
+            <>
+              <div className="grid min-w-0 gap-3 md:grid-cols-[120px_120px_minmax(0,1fr)]">
+                <Input name="autoImageCount" label="AI 自动选图" type="number" min={0} max={9} step={1} value={mixedAutoImageCount} onChange={setMixedAutoImageCount} placeholder="2" />
+                <Input name="aiImageCount" label="AI 辅助图" type="number" min={0} max={9} step={1} value={mixedAiImageCount} onChange={setMixedAiImageCount} placeholder="1" />
                 <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
-                  {selected?.assets?.length
-                    ? `当前账号已登记 ${selected?.assets?.length ?? 0} 张素材，可直接在下方多选。`
-                    : `当前账号还没有素材，请先上传图片。`}
-                </div>
-              </div>
-
-              <div className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
-                <label className="field">
-                  <span>本次先上传图片（可选）</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(event) => {
-                      const nextFiles = Array.from(event.target.files || []);
-                      setBatchUploadFiles((current) => mergeFiles(current, nextFiles));
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                  <span className="text-xs text-ink/50">支持一次多选，也可以连续追加。</span>
-                </label>
-                {batchUploadFiles.length > 0 && (
-                  <div className="rounded border border-teal/20 bg-teal/5 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-sm font-medium text-teal">
-                        本次待上传 {summarizeFiles(batchUploadFiles).count} 张图，合计 {formatFileSize(summarizeFiles(batchUploadFiles).totalBytes)}
-                      </div>
-                      <button type="button" className="text-xs text-ink/55 underline-offset-2 hover:underline" onClick={() => setBatchUploadFiles([])}>
-                        清空本次选择
-                      </button>
-                    </div>
-                    <div className="mt-2 max-h-32 overflow-auto rounded bg-white/80 px-3 py-2 text-xs text-ink/65">
-                      {batchUploadFiles.map((file) => (
-                        <div key={`${file.name}-${file.size}-${file.lastModified}`}>{file.name} · {formatFileSize(file.size)}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <RemoteAssetPicker
-                  assets={selected?.assets || []}
-                  pickerLabel="本次要分析的素材库图片"
-                  pickerHelp="从当前账号素材库里多选；没有素材就先上传图片。"
-                />
-                <Textarea
-                  name="planningGoal"
-                  label="批量生成要求"
-                  value={weddingPlanningGoal}
-                  onChange={setWeddingPlanningGoal}
-                  placeholder={defaultBatchGoal}
-                  help="这会写进给智能体的批量任务。"
-                />
-              </div>
-
-              <button type="submit" disabled={loading || Boolean(imageSubmitting) || !selected} aria-busy={imageSubmitting === "batch"} className="primary-button mt-4">
-                <ActionButtonContent
-                  loading={imageSubmitting === "batch" || loadingAction === "generateBatchImagePosts"}
-                  icon={<Sparkles size={17} />}
-                  idleText="生成批量帖子任务"
-                  loadingText="正在生成批量帖子任务..."
-                />
-              </button>
-              {batchImagePostResult?.planningPrompt.path && <div className="mt-3 rounded bg-teal/10 px-3 py-2 text-xs text-teal">{batchImagePostResult?.planningPrompt.path}</div>}
-            </form>
-
-            <div className="panel min-w-0 overflow-hidden border-teal/30">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="section-title">批量任务结果</h2>
-                  <p className="mt-1 text-sm text-ink/60">一条任务给智能体：读图、分组选题、生成多篇帖子。</p>
-                </div>
-                <div className="flex gap-2">
-                  <IconButton title="复制批量任务" onClick={() => copy(batchImagePostResult?.planningPrompt.content || "")} icon={<Clipboard size={17} />} />
-                  <IconButton title="导出 Markdown" onClick={() => downloadText(`batch-image-posts-${selected?.name || "draft"}.md`, batchImagePostResult?.planningPrompt.content || "")} icon={<Download size={17} />} />
-                </div>
-              </div>
-              {batchCommand && (
-                <div className="mb-3 rounded border border-ink/10 bg-white p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-medium">{batchCommand.category}</div>
-                      <div className="text-xs text-ink/60">{batchCommand.description}</div>
-                    </div>
-                    <IconButton title="复制执行命令" onClick={() => copy(batchCommand.command)} icon={<Clipboard size={16} />} />
-                  </div>
-                  <code className="block overflow-auto rounded bg-ink px-3 py-2 text-xs text-white">{batchCommand.command}</code>
-                  <div className="mt-2 text-xs text-coral">{batchCommand.safetyNote}</div>
-                </div>
-              )}
-              <textarea
-                className="code-textarea min-h-[620px]"
-                value={batchImagePostResult?.planningPrompt.content || "点击左侧“生成批量帖子任务”后，这里会显示完整任务。"}
-                readOnly
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="grid w-full min-w-0 gap-5 xl:grid-cols-[minmax(0,42fr)_minmax(0,58fr)]">
-            <form
-              className="panel min-w-0 overflow-hidden"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!note) return;
-                if (imageSubmitting) return;
-                setImageSubmitting("single");
-                const runMedia = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-generate-media") === "true";
-                const form = new FormData(event.currentTarget);
-                const run = async () => {
-                  const isMixedMode = singleSourceMode === "mixed";
-                  const acceptsManualImages = singleSourceMode === "remote_images" || isMixedMode;
-                  const selectedUrls = collectRemoteImageUrls(form);
-                  let selectedImageAssets = (selected?.assets || []).filter((asset) => asset.fileUrl && selectedUrls.includes(asset.fileUrl));
-                  let imagePaths = selectedUrls.join("\n");
-                  let candidateAssets = (selected?.assets || []).filter(isRemoteImageAsset);
-                  const requestedImageCount = Math.max(1, Math.min(Number.parseInt(String(form.get("imageCount") || "5"), 10) || 5, 9));
-                  const requestedAutoImageCount = Math.max(0, Math.min(Number.parseInt(String(form.get("autoImageCount") || "0"), 10) || 0, 9));
-                  const requestedAiImageCount = Math.max(0, Math.min(Number.parseInt(String(form.get("aiImageCount") || "0"), 10) || 0, 9));
-                  if (singleSourceMode === "ai_auto_select" && candidateAssets.length < requestedImageCount) {
-                    throw new Error(`当前素材库只有 ${candidateAssets.length} 张可用图片，无法自动选择 ${requestedImageCount} 张。请补充素材或减少图片数量。`);
-                  }
-                  if (acceptsManualImages && singleUploadFiles.length) {
-                    const uploadData = await uploadFilesWithAuth(singleUploadFiles, {
-                      tags: "单篇精修上传",
-                      suitableTypes: note.topicTitle
-                    });
-                    const uploadedUrls = (uploadData.assets || []).map((asset) => String(asset.fileUrl || "").trim());
-                    if (!uploadedUrls.length || uploadedUrls.some((url) => !/^https?:\/\//i.test(url))) {
-                      throw new Error("上传成功，但未返回智能体可访问的完整图片 URL。");
-                    }
-                    imagePaths = [imagePaths, uploadedUrls.join("\n")].filter(Boolean).join("\n");
-                    selectedImageAssets = [...selectedImageAssets, ...(uploadData.assets || [])];
-                    candidateAssets = [...candidateAssets, ...(uploadData.assets || [])];
-                    onAssetsAdded(uploadData.assets || []);
-                  }
-                  const imageUrls = imagePaths.split("\n").map((url) => url.trim()).filter(Boolean);
-                  if (singleSourceMode === "remote_images" && (!imageUrls.length || imageUrls.some((url) => !/^https?:\/\//i.test(url)))) {
-                    throw new Error("请选择或上传至少一张具有完整 HTTP(S) URL 的图片。");
-                  }
-                  if (isMixedMode) {
-                    const enabledSources = [imageUrls.length > 0, requestedAutoImageCount > 0, requestedAiImageCount > 0].filter(Boolean).length;
-                    const totalCount = imageUrls.length + requestedAutoImageCount + requestedAiImageCount;
-                    if (enabledSources < 2) throw new Error("混合模式至少需要启用手动素材、AI 自动选图、AI 辅助图中的两类来源。");
-                    if (totalCount > 9) throw new Error(`混合模式共 ${totalCount} 张图片，超过单篇最多 9 张的限制。`);
-                    const autoCandidates = candidateAssets.filter((asset) => {
-                      const assetUrl = String(asset.fileUrl || "");
-                      return Boolean(assetUrl) && !imageUrls.includes(assetUrl);
-                    });
-                    if (requestedAutoImageCount > autoCandidates.length) {
-                      throw new Error(`排除手动素材后，素材库只有 ${autoCandidates.length} 张可供自动选择，无法选择 ${requestedAutoImageCount} 张。`);
-                    }
-                  }
-                  await (runMedia ? generateImageMedia : generateImagePrompt)(note, {
-                    imageSourceMode: singleSourceMode,
-                    noteContent: String(form.get("noteContent") || ""),
-                    singleGoal: String(form.get("singleGoal") || ""),
-                    imageCount: String(form.get("imageCount") || ""),
-                    autoImageCount: String(form.get("autoImageCount") || "0"),
-                    aiImageCount: String(form.get("aiImageCount") || "0"),
-                    realImageRefinementRequirement: String(form.get("realImageRefinementRequirement") || ""),
-                    aiAssistantRequirement: String(form.get("aiAssistantRequirement") || ""),
-                    removeWatermarks:
-                      singleSourceMode !== "ai_generate"
-                      && form.get("removeWatermarks") === "true",
-                    openclawImagePaths: imagePaths,
-                    candidateAssets: singleSourceMode === "ai_auto_select" || isMixedMode ? candidateAssets : undefined,
-                    selectedAssets: imageUrls.map((url, index) => selectedImageAssets.find((asset) => asset.fileUrl === url) || {
-                      id: index + 1,
-                      filePath: url,
-                      fileUrl: url,
-                      fileType: "image",
-                      sourceType: "真实素材",
-                      tags: "",
-                      suitableTypes: "",
-                      coverReady: false,
-                      used: false,
-                      riskNotes: ""
-                    })
-                  });
-                  if (acceptsManualImages) setSingleUploadFiles([]);
-                };
-                run()
-                  .catch((error) => notify(error instanceof Error ? error.message : "生成单篇图片方案失败。", "error"))
-                  .finally(() => setImageSubmitting(null));
-              }}
-            >
-              <div className="mb-4">
-                <div className="mb-2 inline-flex rounded bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/60">单篇精修模式</div>
-                <h2 className="section-title">先确定一篇笔记，再决定图片怎么来</h2>
-                <p className="mt-1 text-sm text-ink/60">适合已经有明确选题，只想把这一篇的封面、图集、正文和风险边界打磨清楚。</p>
-              </div>
-
-              {plan && note ? (
-                <label className="field">
-                  <span>选择笔记</span>
-                  <select value={note.id} onChange={(event) => setSelectedNoteId(Number(event.target.value))}>
-                    {imageTasks.map((task) => (
-                      <option key={task.id} value={task.id}>{task.topicTitle}</option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <EmptyState text="先到“本周内容”生成计划，再回来精修单篇笔记。" />
-              )}
-
-              <div className="mt-4">
-                <div className="mb-2 text-sm font-medium text-ink/70">图片来源</div>
-                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                  {[
-                    ["ai_auto_select", "AI 自动选图", "根据本篇笔记和当前素材标签，自动选择并排序最匹配的图片。"],
-                    ["remote_images", "多张素材库图片", "从素材库多选已经上传到后端的图片。"],
-                    ["ai_generate", "AI 辅助图", "没有真实图时，生成自然、有画面感的补充图或必要信息卡。"],
-                    ["mixed", "混合模式", "组合手动素材、AI 自动选图和 AI 辅助图，生成一份统一图集任务。"]
-                  ].map(([mode, title, desc]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setSingleSourceMode(mode as SingleImageSourceMode)}
-                      className={clsx("rounded border p-3 text-left transition", singleSourceMode === mode ? "border-teal bg-teal/10 text-teal" : "border-ink/10 bg-white text-ink/70 hover:border-teal/40")}
-                    >
-                      <div className="text-sm font-semibold">{title}</div>
-                      <div className="mt-1 text-xs leading-5 text-ink/60">{desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {note && (
-                <div className="mt-4 rounded border border-ink/10 bg-white p-3">
-                  <div className="text-sm font-medium">当前笔记目标</div>
-                  <div className="mt-2 text-sm leading-6 text-ink/65">
-                    <div>封面方向：{note.coverCopyDirection || "未设置"}</div>
-                    <div>所需素材：{note.requiredMaterials || "按选题准备素材"}</div>
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
-                <Textarea
-                  name="noteContent"
-                  label="这篇笔记内容/方向"
-                  defaultValue={note?.coreView || ""}
-                  placeholder="写清楚这一篇要表达什么，例如：围绕婚礼蛋糕细节，拆解为什么它能提升整场婚礼高级感。"
-                />
-                {singleSourceMode === "mixed" ? (
-                  <>
-                    <div className="grid min-w-0 gap-3 md:grid-cols-[120px_120px_minmax(0,1fr)]">
-                      <Input name="autoImageCount" label="AI 自动选图" type="number" min={0} max={9} step={1} value={mixedAutoImageCount} onChange={setMixedAutoImageCount} placeholder="2" />
-                      <Input name="aiImageCount" label="AI 辅助图" type="number" min={0} max={9} step={1} value={mixedAiImageCount} onChange={setMixedAiImageCount} placeholder="1" />
-                      <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
-                        手动素材数量由下方选择器决定。图集顺序固定为：手动素材 → AI 自动选图 → AI 辅助图；有手动素材时首图为封面，否则自动选图首图为封面。三类来源中至少启用两类，总数最多 9 张。
-                      </div>
-                    </div>
-                    <Textarea
-                      name="realImageRefinementRequirement"
-                      label="真实素材精修要求"
-                      value={mixedRealImageRequirement}
-                      onChange={setMixedRealImageRequirement}
-                      placeholder="例如：保留菜品真实摆盘，只增强自然光和焦香质感；不要增加文字。"
-                    />
-                    <Textarea
-                      name="aiAssistantRequirement"
-                      label="AI 辅助图生成要求"
-                      value={mixedAiAssistantRequirement}
-                      onChange={setMixedAiAssistantRequirement}
-                      placeholder="例如：补一张口感要点卡和一张朋友聚餐氛围图，整体延续暖色餐厅风格。"
-                    />
-                  </>
-                ) : singleSourceMode === "remote_images" ? (
-                  <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
-                    用户手动选择本篇需要精修的图片；一张输入素材对应一张精修成品，不自动推荐、增删或替换图片。
-                  </div>
-                ) : (
-                  <div className="grid min-w-0 gap-3 md:grid-cols-[120px_minmax(0,1fr)]">
-                    <Input name="imageCount" label="图片数量" type="number" min={1} max={9} step={1} defaultValue={singleImageCount} onChange={setSingleImageCount} placeholder="5" />
-                    <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
-                      {singleSourceMode === "ai_auto_select"
-                        ? `AI 只读取素材标签和文字信息，不识别图片画面。当前有 ${(selected?.assets || []).filter(isRemoteImageAsset).length} 张可用图片，其中 ${(selected?.assets || []).filter((asset) => isRemoteImageAsset(asset) && Boolean(asset.tags?.trim())).length} 张已填写标签。`
-                        : "AI 辅助图不作为真实证据图；有真实素材时仍优先使用真实素材。"}
-                    </div>
-                  </div>
-                )}
-                {(singleSourceMode === "remote_images" || singleSourceMode === "mixed") && (
-                  <>
-                    <div className="grid gap-1.5 text-sm">
-                      <span className="text-xs font-medium text-ink/60">本篇先上传图片（可选）</span>
-                      <label htmlFor="single-remote-image-files" className="secondary-button w-fit cursor-pointer">
-                        <Upload size={16} />
-                        {singleUploadFiles.length > 0 ? "继续添加图片" : "选择图片"}
-                      </label>
-                      <input
-                        id="single-remote-image-files"
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="sr-only"
-                        onChange={(event) => {
-                          const nextFiles = Array.from(event.target.files || []);
-                          setSingleUploadFiles((current) => mergeFiles(current, nextFiles));
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                      <span className="text-xs leading-5 text-ink/50">支持一次多选或连续追加；提交时会先整理到当前账号素材中。</span>
-                    </div>
-                    {singleUploadFiles.length > 0 && (
-                      <div className="rounded border border-teal/20 bg-teal/5 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm font-medium text-teal">
-                            本篇待上传 {summarizeFiles(singleUploadFiles).count} 张图，合计 {formatFileSize(summarizeFiles(singleUploadFiles).totalBytes)}
-                          </div>
-                          <button type="button" className="text-xs text-ink/55 underline-offset-2 hover:underline" onClick={() => setSingleUploadFiles([])}>
-                            清空本次选择
-                          </button>
-                        </div>
-                        <div className="mt-2 max-h-28 overflow-auto rounded bg-white/80 px-3 py-2 text-xs text-ink/65">
-                          {singleUploadFiles.map((file) => (
-                            <div key={`${file.name}-${file.size}-${file.lastModified}`}>{file.name} · {formatFileSize(file.size)}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <RemoteAssetPicker
-                      key={`single-picker-${note?.id || "none"}`}
-                      assets={selected?.assets || []}
-                      pickerLabel={singleSourceMode === "mixed" ? "混合图集中的手动素材库图片" : "这篇要用的素材库图片"}
-                      pickerHelp={singleSourceMode === "mixed" ? "按选择顺序放在图集最前；选中后可调整顺序，第一张会作为封面。" : "按选择顺序加入图集；选中后可在下方调整顺序，第一张作为封面。"}
-                      orderable
-                    />
-                  </>
-                )}
-                {singleSourceMode !== "ai_generate" && (
-                  <label className="flex items-start gap-3 rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/70">
-                    <input
-                      type="checkbox"
-                      name="removeWatermarks"
-                      value="true"
-                      className="mt-1 h-4 w-4 shrink-0 accent-teal"
-                    />
-                    <span>
-                      <span className="block font-medium text-ink">去除平台水印和账号角标</span>
-                      <span className="mt-0.5 block text-xs leading-5 text-ink/55">
-                        勾选后，仅去除后期叠加的平台水印、账号角标和来源标记；物体本身的文字、Logo、刻印、包装和餐具标识会保留。
-                      </span>
-                    </span>
-                  </label>
-                )}
-                {singleSourceMode !== "mixed" && (
-                  <Textarea
-                    name="singleGoal"
-                    label={singleSourceMode === "ai_generate" ? "AI 辅助图生成要求" : "真实素材精修要求"}
-                    value={singleSourceMode === "ai_generate" ? singleAiAssistantRequirement : singleRealImageRequirement}
-                    onChange={singleSourceMode === "ai_generate" ? setSingleAiAssistantRequirement : setSingleRealImageRequirement}
-                    placeholder={singleSourceMode === "ai_generate" ? "例如：根据笔记内容补一张氛围画面和一张完整信息卡。" : "例如：保留菜品真实摆盘，只增强自然光和焦香质感；不要增加文字。"}
-                  />
-                )}
-              </div>
-
-              <button type="submit" disabled={loading || Boolean(imageSubmitting) || !note} aria-busy={imageSubmitting === "single"} className="primary-button mt-4">
-                <ActionButtonContent
-                  loading={imageSubmitting === "single" || loadingAction === "generateImagePrompt"}
-                  icon={<ImageIcon size={17} />}
-                  idleText={singleSourceMode === "ai_auto_select"
-                    ? "AI 自动选图并生成单篇方案"
-                    : singleSourceMode === "ai_generate"
-                    ? "生成 AI 辅助图方案"
-                    : singleSourceMode === "mixed"
-                    ? "生成混合图集方案"
-                    : "用素材库多图生成单篇方案"}
-                  loadingText={singleSourceMode === "ai_auto_select"
-                    ? "正在自动选图并生成单篇方案..."
-                    : singleSourceMode === "ai_generate"
-                    ? "正在生成 AI 辅助图方案..."
-                    : singleSourceMode === "mixed"
-                    ? "正在生成混合图集方案..."
-                    : "正在生成单篇方案..."}
-                />
-              </button>
-              <button type="submit" data-generate-media="true" disabled={loading || Boolean(imageSubmitting) || !note} className="primary-button ml-2 mt-4"><Sparkles size={17} />生成图片并保存</button>
-              <p className="mt-2 text-xs text-ink/55">自动生成方案并制作图片，可在“生成任务”中查看进度和结果。</p>
-            </form>
-
-            <div className="min-w-0 space-y-5">
-              <div className="panel min-w-0 overflow-hidden">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="section-title">单篇任务结果</h2>
-                    <p className="mt-1 text-sm text-ink/60">可直接复制给智能体；任务中包含真实 CLI、图片来源和完整执行要求。</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <IconButton title="复制智能体任务" onClick={() => copy(singleTaskContent)} icon={<Clipboard size={17} />} />
-                    <IconButton title="导出智能体任务" onClick={() => downloadText(`note-${note?.id || "draft"}-agent-image-task.md`, singleTaskContent)} icon={<Download size={17} />} />
-                  </div>
-                </div>
-                <textarea className="code-textarea min-h-[620px]" value={singleTaskContent || "选择单篇来源并点击生成后，这里会显示可直接交给智能体的完整任务。"} readOnly />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-5 xl:grid-cols-[0.42fr_0.58fr]">
-      <div className="space-y-5">
-        {!isWedding && (
-        <details className="panel">
-          <summary className="cursor-pointer text-sm font-medium">
-            参考图片风格（可选，高级）
-            <span className="ml-2 text-xs font-normal text-ink/50">需要研究同类账号图片时再展开</span>
-          </summary>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="section-title">参考图片风格</h2>
-              <p className="mt-1 text-sm text-ink/60">
-                只读搜索同类型账号的封面和图集，总结可复用的封面结构、图集顺序和信息卡原则。后面的单篇图片方案会自动引用这些原则。
-              </p>
-            </div>
-            <button type="button" onClick={prepareImageStyleStudy} disabled={loading || !selected} className="secondary-button shrink-0">
-              <Search size={16} /> 生成参考研究
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {styleCommands.map((command) => (
-              <div key={`${command.category}-${command.command}`} className="rounded border border-ink/10 bg-white p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{command.category}</div>
-                    <div className="text-xs text-ink/60">{command.description}</div>
-                  </div>
-                  <IconButton title="复制命令" onClick={() => copy(command.command)} icon={<Clipboard size={16} />} />
-                </div>
-                <code className="block overflow-auto rounded bg-ink px-3 py-2 text-xs text-white">{command.command}</code>
-                <div className="mt-2 text-xs text-coral">{command.safetyNote}</div>
-              </div>
-            ))}
-            {stylePrompt ? (
-              <details className="rounded border border-ink/10 bg-white p-3">
-                <summary className="cursor-pointer text-sm font-medium">查看详细研究要求</summary>
-                <div className="mt-3 flex justify-end">
-                  <IconButton title="复制研究要求" onClick={() => copy(stylePrompt)} icon={<Clipboard size={16} />} />
-                </div>
-                <textarea className="code-textarea mt-2 min-h-[260px]" value={stylePrompt} readOnly />
-              </details>
-            ) : (
-              <EmptyState text="需要参考同类账号图片时，点击“生成参考研究”，运行后把结果粘贴到下方。" />
-            )}
-          </div>
-
-          <form onSubmit={saveImageStyleStudy} className="mt-4">
-            <Textarea
-              name="rawResults"
-              label="粘贴参考图片研究结果"
-              defaultValue={latestStudy?.rawResults || ""}
-              placeholder={copyText.stylePlaceholder}
-            />
-            <button type="submit" disabled={loading || !selected} className="primary-button mt-3">
-              <Sparkles size={17} /> 保存并总结图片风格
-            </button>
-          </form>
-        </details>
-        )}
-
-        {isWedding && (
-          <form
-            className="panel border-teal/30"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const form = new FormData(event.currentTarget);
-              generateBatchImagePosts({
-                weeks: String(form.get("weeks") || "1"),
-                openclawImagePaths: collectRemoteImageUrls(form).join("\n"),
-                planningGoal: String(form.get("planningGoal") || "")
-              });
-            }}
-          >
-            <div className="mb-4">
-              <div className="mb-2 inline-flex rounded bg-teal/10 px-3 py-1 text-xs font-semibold text-teal">婚礼账号优先流程</div>
-              <h2 className="section-title">用婚礼素材库图片自动生成选题规划</h2>
-              <p className="mt-1 text-sm text-ink/60">
-                先上传婚礼图片，系统会自动读图找细节，再生成一周或两周笔记规划。
-              </p>
-            </div>
-
-            <div className="mb-4 grid gap-3 md:grid-cols-3">
-              {[ 
-                ["1", "准备婚礼素材库图片", "建议 20-40 张，优先选择清晰大图。"],
-                ["2", "生成智能体 Prompt", "让智能体读图并研究小红书爆款。"],
-                ["3", "得到周计划", "输出标题、配图顺序、正文方向和风险核验。"]
-              ].map(([step, title, desc]) => (
-                <div key={step} className="rounded border border-teal/15 bg-teal/5 p-3">
-                  <div className="mb-2 inline-flex h-6 w-6 items-center justify-center rounded bg-teal text-xs font-semibold text-white">{step}</div>
-                  <div className="text-sm font-semibold">{title}</div>
-                  <div className="mt-1 text-xs leading-5 text-ink/60">{desc}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-[160px_1fr]">
-              <label className="field">
-                <span>规划周期</span>
-                <select name="weeks" defaultValue="1">
-                  <option value="1">一周规划</option>
-                  <option value="2">两周规划</option>
-                </select>
-              </label>
-              <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
-                {selected?.assets?.length
-                  ? `当前账号已登记 ${selected?.assets?.length ?? 0} 张婚礼素材，可直接在下方多选。`
-                  : "当前账号还没有婚礼素材，请先上传图片。"}
-              </div>
-            </div>
-
-            <div className="mt-3 grid gap-3">
-              <RemoteAssetPicker
-                key={`legacy-single-picker-${note?.id || "none"}`}
-                assets={selected?.assets || []}
-                pickerLabel="本次要分析的婚礼素材库图片"
-                pickerHelp="从当前账号婚礼素材里多选；没有素材就先上传图片。"
-              />
-              <div>
-                <div className="mb-2 text-sm font-medium text-ink/70">本次希望智能体重点完成什么？</div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {weddingPlanningGoalPresets.map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => setWeddingPlanningGoal(preset.value)}
-                      className={clsx(
-                        "rounded border px-3 py-2 text-left text-sm transition",
-                        weddingPlanningGoal === preset.value ? "border-teal bg-teal/10 text-teal" : "border-ink/10 bg-white text-ink/70 hover:border-teal/40"
-                      )}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
+                  手动素材数量由下方选择器决定。图集顺序固定为：手动素材 → AI 自动选图 → AI 辅助图；有手动素材时首图为封面，否则自动选图首图为封面。三类来源中至少启用两类，总数最多 9 张。
                 </div>
               </div>
               <Textarea
-                name="planningGoal"
-                label="本次额外诉求"
-                value={weddingPlanningGoal}
-                onChange={setWeddingPlanningGoal}
-                placeholder="例如：重点挖掘婚礼蛋糕、法式花艺和仪式区细节；希望提升备婚咨询。"
-                help="可以直接用上面的预设，也可以改成客户自己的诉求。"
+                name="realImageRefinementRequirement"
+                label="真实素材精修要求"
+                value={mixedRealImageRequirement}
+                onChange={setMixedRealImageRequirement}
+                placeholder="例如：保留菜品真实摆盘，只增强自然光和焦香质感；不要增加文字。"
               />
+              <Textarea
+                name="aiAssistantRequirement"
+                label="AI 辅助图生成要求"
+                value={mixedAiAssistantRequirement}
+                onChange={setMixedAiAssistantRequirement}
+                placeholder="例如：补一张口感要点卡和一张朋友聚餐氛围图，整体延续暖色餐厅风格。"
+              />
+            </>
+          ) : singleSourceMode === "remote_images" ? (
+            <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
+              用户手动选择本篇需要精修的图片；一张输入素材对应一张精修成品，不自动推荐、增删或替换图片。
             </div>
-
-            <button type="submit" disabled={loading || !selected} className="primary-button mt-4">
-              <Sparkles size={17} /> 生成给智能体的一键规划 Prompt
-            </button>
-
-            {batchImagePostResult?.planningPrompt.path && (
-              <div className="mt-3 rounded bg-teal/10 px-3 py-2 text-xs text-teal">{batchImagePostResult?.planningPrompt.path}</div>
-            )}
-          </form>
-        )}
-
-        <form
-          className="panel"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!note) return;
-            const form = new FormData(event.currentTarget);
-            const runMedia = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-generate-media") === "true";
-            (runMedia ? generateImageMedia : generateImagePrompt)(note, {
-              imageSourceMode: "remote_images",
-              openclawImagePaths: collectRemoteImageUrls(form).join("\n")
-            });
-          }}
-        >
-          <div className="mb-4">
-            <h2 className="section-title">{isWedding ? "规划后再细化单篇图片方案（可选）" : "生成本篇图片方案"}</h2>
-            <p className="mt-1 text-sm text-ink/60">
-              {isWedding
-                ? "批量规划完成后，如果你已经把某篇选题放进“本周内容”，可以在这里继续生成这篇笔记的逐张图片方案。"
-                : "选择一篇本周内容并手动指定素材，系统只规划这些图片怎么改、怎么排，不自动推荐或替换图片。"}
-            </p>
-          </div>
-
-          {plan && note ? (
-            <label className="field">
-              <span>选择本周内容</span>
-              <select value={note?.id || ""} onChange={(event) => setSelectedNoteId(Number(event.target.value))}>
-                {plan?.noteTasks.map((task) => (
-                  <option key={task.id} value={task.id}>
-                    {task.topicTitle}
-                  </option>
-                ))}
-              </select>
-            </label>
           ) : (
-            <EmptyState text={isWedding ? "婚礼账号可以先用上方“批量图片选题规划”生成一周或两周方案；有了具体选题后，再回来细化单篇图片方案。" : "先到“本周内容”生成计划，再为某篇笔记生成图片方案。"} />
-          )}
-
-          {note && (
-            <div className="mt-4 rounded border border-ink/10 bg-white p-3">
-              <div className="text-sm font-medium">当前图片目标</div>
-              <div className="mt-2 text-sm leading-6 text-ink/65">
-                <div>封面方向：{note?.coverCopyDirection || "未设置"}</div>
-                <div>所需素材：{note?.requiredMaterials || "按选题准备素材"}</div>
+            <div className="grid min-w-0 gap-3 md:grid-cols-[120px_minmax(0,1fr)]">
+              <Input name="imageCount" label="图片数量" type="number" min={1} max={9} step={1} defaultValue={singleImageCount} onChange={setSingleImageCount} placeholder="5" />
+              <div className="rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/60">
+                {singleSourceMode === "ai_auto_select"
+                  ? `AI 只读取素材标签和文字信息，不识别图片画面。当前有 ${(selected?.assets || []).filter(isRemoteImageAsset).length} 张可用图片，其中 ${(selected?.assets || []).filter((asset) => isRemoteImageAsset(asset) && Boolean(asset.tags?.trim())).length} 张已填写标签。`
+                  : "AI 辅助图不作为真实证据图；有真实素材时仍优先使用真实素材。"}
               </div>
             </div>
           )}
-
-          <details className="mt-4 rounded border border-ink/10 bg-white p-3">
-            <summary className="cursor-pointer text-sm font-medium">指定要精修的已上传素材（必选）</summary>
-            <div className="mt-3 grid gap-3">
+          {(singleSourceMode === "remote_images" || singleSourceMode === "mixed") && (
+            <>
+              <div className="grid gap-1.5 text-sm">
+                <span className="text-xs font-medium text-ink/60">本篇先上传图片（可选）</span>
+                <label htmlFor="single-remote-image-files" className="secondary-button w-fit cursor-pointer">
+                  <Upload size={16} />
+                  {singleUploadFiles.length > 0 ? "继续添加图片" : "选择图片"}
+                </label>
+                <input
+                  id="single-remote-image-files"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  onChange={(event) => {
+                    const nextFiles = Array.from(event.target.files || []);
+                    setSingleUploadFiles((current) => mergeFiles(current, nextFiles));
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <span className="text-xs leading-5 text-ink/50">支持一次多选或连续追加；提交时会先整理到当前账号素材中。</span>
+              </div>
+              {singleUploadFiles.length > 0 && (
+                <div className="rounded border border-teal/20 bg-teal/5 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-medium text-teal">
+                      本篇待上传 {summarizeFiles(singleUploadFiles).count} 张图，合计 {formatFileSize(summarizeFiles(singleUploadFiles).totalBytes)}
+                    </div>
+                    <button type="button" className="text-xs text-ink/55 underline-offset-2 hover:underline" onClick={() => setSingleUploadFiles([])}>
+                      清空本次选择
+                    </button>
+                  </div>
+                  <div className="mt-2 max-h-28 overflow-auto rounded bg-white/80 px-3 py-2 text-xs text-ink/65">
+                    {singleUploadFiles.map((file) => (
+                      <div key={`${file.name}-${file.size}-${file.lastModified}`}>{file.name} · {formatFileSize(file.size)}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <RemoteAssetPicker
+                key={`single-picker-${note?.id || "none"}`}
                 assets={selected?.assets || []}
-                pickerLabel="这篇要用的已上传素材"
-                pickerHelp="按选择顺序加入图集；选中后可在下方调整顺序，第一张作为封面。"
+                pickerLabel={singleSourceMode === "mixed" ? "混合图集中的手动素材库图片" : "这篇要用的素材库图片"}
+                pickerHelp={singleSourceMode === "mixed" ? "按选择顺序放在图集最前；选中后可调整顺序，第一张会作为封面。" : "按选择顺序加入图集；选中后可在下方调整顺序，第一张作为封面。"}
                 orderable
               />
-            </div>
-          </details>
-
-          <button type="submit" disabled={loading || !note} className="primary-button mt-4">
-            <ImageIcon size={17} /> {isWedding ? "细化这篇图片方案" : "生成图片方案"}
-          </button>
-          <button type="submit" data-generate-media="true" disabled={loading || !note} className="primary-button ml-2 mt-4"><Sparkles size={17} />生成图片并保存</button>
-        </form>
-
-        <div className="panel">
-          <h2 className="section-title">给智能体的执行命令</h2>
-          <div className="mt-3 space-y-3">
-            {commandList.map((command) => (
-              <div key={`${command.category}-${command.command}`} className="rounded border border-ink/10 bg-white p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{command.category}</div>
-                    <div className="text-xs text-ink/60">{command.description}</div>
-                  </div>
-                  <IconButton title="复制命令" onClick={() => copy(command.command)} icon={<Clipboard size={16} />} />
-                </div>
-                <code className="block overflow-auto rounded bg-ink px-3 py-2 text-xs text-white">{command.command}</code>
-                <div className="mt-2 text-xs text-coral">{command.safetyNote}</div>
-              </div>
-            ))}
-            {!commandList.length && <EmptyState text={isWedding ? "先生成批量规划 Prompt，或生成单篇图片方案后，这里会显示可以复制给智能体的执行命令。" : "生成图片方案后，这里会显示可以复制给智能体的执行命令。"} />}
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-5">
-        {isWedding && (
-          <div className="panel border-teal/30">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h2 className="section-title">婚礼批量规划 Prompt</h2>
-                <p className="mt-1 text-sm text-ink/60">用于让智能体先读 30 张婚礼图、研究同行热门笔记，再输出一周或两周内容规划。</p>
-              </div>
-              <div className="flex gap-2">
-                <IconButton title="复制批量规划 Prompt" onClick={() => copy(batchImagePostResult?.planningPrompt.content || "")} icon={<Clipboard size={17} />} />
-                <IconButton
-                  title="导出 Markdown"
-                  onClick={() => downloadText(`wedding-image-plan-${selected?.name || "draft"}.md`, batchImagePostResult?.planningPrompt.content || "")}
-                  icon={<Download size={17} />}
-                />
-              </div>
-            </div>
-            {batchImagePostResult?.planningPrompt.path && <div className="mb-2 rounded bg-teal/10 px-3 py-2 text-xs text-teal">{batchImagePostResult?.planningPrompt.path}</div>}
-            {batchImagePostResult ? (
-              <div className="mb-3 grid gap-2 sm:grid-cols-3">
-                {[
-                  ["复制 Prompt", "给智能体读取图片和研究爆款。"],
-                  ["执行命令", "用左侧命令生成规划草稿。"],
-                  ["人工核验", "检查肖像授权、价格、档期和场地。"]
-                ].map(([title, desc]) => (
-                  <div key={title} className="rounded border border-teal/15 bg-teal/5 p-3">
-                    <div className="text-sm font-semibold text-teal">{title}</div>
-                    <div className="mt-1 text-xs leading-5 text-ink/60">{desc}</div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <textarea
-              className="code-textarea min-h-[360px]"
-              value={
-                batchImagePostResult?.planningPrompt.content ||
-                "点击左侧“生成批量规划 Prompt”后，这里会显示完整任务说明：批量读图、同行爆款研究、一周/两周笔记规划、后续单篇 Prompt 和风险边界。"
-              }
-              readOnly
+            </>
+          )}
+          {singleSourceMode !== "ai_generate" && (
+            <label className="flex items-start gap-3 rounded border border-ink/10 bg-white p-3 text-sm leading-6 text-ink/70">
+              <input
+                type="checkbox"
+                name="removeWatermarks"
+                value="true"
+                className="mt-1 h-4 w-4 shrink-0 accent-teal"
+              />
+              <span>
+                <span className="block font-medium text-ink">去除平台水印和账号角标</span>
+                <span className="mt-0.5 block text-xs leading-5 text-ink/55">
+                  勾选后，仅去除后期叠加的平台水印、账号角标和来源标记；物体本身的文字、Logo、刻印、包装和餐具标识会保留。
+                </span>
+              </span>
+            </label>
+          )}
+          {singleSourceMode !== "mixed" && (
+            <Textarea
+              name="singleGoal"
+              label={singleSourceMode === "ai_generate" ? "AI 辅助图生成要求" : "真实素材精修要求"}
+              value={singleSourceMode === "ai_generate" ? singleAiAssistantRequirement : singleRealImageRequirement}
+              onChange={singleSourceMode === "ai_generate" ? setSingleAiAssistantRequirement : setSingleRealImageRequirement}
+              placeholder={singleSourceMode === "ai_generate" ? "例如：根据笔记内容补一张氛围画面和一张完整信息卡。" : "例如：保留菜品真实摆盘，只增强自然光和焦香质感；不要增加文字。"}
             />
-          </div>
-        )}
-
-        <div className="panel">
-          <h2 className="section-title">图片风格摘要</h2>
-          <p className="mt-1 text-sm text-ink/60">
-            可选参考：总结同类型账号的封面、图集、信息卡、真实感和收藏点。
-          </p>
-          <div className="mt-3">
-            {latestStyleSummary ? (
-              <MarkdownBox value={latestStyleSummary} />
-            ) : (
-              <EmptyState text="还没有参考图片研究。普通出图可以先跳过这里。" />
-            )}
-          </div>
+          )}
         </div>
 
-        <div className="panel">
-          <div className="mb-3 flex items-center justify-between">
+        <button type="submit" disabled={loading || imageSubmitting || !note} aria-busy={imageSubmitting} className="primary-button mt-4">
+          <ActionButtonContent
+            loading={imageSubmitting || loadingAction === "generateImagePrompt"}
+            icon={<ImageIcon size={17} />}
+            idleText={singleSourceMode === "ai_auto_select"
+              ? "AI 自动选图并生成单篇方案"
+              : singleSourceMode === "ai_generate"
+              ? "生成 AI 辅助图方案"
+              : singleSourceMode === "mixed"
+              ? "生成混合图集方案"
+              : "用素材库多图生成单篇方案"}
+            loadingText={singleSourceMode === "ai_auto_select"
+              ? "正在自动选图并生成单篇方案..."
+              : singleSourceMode === "ai_generate"
+              ? "正在生成 AI 辅助图方案..."
+              : singleSourceMode === "mixed"
+              ? "正在生成混合图集方案..."
+              : "正在生成单篇方案..."}
+          />
+        </button>
+        <button type="submit" data-generate-media="true" disabled={loading || imageSubmitting || !note} className="primary-button ml-2 mt-4"><Sparkles size={17} />生成图片并保存</button>
+        <p className="mt-2 text-xs text-ink/55">自动生成方案并制作图片，可在“生成任务”中查看进度和结果。</p>
+      </form>
+
+      <div className="min-w-0 space-y-5">
+        <div className="panel min-w-0 overflow-hidden">
+          <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <h2 className="section-title">图片方案</h2>
-              <p className="mt-1 text-sm text-ink/60">包含每张指定图片的用途、改图要求、文字叠加建议和人工核验项。</p>
+              <h2 className="section-title">单篇任务结果</h2>
+              <p className="mt-1 text-sm text-ink/60">可直接复制给智能体；任务中包含真实 CLI、图片来源和完整执行要求。</p>
             </div>
             <div className="flex gap-2">
-              <IconButton title="复制图片方案" onClick={() => copy(result?.imagePrompt.content || "")} icon={<Clipboard size={17} />} />
-              <IconButton title="导出 Markdown" onClick={() => downloadText(`note-${note?.id || "draft"}-image-prompt.md`, result?.imagePrompt.content || "")} icon={<Download size={17} />} />
+              <IconButton title="复制智能体任务" onClick={() => copy(singleTaskContent)} icon={<Clipboard size={17} />} />
+              <IconButton title="导出智能体任务" onClick={() => downloadText(`note-${note?.id || "draft"}-agent-image-task.md`, singleTaskContent)} icon={<Download size={17} />} />
             </div>
           </div>
-          {result?.imagePrompt.path && <div className="mb-2 rounded bg-teal/10 px-3 py-2 text-xs text-teal">{result?.imagePrompt.path}</div>}
-          <textarea className="code-textarea min-h-[620px]" value={result?.imagePrompt.content || (note ? "点击生成后显示逐张图片方案。" : "先生成本周内容，再生成单篇图片方案。")} readOnly />
+          <textarea className="code-textarea min-h-[620px]" value={singleTaskContent || "选择单篇来源并点击生成后，这里会显示可直接交给智能体的完整任务。"} readOnly />
         </div>
       </div>
     </div>
@@ -6484,7 +5715,7 @@ function PromptsPanel(props: {
         <p className={clsx("mt-3 text-xs leading-5", hasMediaPlan ? "text-ink/60" : "font-medium text-coral")}>
           {hasMediaPlan
             ? `${isVideo ? "视频" : "图片"}方案已完成。生成三个版本后，选择一个版本复制草稿箱任务。`
-            : `当前笔记尚未生成${isVideo ? "视频" : "图片"}方案，请先前往“${isVideo ? "视频方案" : "图片方案 → 单篇精修模式"}”完成方案。`}
+            : `当前笔记尚未生成${isVideo ? "视频" : "图片"}方案，请先前往“${isVideo ? "视频方案" : "图片方案"}”完成方案。`}
         </p>
       </div>
       <div className="space-y-5">
@@ -6876,131 +6107,6 @@ function ReportsPanel(props: {
   );
 }
 
-function IndustryLearningPanel(props: {
-  selected?: Account;
-  draft: {
-    research?: IndustryKnowledgeResearch;
-    commands?: Array<{ category: string; command: string; description: string; safetyNote: string }>;
-    researchPrompt?: string;
-  };
-  prepareIndustryLearning: (event: React.FormEvent<HTMLFormElement>) => void;
-  saveIndustryLearning: (event: React.FormEvent<HTMLFormElement>) => void;
-  copy: (text: string) => void;
-  loading: boolean;
-  loadingAction: string | null;
-}) {
-  const { selected, draft, prepareIndustryLearning, saveIndustryLearning, copy, loading, loadingAction } = props;
-  const commands = draft.commands || safeParseCommands(draft.research?.commandJson || selected?.industryKnowledgeResearches?.[0]?.commandJson || "[]");
-  const researchPrompt = draft.researchPrompt || draft.research?.researchPrompt || selected?.industryKnowledgeResearches?.[0]?.researchPrompt || "";
-  const commandText = commands.map((item) => item.command).join("\n");
-
-  if (!selected) return <div className="panel"><EmptyState /></div>;
-
-  return (
-    <div className="space-y-5">
-      <div className="panel">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="section-title">行业学习</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/60">
-              这里负责持续学习外部经验：全国同类型爆款、运营专家文章、案例拆解和评论痛点。学到的方法再沉淀进规则库。
-            </p>
-          </div>
-          <div className="rounded bg-teal/10 px-3 py-2 text-sm font-medium text-teal">
-            研究记录 {selected.industryKnowledgeResearches?.length || 0} 次
-          </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded border border-ink/10 bg-white p-4">
-            <div className="font-semibold">1. 广泛搜索</div>
-            <p className="mt-1 text-sm leading-6 text-ink/60">全国/全网优先，不被本地内容限制风格。</p>
-          </div>
-          <div className="rounded border border-ink/10 bg-white p-4">
-            <div className="font-semibold">2. 提炼精髓</div>
-            <p className="mt-1 text-sm leading-6 text-ink/60">把标题、封面、图文结构、评论转化方法拆出来。</p>
-          </div>
-          <div className="rounded border border-ink/10 bg-white p-4">
-            <div className="font-semibold">3. 更新规则</div>
-            <p className="mt-1 text-sm leading-6 text-ink/60">只保存可验证、可复用、能适配当前账号的方法。</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="space-y-5">
-          <form className="panel" onSubmit={prepareIndustryLearning}>
-            <div className="mb-4">
-              <h2 className="section-title">生成学习任务</h2>
-              <p className="mt-1 text-sm text-ink/60">默认会要求全国/全网优先，本地只做补充对照。</p>
-            </div>
-            <div className="grid gap-3">
-              <Textarea
-                name="topic"
-                label="学习主题"
-                defaultValue="小红书图文爆款方法、标题封面、图片真实感、评论转化和复盘方法"
-              />
-              <Input name="searchScope" label="搜索范围" defaultValue="全国 / 全网优先，本地只作为补充" />
-            </div>
-            <button type="submit" disabled={loading} aria-busy={loadingAction === "prepareIndustryLearning"} className="primary-button mt-4">
-              <ActionButtonContent
-                loading={loadingAction === "prepareIndustryLearning"}
-                icon={<Search size={17} />}
-                idleText="生成行业学习任务"
-                loadingText="正在生成行业学习任务..."
-              />
-            </button>
-          </form>
-
-          <div className="panel">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="section-title">搜索命令</h2>
-                <p className="mt-1 text-sm text-ink/60">先执行只读搜索，再把结果粘回右侧。</p>
-              </div>
-              <IconButton title="复制命令" onClick={() => copy(commandText)} icon={<Clipboard size={17} />} />
-            </div>
-            {commandText ? <MarkdownBox value={commandText} /> : <EmptyState text="生成任务后这里会显示搜索命令。" />}
-          </div>
-
-          <div className="panel">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="section-title">研究 Prompt</h2>
-                <p className="mt-1 text-sm text-ink/60">用于让大模型从搜索材料中提炼方法和候选规则。</p>
-              </div>
-              <IconButton title="复制 Prompt" onClick={() => copy(researchPrompt)} icon={<FileText size={17} />} />
-            </div>
-            {researchPrompt ? <MarkdownBox value={researchPrompt} /> : <EmptyState text="生成任务后这里会显示研究 Prompt。" />}
-          </div>
-        </div>
-
-        <div className="space-y-5">
-          <form className="panel" onSubmit={saveIndustryLearning}>
-            <div className="mb-4">
-              <h2 className="section-title">保存学习材料</h2>
-              <p className="mt-1 text-sm text-ink/60">粘贴搜索结果、文章摘录或大模型总结，作为之后复盘和规则更新的依据。</p>
-            </div>
-            <input type="hidden" name="topic" value={draft.research?.topic || selected.industryKnowledgeResearches?.[0]?.topic || ""} readOnly />
-            <input type="hidden" name="searchScope" value={draft.research?.searchScope || selected.industryKnowledgeResearches?.[0]?.searchScope || ""} readOnly />
-            <Textarea name="rawResults" label="搜索结果 / 文章摘录" placeholder="粘贴小红书搜索结果、文章链接、专家观点摘录、案例拆解。" />
-            <Textarea name="summaryMarkdown" label="学习总结（可选）" placeholder="粘贴大模型整理后的方法论和规则候选。" />
-            <button type="submit" className="secondary-button mt-4">
-              <Save size={17} /> 保存学习材料
-            </button>
-          </form>
-
-          <div className="panel">
-            <h2 className="section-title">规则沉淀方式</h2>
-            <p className="mt-1 text-sm leading-6 text-ink/60">
-              行业学习材料会作为复盘参考保留；可复用规则仅由“专家复盘”自动生成并保存，避免手工 JSON 规则绕过账号级数量和启用状态限制。
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Input(props: {
   label: string;
   type?: React.HTMLInputTypeAttribute;
@@ -7149,18 +6255,6 @@ function safeJsonArray(value: string) {
   } catch {
     return [];
   }
-}
-
-function safeParseCommands(value: string) {
-  return safeJsonArray(value).filter(
-    (item): item is { category: string; command: string; description: string; safetyNote: string } =>
-      item &&
-      typeof item === "object" &&
-      typeof item.category === "string" &&
-      typeof item.command === "string" &&
-      typeof item.description === "string" &&
-      typeof item.safetyNote === "string"
-  );
 }
 
 function downloadText(filename: string, text: string) {

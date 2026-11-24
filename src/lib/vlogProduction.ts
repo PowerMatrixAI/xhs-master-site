@@ -1,5 +1,5 @@
 import { validateGenerationReference, validateNoGenerationReference } from "./vlogGenerationReference";
-import type { FeaturedVlogScript, FeaturedVlogFramePlan, FeaturedVlogResolution, MusicCandidate } from "./featuredVlog";
+import type { VlogScript, FeaturedVlogFramePlan, FeaturedVlogResolution, MusicCandidate } from "./featuredVlog";
 import type { VlogCharacterSelection } from "./vlogCharacters";
 import { VLOG_CHARACTERS } from "./vlogCharacters";
 import type { VlogAdaptation } from "./vlogCharacterAdaptation";
@@ -11,11 +11,11 @@ export type ProductionOptions = { confirm?: string; retryLost?: boolean; force?:
 export type VlogTaskResult = { openclawTask: { content: string; title: string }; videoPrompt: { content: string; title: string }; sceneReferences?: FeaturedVlogFramePlan };
 type Stage = { fingerprint: string; status: "pending" | "completed" | "failed" | "lost"; uuid?: string; result?: unknown; error?: string; assetIds?: string[]; model?: string };
 export type VlogProductionDraft = {
-  schemaVersion: 1; key: string; sourceHash: string; taskId: number; sourceScript: FeaturedVlogScript;
+  schemaVersion: 1; key: string; sourceHash: string; taskId: number; sourceScript: VlogScript;
   choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo?: boolean; stages: Partial<Record<ProductionStage, Stage>>;
   excludedMusicId?: number;
   confirmedFingerprint?: string; waitingConfirmation?: boolean; updatedAt: string; localSaveError?: string;
-  lastSuccess?: { taskId: number; script: FeaturedVlogScript; result: VlogTaskResult; at: string };
+  lastSuccess?: { taskId: number; script: VlogScript; result: VlogTaskResult; at: string };
 };
 export type ProductionContext = {
   template: { id: string; version?: number; referenceVideo?: unknown; referenceVideoId?: number };
@@ -40,7 +40,7 @@ export class VlogTaskLostError extends Error {}
 export class VlogStageFailedError extends Error {}
 const active = new Set<string>();
 export async function runVlogProduction(input: {
-  key: string; taskId: number; source: FeaturedVlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo?: boolean;
+  key: string; taskId: number; source: VlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo?: boolean;
   context?: ProductionContext; getContext?: () => Promise<ProductionContext>; existing?: VlogProductionDraft; options?: ProductionOptions;
   load?: () => Promise<VlogProductionDraft | undefined>;
   persist: (draft: VlogProductionDraft) => Promise<void>;

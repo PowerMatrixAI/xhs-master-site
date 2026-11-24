@@ -1,5 +1,5 @@
 import { validateGenerationReference, validateNoGenerationReference } from "./vlogGenerationReference";
-import type { FeaturedVlogScript, FeaturedVlogFramePlan, FeaturedVlogTemplate, MusicCandidate, FeaturedVlogResolution } from "./featuredVlog";
+import type { VlogScript, FeaturedVlogFramePlan, FeaturedVlogTemplate, MusicCandidate, FeaturedVlogResolution } from "./featuredVlog";
 import { validateVideoTimeline, videoTimelineDuration } from "./videoTimeline";
 import { validateVlogScenes } from "./vlogScene";
 import type { VlogSceneState } from "./vlogScene";
@@ -59,7 +59,7 @@ export function normalizeOmniCast(characters: unknown, shots: Array<Record<strin
   }
 }
 
-export function validateOmniScript(script: FeaturedVlogScript) {
+export function validateOmniScript(script: VlogScript) {
   if (script.photographyVersion !== undefined && script.photographyVersion !== 1) throw new Error("不支持的摄影设计版本。");
   if (script.productionVersion !== 3) throw new Error("缺少 Omni 脚本版本。");
   validateVideoTimeline(2, script.shots);
@@ -108,10 +108,11 @@ function executionDirection(d: ShotDirection) {
 }
 
 export function buildOmniTask(input: {
-  noteTask: { id: number };
+  noteTask?: { id: number };
+  productionId?: number;
   resolution?: FeaturedVlogResolution;
   characterSelection?: VlogCharacterSelection;
-  script: FeaturedVlogScript; framePlan: FeaturedVlogFramePlan; music: MusicCandidate;
+  script: VlogScript; framePlan: FeaturedVlogFramePlan; music: MusicCandidate;
   template: Pick<FeaturedVlogTemplate, "id" | "name" | "version" | "referenceVideoId" | "referenceVideo">; overallDirection: string; useReferenceVideo?: boolean;
 }) {
   validateOmniScript(input.script);
@@ -144,9 +145,10 @@ export function buildOmniTask(input: {
     sceneStyleReference: anchor ? { imageUrl: anchor.assetUrl } : undefined,
     script: { title: input.script.title, summary: input.script.summary, perspective: input.script.perspective },
     music: { id: input.music.id, name: input.music.name, tags: input.music.tags, durationSeconds: input.music.durationSeconds, audioUrl: input.music.audioUrl }, shots };
-  const dir = `.tasks/xhs-featured-vlog-${input.noteTask.id}`;
+  const executionId = input.productionId ? `production-${input.productionId}` : String(input.noteTask!.id);
+  const dir = `.tasks/xhs-featured-vlog-${executionId}`;
   return `# 精选Vlog Omni全能参考制作任务
-任务：${input.noteTask.id} · ${input.script.title}
+任务：${executionId} · ${input.script.title}
 ${shots.length}镜，预计${videoTimelineDuration(input.script.shots, 2)}秒，9:16，${resolution}生成；输出1080×1920/24fps${resolution === "720p" ? "（非原生1080p）" : "（原生1080p生成，不得以720p放大替代）"}，仅整片配乐。
 总长=镜头合计−叠化重叠；与标题差值≤3秒不阻塞、不询问，按原计划执行，不改镜头时长。
 ${styleVideo ? "参考地址见plan.styleVideo.url；--video使用prepare返回路径。" : "本任务关闭参考视频，仅使用场景图及适用的人物主体。"}

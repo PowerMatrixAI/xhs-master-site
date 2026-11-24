@@ -1,4 +1,4 @@
-import type { FeaturedVlogScript } from "./featuredVlog";
+import type { VlogScript } from "./featuredVlog";
 import { parseVlogBeatContent } from "./featuredVlogTemplateRules";
 
 export const VLOG_ASSET_SELECTION_RULES = "按镜头内容目标、场景、主体和必要动作选图，先判断图片能否承接内容。景别、机位、构图、运镜不是选图条件；不能仅因不符合参考拍法拒绝图片，也不能为了俯拍、航拍或环绕而改为generate。只有缺少内容匹配素材才生成，不能勉强使用内容不相关的图片。保留必要人物数量、设施与通行空间条件，但无需原图已含主角或动作；最终拍法由制作阶段查看实际图后确定，不凭文字分析声称已看图。";
@@ -18,7 +18,7 @@ export function vlogSelectionContent(value: string | undefined): string {
     .replace(/\s+/gu, " ").replace(/^[\s，,；;。]+|[\s，,；;]+$/gu, "").trim();
 }
 
-function contentState(state: FeaturedVlogScript["shots"][number]["startState"]) {
+function contentState(state: VlogScript["shots"][number]["startState"]) {
   if (!state) return undefined;
   return {
     location: vlogSelectionContent(state.location),
@@ -29,7 +29,7 @@ function contentState(state: FeaturedVlogScript["shots"][number]["startState"]) 
 }
 
 /** Whitelist content only; never forward direction, camera references or transitions. */
-export function featuredVlogForAssetSelection(script: FeaturedVlogScript) {
+export function featuredVlogForAssetSelection(script: VlogScript) {
   return {
     title: vlogSelectionContent(script.title),
     shots: script.shots.map(s => ({

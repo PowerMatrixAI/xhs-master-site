@@ -1,4 +1,4 @@
-import type { FeaturedVlogScript } from "./featuredVlog";
+import type { VlogScript } from "./featuredVlog";
 
 export const SUBJECT_ROLES = { action:"动作主体", scale:"环境尺度参照", life:"空间生活细节", foreground:"前景引导", pov:"主观体验", environment:"纯环境" };
 export const CAMERA_LABELS = { fixed:"固定观察", pan:"原地摇摄", track:"摄影机平移", push:"推进", pull:"拉远", follow:"跟随" };
@@ -13,7 +13,7 @@ pan指摄影机原地转动，track指摄影机平移，follow指跟随主体。
 输出前在本次请求内检查全片：避免连续三个相似人物比例/位置/作用，避免无理由连续三个fixed，避免重复主要动作。不是机械配额，细节静观可固定；合理重复应在camera.reason说明内容上的必要性。具体机位与运镜仍待全部实际场景图读完后确认，不虚构可用遮挡或路径。`;
 
 /** Conservative editorial hints, never a semantic pass/fail gate. */
-export function photographyHints(script: FeaturedVlogScript): string[] {
+export function photographyHints(script: VlogScript): string[] {
   const hints: string[] = [];
   const shots = script.shots;
   const normalized = (v?: string) => (v || "").replace(/[\s，。；、：,.!！?？]/g, "");

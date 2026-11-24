@@ -14,6 +14,7 @@ import {
   type FeaturedVlogFramePlan,
   type FeaturedVlogMotionPlan,
   type FeaturedVlogScript,
+  type VlogScript,
   type FeaturedVlogTemplate,
 } from "@/lib/featuredVlog";
 import type { BackendAiCredentials } from "@/lib/backendAiClient";
@@ -49,14 +50,14 @@ function stringArray(value: unknown) {
   return Array.isArray(value) ? Array.from(new Set(value.map((item) => String(item).trim()).filter(Boolean))) : [];
 }
 
-function requireScriptFields(parsed: Record<string, unknown> | null) {
+function requireScriptFields(parsed: Record<string, unknown> | null, production = false) {
   if (!parsed) throw new Error("后端 AI 未返回可解析的脚本 JSON 对象。");
   const issues: string[] = [];
   for (const key of ["title", "summary", "perspective"]) {
     if (!text(parsed[key])) issues.push(`缺少 ${key}`);
   }
   const note = parsed.noteTask && typeof parsed.noteTask === "object" ? parsed.noteTask as Record<string, unknown> : {};
-  for (const key of ["topicTitle", "contentGoal", "writingStyleName"]) {
+  for (const key of production ? [] : ["topicTitle", "contentGoal", "writingStyleName"]) {
     if (!text(note[key])) issues.push(`缺少 noteTask.${key}`);
   }
   if (!Array.isArray(parsed.shots) || parsed.shots.length < 3 || parsed.shots.length > 6) {
@@ -76,7 +77,8 @@ function requireScriptFields(parsed: Record<string, unknown> | null) {
   if (issues.length) throw new Error(`后端 AI 脚本字段校验失败：${issues.join("；")}。请重试生成。`);
 }
 
-export async function generateFeaturedVlogScript(input: {
+export async function generateFeaturedVlogScript<T extends boolean = false>(input: {
+  standalone?: T;
   account: Record<string, unknown>;
   noteTask: Record<string, unknown>;
   template: FeaturedVlogTemplate;
@@ -85,6 +87,7 @@ export async function generateFeaturedVlogScript(input: {
   knowledgeSnapshotId?: string;
   knowledgeSourceKeys?: string[];
 }) {
+  const production = input.standalone === true;
   const omni = omniEnabled();
   const timed = omni || videoTimelineV2Enabled();
   const response = await completeWithBackendAi({
@@ -112,8 +115,8 @@ ${omni ? VIDEO_SHOT_DESIGN.replace("简写在现有description/startState/主要
 - ${VLOG_REFERENCE_STYLE_RULE} 脚本阶段未读取实际视频，不声称已观看；仅在制作任务启用参考视频时由Omni接收。参考内容不能作为当前账号的业务事实。
 - 每镜描述需可视化，给出体验阶段、镜头职责、事件动作和适合使用的素材，不写生成图片或视频的技术操作步骤。
 - 输出整片情绪标签和配乐氛围标签，供后续从平台曲库匹配；不得指定、编造曲名或 URL。
-- noteTask 是现有周计划笔记字段，主题应描述这条视频的体验内容；writingStyleName 必须从可选文风中选一个精确名称。
-- JSON完整性优先于篇幅目标：不能为满足字数省略字段、镜头或返回半截JSON。title、summary、perspective及noteTask.topicTitle/contentGoal/writingStyleName必须为非空字符串。
+${production ? "- 输出独立视频脚本，不输出笔记字段或文风字段。" : "- noteTask 是现有周计划笔记字段，主题应描述这条视频的体验内容；writingStyleName 必须从可选文风中选一个精确名称。"}
+- JSON完整性优先于篇幅目标：不能为满足字数省略字段、镜头或返回半截JSON。title、summary、perspective${production ? "" : "及noteTask.topicTitle/contentGoal/writingStyleName"}必须为非空字符串。
 - 每镜order必须为连续数字1至N；beat、role、description、suggestedMaterial必须分别返回非空字符串，不能只返回mainAction或起止状态来替代这些字段。
 - subjectPresence仅允许三个英文值：pov（第一人称，包含主观手部特写）、traveler（第三人称人物入镜，包含人物局部）、environment（纯环境）。不得返回hands、front、profile或中文视角；这些人物朝向/局部信息只填在状态characters[].view中。
 - 回复前自检3-6镜头、必填字段和枚举，以及人物/时间线结构；只输出一个完整JSON对象，不省略为“同上”、省略号或Markdown说明。
@@ -132,8 +135,7 @@ ${JSON.stringify({
   strategy: input.account.strategy
 }, null, 2)}
 
-当前周计划视频笔记：
-${JSON.stringify({ topicTitle: input.noteTask.topicTitle, contentGoal: input.noteTask.contentGoal, requiredMaterials: input.noteTask.requiredMaterials }, null, 2)}
+${production ? "制作目标：围绕所选模板表现当前民宿及目的地体验。" : `当前周计划视频笔记：\n${JSON.stringify({ topicTitle: input.noteTask.topicTitle, contentGoal: input.noteTask.contentGoal, requiredMaterials: input.noteTask.requiredMaterials })}`}
 
 平台模板：
 ${JSON.stringify(featuredVlogTemplateForPlanning(input.template), null, 2)}
@@ -141,7 +143,7 @@ ${JSON.stringify(featuredVlogTemplateForPlanning(input.template), null, 2)}
 用户补充要求：
 ${input.extraRequirements || "无"}
 
-可选文风名称：${input.availableWritingStyles.join("、")}
+${production ? "" : `可选文风名称：${input.availableWritingStyles.join("、")}`}
 
 ${omni ? '无人示例：subjectPresence="environment"，startState={location:"山谷",characters:[],props:[]}，mainAction="云雾流过山谷"，endState={location:"山谷",characters:[],props:[]}，characterChanges=[]。全片可无人；仅体验动作需人物时使用下方A的字段示例，不照抄为每镜出人。' : ''}
 
@@ -151,7 +153,7 @@ ${JSON.stringify({
   ...(omni ? { productionVersion: 3, photographyVersion: 1, characterSelection: "unassigned" } : {}),
   characters: [{ id: "A", appearance: omni ? "游客A，具体外观在第二步选择" : "默认20-30岁成年女性，五官、发型、服装固定；明确模版人物设定优先", props: ["按剧情安排的必要道具"] }],
   title: "视频脚本标题", summary: "脚本概要", perspective: "叙事视角", moodTags: ["整片情绪标签"], musicTags: ["配乐标签"],
-  noteTask: { topicTitle: "本周笔记主题", contentType: "精选Vlog视频", contentGoal: "用具体画面表达模版的体验主题", targetUser: "目标观众", painPoint: "观众需求", coreView: "视频核心表达", requiredMaterials: "所需场景", recommendedAssets: "素材类型", coverCopyDirection: "封面方向", commentHook: "交流切入点", expectedGoal: "预期感受", writingStyleName: "精确文风名称" },
+  ...(production ? {} : { noteTask: { topicTitle: "本周笔记主题", contentType: "精选Vlog视频", contentGoal: "用具体画面表达模版的体验主题", targetUser: "目标观众", painPoint: "观众需求", coreView: "视频核心表达", requiredMaterials: "所需场景", recommendedAssets: "素材类型", coverCopyDirection: "封面方向", commentHook: "交流切入点", expectedGoal: "预期感受", writingStyleName: "精确文风名称" } }),
   shots: [{ order: 1, beat: "体验环节", role: "镜头职责", description: "具体事件摘要", suggestedMaterial: "可用素材建议", subjectPresence: "traveler",
     startState: { location: "客房", characters: [{ id: "A", position: "门口", pose: "刚入室，目光观察环境", view: "front" }], props: omni ? [] : ["背包在游客身上"] },
     mainAction: "同一游客从门口走到窗边停步",
@@ -164,7 +166,7 @@ ${JSON.stringify({
   });
   if (!response.ok) throw new Error(`后端 AI 未能生成精选vlog脚本：${response.error}`);
   const parsed = extractJson(response.text);
-  requireScriptFields(parsed);
+  requireScriptFields(parsed, production);
   const rawTask = parsed?.noteTask && typeof parsed.noteTask === "object" ? parsed.noteTask as Record<string, unknown> : {};
   const rawShots = Array.isArray(parsed?.shots) ? parsed.shots : [];
   if (omni) normalizeOmniCast(parsed?.characters, rawShots);
@@ -218,7 +220,7 @@ ${JSON.stringify({
   if (!title || !summary || !perspective || shots.length < 3 || shots.length > 6 || shots.some((shot) => !shot)) {
     throw new Error("后端 AI 返回的精选vlog脚本不完整，请重试。");
   }
-  if (!input.availableWritingStyles.includes(writingStyleName)) throw new Error("精选vlog脚本未选择有效的账号文风，请重新生成。");
+  if (!production && !input.availableWritingStyles.includes(writingStyleName)) throw new Error("精选vlog脚本未选择有效的账号文风，请重新生成。");
   const noteTask: FeaturedVlogScript["noteTask"] = {
     topicTitle: text(rawTask.topicTitle),
     contentType: "精选Vlog视频",
@@ -235,11 +237,11 @@ ${JSON.stringify({
     writingStyleReference: "",
     knowledgeSourceKeys: input.knowledgeSourceKeys || []
   };
-  if (!noteTask.topicTitle || !noteTask.contentGoal) throw new Error("后端 AI 返回的精选vlog笔记信息不完整，请重试。");
+  if (!production && (!noteTask.topicTitle || !noteTask.contentGoal)) throw new Error("后端 AI 返回的精选vlog笔记信息不完整，请重试。");
   if (omni && !Array.isArray(parsed.characters)) throw new Error("脚本缺少游客出镜结构，请重新生成。");
-  const script: FeaturedVlogScript = {
+  const script = {
     ...(omni ? { productionVersion: 3 as const, photographyVersion: 1 as const, characterSelection: "unassigned" as const, genericCharacterVersion: 1 as const } : {}),
-    sceneVersion: 1,
+    sceneVersion: 1 as const,
     characters: omni ? (parsed.characters as VlogCharacter[]).map(c => ({ ...c, appearance: "游客A，具体外观在第二步选择" })) : parsed.characters as VlogCharacter[],
     ...(timed ? { timingVersion: 2 as const } : {}),
     title,
@@ -247,7 +249,7 @@ ${JSON.stringify({
     perspective,
     moodTags: stringArray(parsed?.moodTags),
     musicTags: stringArray(parsed?.musicTags),
-    noteTask,
+    ...(production ? {} : { noteTask }),
     shots: shots as FeaturedVlogScript["shots"]
   };
   if (omni) {
@@ -255,11 +257,11 @@ ${JSON.stringify({
     if (parsed.photographyVersion !== 1) throw new Error("后端AI遗漏摄影设计版本，请重试。");
     validateOmniScript(script);
   }
-  return { script, model: response.model, calls: aiCalls };
+  return { script: script as T extends true ? VlogScript : FeaturedVlogScript, model: response.model, calls: aiCalls };
 }
 
 export async function planFeaturedVlogFrames(input: {
-  script: FeaturedVlogScript;
+  script: VlogScript;
   template: FeaturedVlogTemplate;
   assets: VideoSourceAsset[];
   credentials: BackendAiCredentials;
@@ -353,7 +355,7 @@ ${JSON.stringify(candidates.map(({ fileUrl: _url, ...item }) => item), null, 2)}
   return { overallDirection: text(parsed?.overallDirection) || "按脚本形成真实、连贯的民宿体验 Vlog。", framePlan: framePlan as FeaturedVlogFramePlan, model: response.model, calls: selection.calls + 1 };
 }
 
-async function planOmniScenes(input: { script: FeaturedVlogScript; template: FeaturedVlogTemplate; credentials: BackendAiCredentials }, candidates: VideoAssetReference[], calls: number) {
+async function planOmniScenes(input: { script: VlogScript; template: FeaturedVlogTemplate; credentials: BackendAiCredentials }, candidates: VideoAssetReference[], calls: number) {
   validateOmniScript(input.script);
   const response = await completeWithBackendAi({ credentials: input.credentials,
     instructions: "你是精选Vlog场景参考选图师。只读取文字分析，不声称看过实际图片。只输出JSON。",
@@ -377,7 +379,7 @@ async function planOmniScenes(input: { script: FeaturedVlogScript; template: Fea
 }
 
 export async function planFeaturedVlogMotion(input: {
-  script: FeaturedVlogScript;
+  script: VlogScript;
   framePlan: FeaturedVlogFramePlan;
   expertRules?: string;
   credentials: BackendAiCredentials;
@@ -435,7 +437,7 @@ ${input.expertRules || "暂无。"}
 export async function selectFeaturedVlogMusic(input: {
   excludedMusicId?: number;
   accountId: number;
-  script: FeaturedVlogScript;
+  script: VlogScript;
   credentials: BackendAiCredentials;
 }) {
   const candidates = await fetchMusicCandidatesFromBackend(input.accountId, input.credentials);
@@ -482,7 +484,7 @@ ${JSON.stringify(musicCandidates, null, 2)}
   return { music: selected, reason: text(parsed?.reason), model: response.model };
 }
 
-export async function adaptFeaturedVlogCharacter(input: { script: FeaturedVlogScript; characterSelection?: VlogCharacterSelection; credentials?: BackendAiCredentials }) {
+export async function adaptFeaturedVlogCharacter(input: { script: VlogScript; characterSelection?: VlogCharacterSelection; credentials?: BackendAiCredentials }) {
   const choice = vlogCharacterSelection(input.characterSelection);
   validateOmniScript(input.script);
   const direct = directVlogBinding(input.script, choice);
@@ -510,7 +512,7 @@ export function buildFeaturedVlogVideoTask(input: {
   account: { name: string; accountParam: string };
   noteTask: { id: number; topicTitle: string };
   template: FeaturedVlogTemplate;
-  script: FeaturedVlogScript;
+  script: VlogScript;
   framePlan: FeaturedVlogFramePlan;
   motionPlan: FeaturedVlogMotionPlan;
   music: MusicCandidate;
