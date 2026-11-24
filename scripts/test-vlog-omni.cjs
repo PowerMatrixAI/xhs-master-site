@@ -286,7 +286,7 @@ async function main() {
   assert.ok(!('noteTask' in plan), 'execution plan must not contain any noteTask object');
   assert.ok(!task.includes('账号：'));
   assert.ok(!JSON.stringify(plan).includes('selectionReason'), 'selection rationale stays in console, not execution instructions');
-  for (const instruction of ['plan.shots[].direction仅为暂定拍法', '看完本片全部实际图片', '不锁死原图裁切与机位', 'cameraMovement分别写起幅', 'request.arguments.prompt必须等于refinement.prompt', '不直接执行或拼接plan.direction', '核心动作无法成立时停止报告', '不能替代读图', '用户接受偏差仍保留说明']) {
+  for (const instruction of ['plan.shots[].direction仅为暂定拍法', '看完本片全部实际图片', '不锁死原图裁切与机位', 'cameraMovement分别写起幅', 'request.arguments.prompt必须等于refinement.prompt', '不直接执行或拼接plan.direction', 'sceneReview.decision=accepted_after_retry_limit', 'videoReviewRetriesUsed=1', 'video_retry_limit', '不能替代读图', '用户接受偏差仍保留说明', 'query_tasks 原ID --poll=120', '不能报failed或重投', 'status=running']) {
     assert.ok(task.includes(instruction), instruction);
   }
   assert.equal(plan.shots[0].direction.camera.type, script.shots[0].direction.camera.type, 'original plan remains unchanged; adaptation belongs in refinement');

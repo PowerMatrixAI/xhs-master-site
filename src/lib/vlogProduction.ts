@@ -1,3 +1,5 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { validateGenerationReference, validateNoGenerationReference } from "./vlogGenerationReference";
 import type { FeaturedVlogScript, FeaturedVlogFramePlan, FeaturedVlogResolution, MusicCandidate } from "./featuredVlog";
 import type { VlogCharacterSelection } from "./vlogCharacters";
@@ -28,8 +30,8 @@ export function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 export async function productionHash(value: unknown) {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stableJson(value)));
-  return [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2,"0")).join("");
+  // Keep persisted SHA-256 fingerprints identical on HTTP origins without Web Crypto.
+  return bytesToHex(sha256(new TextEncoder().encode(stableJson(value))));
 }
 export function productionScope(user: number | string, environment: string, account: number, template: string) { return JSON.stringify([user, environment, account, template]); }
 export function productionScript(draft?: VlogProductionDraft): VlogAdaptation | undefined {

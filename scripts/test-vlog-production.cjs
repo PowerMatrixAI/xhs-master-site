@@ -3,15 +3,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
-const { webcrypto } = require('node:crypto');
-const cache = new Map();
-function load(file) {
+const { createHash, webcrypto } = require('node:crypto');
+function createLoader(cryptoGlobals) {
+ const cache = new Map();
+ function load(file) {
   if (cache.has(file)) return cache.get(file);
   const module = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
-    { module,exports:module.exports,process,URL,crypto:webcrypto,TextEncoder,structuredClone, require:id=>id.startsWith('.') ? load(path.join(path.dirname(file),id+'.ts')) : id.startsWith('@/') ? load('src/'+id.slice(2)+'.ts') : require(id) });
+    { module,exports:module.exports,process,URL,...cryptoGlobals,TextEncoder,structuredClone, require:id=>id.startsWith('.') ? load(path.join(path.dirname(file),id+'.ts')) : id.startsWith('@/') ? load('src/'+id.slice(2)+'.ts') : require(id) });
   cache.set(file,module.exports);return module.exports;
+ }
+ return load;
 }
+// Run the production/recovery workflow in the same API conditions as an HTTP page.
+const load = createLoader({ crypto: {} });
 const production=load('src/lib/vlogProduction.ts');
 const adaptation=load('src/lib/vlogCharacterAdaptation.ts');
 const omni=load('src/lib/featuredVlogOmni.ts');
@@ -20,6 +25,17 @@ const state=people=>({location:'庭院',characters:people?[{id:'A',position:'石
 const source={productionVersion:3,timingVersion:2,sceneVersion:1,genericCharacterVersion:1,characterSelection:'unassigned',title:'庭院周末',summary:'观察庭院与树林',perspective:'旁观',moodTags:['自然'],musicTags:['轻松'],noteTask:{topicTitle:'庭院'},characters:[{id:'A',appearance:'游客A',props:[]}],shots:[1,2,3].map(order=>({order,beat:'观察',role:'发现自然',description:'庭院景色',suggestedMaterial:'庭院',subjectPresence:order===2?'traveler':'environment',startState:state(order===2),endState:state(order===2),mainAction:order===2?'游客观察树林':'树叶摇动',characterChanges:[],continuityNote:'自然衔接',duration:7,transitionToNext:order===3?null:{type:'cut',duration:0,reason:'衔接',outgoingState:'树木',incomingState:'庭院'},direction:{focus:'自然',photography:{scale:'全景',height:'平视',angle:'侧面',composition:'偏左',depth:'前景树木'},camera:{type:'fixed',direction:'正面',speed:'静止',extent:'不移动'},action:'观察',timing:[{start:0,end:7,action:'观察'}],ending:'停留'}}))};
 const context={template:{id:'t',version:1,referenceVideoId:1,referenceVideo:{id:1,version:1,name:'风格',videoUrl:'https://example.com/style.mp4'}},assets:[1,2,3].map(id=>({id,fileUrl:`https://example.com/${id}.jpg`,filePath:`${id}.jpg`,aiAnalysis:'庭院',tags:'自然'})),music:[{id:1,name:'音乐',tags:['自然'],durationSeconds:30,audioUrl:'https://example.com/music.mp3'}]};
 async function main(){
+  const hashFixtures = [undefined, null, '', '精选Vlog：庭院🌿', { z: [1, null, '雪'], a: '首帧', unused: undefined },
+    ...[55, 56, 63, 64, 65, 128, 1000].map(n => 'x'.repeat(n)), source];
+  for (const cryptoGlobals of [{ crypto: webcrypto }, { crypto: {} }, {}]) {
+    const candidate = createLoader(cryptoGlobals)('src/lib/vlogProduction.ts');
+    for (const fixture of hashFixtures) {
+      const expected = createHash('sha256').update(candidate.stableJson(fixture), 'utf8').digest('hex');
+      assert.equal(await candidate.productionHash(fixture), expected, 'fingerprints must match existing SHA-256 with or without Web Crypto');
+    }
+    assert.equal(await candidate.productionHash({ b: 2, a: 1 }), await candidate.productionHash({ a: 1, b: 2 }));
+  }
+  console.log('Production fingerprints: HTTPS, missing subtle and missing crypto match existing SHA-256, including Unicode and block boundaries.');
   process.env.FEATURED_VLOG_OMNI_ENABLED='true';
   let persisted, saves=0, counts={}, failMusic=false, failSave=false, pendingMusic=false, lost=false;
   const key=production.productionScope(1,'test',2,'t');

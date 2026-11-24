@@ -159,25 +159,25 @@ ${JSON.stringify(plan)}
 \`\`\`
 
 ## 准备与读图细化
-environment无人，不传elements或主体引用；原图有人先处理或报告。仅可见人物/手部或入场时绑定。主体仅锁定身份外观，允许小比例、偏侧、局部、遮挡、虚化，不要求居中全身或露脸。
+environment无人，不传elements或主体引用；原图有人按下述场景编辑规则处理。仅可见人物/手部或入场时绑定。主体仅锁定身份外观，允许小比例、偏侧、局部、遮挡、虚化，不要求居中全身或露脸。
 plan.shots[].direction仅为暂定拍法；不改原始plan.json及sourceHash，最终设计记resolved-plan.json的refinement。
 1. 执行 uv run python scripts/cli.py featured-vlog prepare --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。下载场景及配乐；${styleVideo ? "参考视频3–10秒保留，超过截前10秒，不足3秒报错；" : ""}禁用静态回退/Turbo。
-2. generate缺图非阻塞：${plan.sceneGenerationVersion === 1 && shots.some(s=>s.sceneReference.source === "generate") ? "按Skill逐镜generationReference实际读图后必须edit-image传参考图；遵循relationship及preserve/changes，生成无人场景。无参考仅allowGeneric=true可文生图，失败不降级。记录sceneGeneration真实输入/输出哈希与请求；全片风格锚点不替代场景参考。" : "按描述generate-image生成无人场景；sceneStyleReference可经edit-image统一背景质感。"}结果local_path复制到scenePath，无需询问。asset不先加人或重绘场地；纯环境原图有人时仅去人保场地或停止报告，处理后重新读图。
-3. 备齐后实际读图，核对空间/人员/光向/画幅；工具失败换已配置查看能力，均不可用才报告；尺寸/亮度/哈希不能替代读图。
-4. 看完本片全部实际图片再统筹人物作用、比例、景别、焦点和节奏，避免重复人像或无理由固定。拍法可调整，不锁死原图裁切与机位，不补造未知房间、建筑背面或路线。核心动作无法成立时停止报告；保留主题、事件、顺序、时长、身份、人数和转场。
+2. generate缺图非阻塞：${plan.sceneGenerationVersion === 1 && shots.some(s=>s.sceneReference.source === "generate") ? "按Skill逐镜generationReference实际读图后必须edit-image传参考图；遵循relationship及preserve/changes，生成无人场景。无参考仅allowGeneric=true可文生图，失败不降级。记录sceneGeneration真实输入/输出哈希与请求；全片风格锚点不替代场景参考。" : "按描述generate-image生成无人场景；sceneStyleReference可经edit-image统一背景质感。"}结果local_path复制到scenePath，无需询问。asset不先加人或重绘场地；纯环境原图有人时按场景编辑规则去人保场地并复查。
+3. 实际读图核对空间/人员/光线/构图；不通过按原因edit-image最多编辑2次，用失败图及原参考，提前通过即继续；2次后sceneReview.decision=accepted_after_retry_limit放行。保留checks/repairRetriesUsed不清零；元数据不能替代读图。
+4. 看完本片全部实际图片再统筹人物作用/比例、景别、焦点和节奏，不锁死原图裁切与机位，不补造未知房间、建筑背面或路线。按图调整拍法，保留原脚本与时间线；已放行偏差不阻塞。
 5. 人物默认正常实时速度，明确慢动作要求除外；按图细化动机、必要动作链、完成时间和后续状态，不拉长短动作填满镜头，不新增活动或改时长。情绪与运镜速度不代替人物速度。imageObservations记实际空间；cameraMovement分别写起幅、方向/速度/范围、终幅、变化及理由。pan原地摇摄，track平移；人物运动不代替运镜，慢不等于微动，固定说明目的。细化透视/接触/遮挡/光向/投影/景深；constraints仅写适用边界。分写动作、时间、endingState，prompt只用最终设计。
 
 ## Kling CLI生成与记录
-按需一次确认官方CLI版本、授权与实时参数，可复用已确认信息。主体仅校验ID和类型，不审计名称、引用格式或人物代号。
+复用CLI版本/授权/参数。主体仅校验ID和类型。
 填好refinement、拟提交request和sceneSha256，photographySummary简述全片摄影。执行 uv run python scripts/cli.py featured-vlog preflight --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}"。免费检查，不调用AI/Kling；据实修复并通过后提交，不等待“继续”。
 每镜 kling omni_ref_video --model kling-video-v3_0_omni；--image传scenePath${styleVideo ? "、--video传styleVideoPath" : "；省略--video及request.inputs.video_1"}，本地自动上传。${hasPeople && character ? `A参与（含入场/手部）时--elements传JSON字符串且prompt用<<<${character.id}>>>，无人省略。主体约束身份服装；` : "全片无人，不绑定人物，不生成其他人物或手部。"}${styleVideo ? VLOG_REFERENCE_STYLE_RULE : ""} 显式传resolution=${resolution}、9:16、单条、关闭音频/原声/智能分镜；不支持停止，不降级。时长max(3,ceil(duration))<=10，动作按时完成，内部切镜不通过。
---poll 0单次提交，保存CLI回执；ok=true后立即记录body.generationId及creditsConsumed，再用 kling query_tasks 实际ID查询，从成功works取视频地址。失败/超时续查原ID，不重投、不改模型；报价以当前入口为准。
+--poll 0单次提交，回执/ID/额度落盘。用 kling query_tasks 原ID --poll=120，terminal超时≥180秒；RUNNING/QUEUING/unknown/timedOut续查原ID，不能报failed或重投；COMPLETED即下载。时限交接status=running。
 request.arguments.prompt必须等于refinement.prompt，不直接执行或拼接plan.direction。按Skill记录model、arguments/inputs、argv、submitResponse；elements为数组，输入为实际CLI路径，argv从kling、omni_ref_video开始，不记凭据。
-下载片段到clipPath并写clipSha256，批次观察人物/动作/运镜/起终构图变化及场景稳定。轻微偏差记录后继续，visualReview.passed=true表示可用于本片，不代表逐字实现。关键缺陷保留passed=false，继续处理其他独立镜头；超出授权的付费重做合并询问一次。用户接受偏差仍保留说明，以acceptedDeviation={reason,source}记录明确接受，不豁免技术错误。远景、局部、虚化前景按本镜目的判断，不设统一清晰正脸要求。实际起始抽帧经飞书交付，标注镜号及“视频起始画面预览”，不等待逐镜批准。
+片段下载到clipPath，记录clipSha256并实际观看。轻微偏差记录后继续；不通过只重做该镜1次：记录videoReviewRetriesUsed=1；原任务结束后reset归档，修订提示词、预检并单次重做。之后直接通过；残留偏差保留visualReview.passed=false及notes，acceptedDeviation={policy:"video_retry_limit",reason:"一次重做后放行及实际偏差",source:"用户授权固定重试规则"}。不重投未决任务，不豁免技术错误；用户接受偏差仍保留说明。
 
 ## 后期与交付
 全部镜头验收后执行 uv run python scripts/cli.py featured-vlog render --plan-file "$PWD/${dir}/plan.json" --work-dir "$PWD/${dir}" --output "$PWD/${dir}/final.mp4" --size 1080x1920。
-执行器接收外部片段并裁切、转场、统一帧率、配乐，无TTS。重置前确认生成终态；reset使用同一plan/work-dir及--shots两位镜号，保留原片。
-连续观看成片核对主题、动作、转场及身份道具。通过后飞书发送MP4；失败报告，不以路径代交付。
+后期裁切、转场、统一帧率、仅配乐。reset仅用于终态，保留原片；同一plan/work-dir，--shots两位镜号。
+观看成片沿用已放行结论，不重置次数；技术验收后交付MP4。
 整片方向：${input.overallDirection}`;
 }
