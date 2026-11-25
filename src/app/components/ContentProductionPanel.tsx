@@ -5,7 +5,7 @@ import { createXhsRequestId } from "@/lib/xhs-signature";
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
 import { fetchFeaturedVlogTemplates, type FeaturedVlogTemplate, type VlogScript } from "@/lib/featuredVlog";
 import { getProduction, listProductions, saveProduction, videoAccountContext, type ContentProduction, type ProductionUpdate } from "@/lib/contentProductions";
-import { VLOG_CHARACTERS, type VlogCharacterSelection } from "@/lib/vlogCharacters";
+import { type VlogCharacterSelection } from "@/lib/vlogCharacters";
 import { runVlogProduction, productionScope, productionScript, VlogTaskLostError, VlogStageFailedError, type ProductionOptions, type ProductionContext, type VlogTaskResult } from "@/lib/vlogProduction";
 import { readVlogProduction, writeVlogProduction } from "@/lib/vlogProductionStore";
 import { submitMediaGeneration } from "@/lib/mediaTasks";
@@ -15,6 +15,8 @@ import type { VideoSourceAsset } from "@/lib/videoPrompts";
 
 import { FeaturedVlogTemplatePicker } from "./FeaturedVlogTemplatePicker";
 import { FeaturedVlogScriptDetails } from "./FeaturedVlogScriptDetails";
+import { FeaturedVlogCharacterSettings } from "./FeaturedVlogCharacterSettings";
+import { FeaturedVlogResolutionSettings } from "./FeaturedVlogResolutionSettings";
 import { ReferenceVideoPreview } from "./ReferenceVideoPreview";
 import { fetchVlogTagCatalog } from "@/lib/vlogTagCatalog";
 import type { VlogTagDimension } from "@/lib/featuredVlogTags";
@@ -34,6 +36,8 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
   const [extra, setExtra] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [videoProgress, setVideoProgress] = useState("");
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [loadVersion, setLoadVersion] = useState(0);
@@ -113,10 +117,11 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
     return saved;
   }
   async function perform(fn: () => Promise<unknown>) {
-    if (busy) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true); setError("");
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "操作失败"); }
-    finally { setBusy(false); }
+    finally { busyRef.current = false; setBusy(false); setVideoProgress(""); }
   }
   async function generateScript() {
     const template = templates.find(t => t.id === (work?.templateId || templateId));
@@ -129,12 +134,14 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
     await update({ title: result.script.title, script: result.script, confirmed: false, templateVersion: template.version, templateSnapshot: template, extraRequirements: extra, knowledgeSnapshotId });
   }
   async function makeTask(options?: ProductionOptions, online = false) {
+    setVideoProgress("正在检查制作资源…");
     if (!current.current?.confirmed || !current.current.script) throw new Error("请先确认脚本。");
     const source = current.current;
     const draft = await runVlogProduction({
       key: scope, taskId: source.id, source: source.script!, ...source.settings, choice: source.settings.character,
-      options, getContext: () => action<ProductionContext>("featured_vlog_context"),
+      options: options || (online ? { retryLost: true } : undefined), getContext: () => action<ProductionContext>("featured_vlog_context"),
       load: () => readVlogProduction(scope), persist: writeVlogProduction,
+      progress: stage => setVideoProgress(({ adapt: "正在适配人物与镜头…", frames: "正在选择场景参考图…", music: "正在选择配乐…", build: "正在组装制作指令…", save: "正在保存制作方案…" })[stage]),
       request: (name, body, pending, resume) => action(name, body, pending, resume),
       save: async result => {
         const match = result.openclawTask.content.match(/```json\n([\s\S]*?)\n```/);
@@ -152,6 +159,7 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
     }
     const fingerprint = JSON.stringify([saved.id, saved.revision, saved.result.openclawTask.content]);
     if (submitKey.current?.fingerprint !== fingerprint) submitKey.current = { fingerprint, id: createXhsRequestId() };
+    setVideoProgress("正在提交视频制作任务…");
     const job = await submitMediaGeneration({ source: "production", productionId: saved.id, productionRevision: saved.revision,
       accountId: saved.accountId, kind: "video", mode: "featured_vlog", assetIds: [], prompt: saved.result.openclawTask.content,
       options: { ...saved.settings, plan: saved.plan } }, submitKey.current.id);
@@ -198,16 +206,13 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
       {!work.confirmed && <button disabled={busy} className="primary-button mt-4" onClick={() => void perform(() => update({ confirmed: true }))}>确认脚本</button>}
     </div>}
     {work?.confirmed && work.script && <div className="panel"><h3 className="section-title">第二步：生成完整视频任务</h3><p className="mt-2 text-sm text-ink/60">系统依据图片分析选择场景参考和配乐。智能体查看实际图片后细化动作、光线与运镜，使用 Omni 全能参考制作视频，再完成转场和整片配乐。</p>
-      <div className="mt-4 flex flex-wrap gap-4">
-        <label>人物形象 <select disabled={busy} value={work.settings.character} onChange={e => void perform(() => update({ settings: { ...work.settings, character: e.target.value as VlogCharacterSelection } }))}>
-          <option value="none">不添加人物</option>{Object.entries(VLOG_CHARACTERS).map(([id,c]) => <option key={id} value={id}>{c.bindName}</option>)}
-        </select></label>
-        <label>生成清晰度 <select disabled={busy} value={work.settings.resolution} onChange={e => void perform(() => update({ settings: { ...work.settings, resolution: e.target.value as "720p" | "1080p" } }))}><option value="720p">720P</option><option value="1080p">1080P</option></select></label>
-        <label><input type="checkbox" disabled={busy} checked={work.settings.useReferenceVideo} onChange={e => void perform(() => update({ settings: { ...work.settings, useReferenceVideo: e.target.checked } }))} /> 使用模板参考视频</label>
-      </div>
-      <p className="mt-2 text-xs text-ink/55">按模板决定人物出镜，不会每镜都添加人物；选择“不添加人物”时适配为纯环境视频。最终文件均为1080×1920；720P会放大输出，1080P直接生成高清，可能增加费用。参考视频默认关闭。</p>
-      <VlogProductionPanel scope={scope} endpoint={endpoint} script={work.script} choice={work.settings.character} resolution={work.settings.resolution} useReferenceVideo={work.settings.useReferenceVideo} disabled={busy} onContinue={options => void perform(() => makeTask(options))} />
-      <button className="primary-button mt-4" disabled={busy} onClick={() => void perform(() => makeTask(undefined, true))}>生成视频并保存</button>
+      <FeaturedVlogCharacterSettings value={work.settings.character} disabled={busy} onChange={character => void perform(() => update({settings:{...work.settings,character}}))} />
+      <FeaturedVlogResolutionSettings omni value={work.settings.resolution} disabled={busy} onChange={resolution => void perform(() => update({settings:{...work.settings,resolution}}))} />
+      <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy} checked={work.settings.useReferenceVideo} onChange={e => void perform(() => update({settings:{...work.settings,useReferenceVideo:e.target.checked}}))} />使用模板参考视频（默认关闭）</label>
+      <VlogProductionPanel hideTaskActions scope={scope} endpoint={endpoint} script={work.script} choice={work.settings.character} resolution={work.settings.resolution} useReferenceVideo={work.settings.useReferenceVideo} disabled={busy} onContinue={options => void perform(() => makeTask(options, true))} />
+      {error && <p role="alert" className="mt-3 rounded border border-coral/25 bg-coral/5 p-3 text-sm text-coral">{error}</p>}
+      {busy && videoProgress && <p role="status" aria-live="polite" className="mt-3 text-sm text-teal">{videoProgress} 任务准备完成后会自动提交，请勿重复点击。</p>}
+      <button className="primary-button mt-4" disabled={busy} aria-busy={busy} onClick={() => void perform(() => makeTask(undefined, true))}>{busy ? videoProgress || "正在处理…" : "生成视频并保存"}</button>
     </div>}
     {work?.effectiveScript && <details className="panel"><summary>上次保存的实际制作脚本</summary><VlogPhotographyOverview script={work.effectiveScript} />{work.effectiveScript.shots.map(shot => <p key={shot.order} className="mt-2">镜头{shot.order} · {shot.description} · {shot.mainAction}</p>)}</details>}
     {work?.result && <div className="panel"><h3 className="section-title">已保存的制作指令</h3><p className="text-xs text-ink/60">修改脚本或设置后，请重新生成指令。</p><button className="secondary-button my-2" onClick={() => void perform(() => navigator.clipboard.writeText(work.result!.openclawTask.content))}>复制指令</button><textarea readOnly className="code-textarea min-h-64" value={work.result.openclawTask.content} /></div>}

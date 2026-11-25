@@ -7,8 +7,9 @@ import { readVlogProduction, writeVlogProduction, VLOG_PRODUCTION_EVENT } from "
 import { authenticatedFetch } from "@/lib/api";
 import { VlogPhotographyOverview } from "./VlogPhotographyOverview";
 
-export function VlogProductionPanel({ scope, endpoint, script, choice, resolution, useReferenceVideo, disabled, onContinue }: {
+export function VlogProductionPanel({ scope, endpoint, script, choice, resolution, useReferenceVideo, disabled, onContinue, hideTaskActions = false }: {
   scope: string; endpoint?: string; script: VlogScript; choice: VlogCharacterSelection; resolution: FeaturedVlogResolution; useReferenceVideo: boolean;
+  hideTaskActions?: boolean;
   disabled: boolean; onContinue: (options: ProductionOptions) => void;
 }) {
   const [draft, setDraft] = useState<VlogProductionDraft>();
@@ -63,8 +64,8 @@ export function VlogProductionPanel({ scope, endpoint, script, choice, resolutio
     </>}
     {sameScript && draft && <ul className="mt-3 space-y-1 text-xs">{Object.entries(draft.stages).map(([key,stage])=><li key={key}>{({ adapt:"制作脚本",frames:"场景选图",music:"配乐选择",build:"任务指令",save:endpoint ? "保存作品" : "保存笔记" } as Record<string,string>)[key]}：{({ pending:"处理中，可继续查询",completed:"已完成",failed:"失败，可重试",lost:"任务状态已丢失" })[stage!.status]}{stage!.error && ` · ${stage!.error}`}</li>)}</ul>}
     <div className="mt-3 flex flex-wrap gap-2">
-      {needsConfirmation ? <button className="primary-button" disabled={disabled} onClick={()=>onContinue({confirm:draft?.stages.adapt?.fingerprint})}>采用此制作脚本并继续</button> : <button className="primary-button" disabled={disabled} onClick={()=>onContinue({retryLost:!!lost,saveOnly})}>{disabled ? "正在处理…" : !sameScript ? "生成精选Vlog任务" : lost ? "重新执行丢失阶段" : saveOnly ? "重试保存" : "继续生成 / 更新任务指令"}</button>}
-      {adaptation && !needsConfirmation && <><button className="secondary-button" disabled={disabled} onClick={()=>onContinue({force:"frames"})}>重新选图</button><button className="secondary-button" disabled={disabled} onClick={()=>onContinue({force:"music"})}>重新选曲</button></>}
+      {needsConfirmation ? <button className="primary-button" disabled={disabled} onClick={()=>onContinue({confirm:draft?.stages.adapt?.fingerprint})}>采用此制作脚本并继续</button> : !hideTaskActions && <button className="primary-button" disabled={disabled} onClick={()=>onContinue({retryLost:!!lost,saveOnly})}>{disabled ? "正在处理…" : !sameScript ? "生成精选Vlog任务" : lost ? "重新执行丢失阶段" : saveOnly ? "重试保存" : "继续生成 / 更新任务指令"}</button>}
+      {!hideTaskActions && adaptation && !needsConfirmation && <><button className="secondary-button" disabled={disabled} onClick={()=>onContinue({force:"frames"})}>重新选图</button><button className="secondary-button" disabled={disabled} onClick={()=>onContinue({force:"music"})}>重新选曲</button></>}
     </div>
     {sameScript && draft?.stages.build?.status === "completed" && <details className="mt-3"><summary className="cursor-pointer">已生成的任务指令（本地保存）</summary><textarea readOnly className="code-textarea mt-2 min-h-48" value={(draft.stages.build.result as {videoPrompt?:{content:string}})?.videoPrompt?.content || ""} /></details>}
   </div>;
