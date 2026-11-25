@@ -199,14 +199,57 @@ textarea {
   overflow: hidden;
   border-color: rgba(42, 113, 106, 0.12);
   background:
-    linear-gradient(90deg, rgba(248, 252, 251, 0.99) 0%, rgba(247, 252, 251, 0.9) 34%, rgba(244, 251, 249, 0.48) 68%, rgba(247, 252, 251, 0.64) 100%);
+    linear-gradient(90deg, rgba(248, 252, 251, 0.96) 0%, rgba(248, 252, 251, 0.86) 25%, rgba(240, 249, 248, 0.58) 52%, rgba(240, 249, 248, 0.54) 100%),
+    url("/workspace-mountains-v2.png") center 35% / cover no-repeat;
   box-shadow: 0 8px 28px rgba(42, 92, 87, 0.05);
 }
 
-.workspace-hero-image {
-  opacity: 0.92;
-  object-fit: contain;
-  object-position: right center;
+.workspace-header-layout {
+  display: grid;
+  grid-template-columns: max-content minmax(120px, 1fr) max-content;
+  align-items: center;
+  gap: 16px;
+}
+
+.workspace-motto {
+  width: 120px;
+  height: 76px;
+  justify-self: center;
+  background: url("/workspace-hero-banner.png") -280px -22px / 1328px 107px no-repeat;
+  -webkit-mask-image: radial-gradient(ellipse, black 50%, transparent 74%);
+  mask-image: radial-gradient(ellipse, black 50%, transparent 74%);
+}
+
+.workspace-heading {
+  min-width: 0;
+}
+
+.workspace-header-controls {
+  justify-content: flex-end;
+}
+
+@media (max-width: 1199px) {
+  .workspace-header-layout {
+    grid-template-columns: minmax(0, 1fr) 120px;
+  }
+  .workspace-header-controls {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 767px) {
+  .workspace-header-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-motto {
+    display: none;
+  }
+  .workspace-header-controls {
+    justify-content: flex-start;
+  }
+  .workspace-heading h1 {
+    font-size: clamp(1.25rem, 5.5vw, 1.875rem);
+  }
 }
 
 .app-header::before {

@@ -3342,14 +3342,14 @@ export function XhsMasterApp() {
 
       <main className="lg:pl-64">
         <header className="app-header sticky top-0 z-20 border-b px-4 py-4 backdrop-blur-xl lg:px-8">
-          <img className="workspace-hero-image pointer-events-none absolute right-0 top-0 h-full w-auto max-w-none" src="/workspace-hero-banner.png" alt="" aria-hidden="true" />
-          <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="workspace-header-layout relative z-10">
             <div className="workspace-heading">
               <div className="text-xs font-medium tracking-[0.2em] text-teal/80">宿灵AI</div>
               <h1 className="mt-1 font-serif text-3xl font-semibold tracking-[0.08em] text-ink">内容生产与运营平台</h1>
               <p className="mt-1 text-xs text-ink/50">{selected ? `正在运营：${selected.name}` : "创建第一个账号，开始内容旅程"}</p>
             </div>
-            <div className="flex flex-wrap items-stretch gap-2">
+            <div className="workspace-motto" role="img" aria-label="山水有灵，内容有光" />
+            <div className="workspace-header-controls flex flex-wrap items-stretch gap-2">
               <label className="account-switcher flex min-w-[230px] items-center gap-3 rounded-xl border px-3 py-2">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal"><LayoutDashboard size={17} /></span>
                 <span className="min-w-0 flex-1">
