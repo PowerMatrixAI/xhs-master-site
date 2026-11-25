@@ -32,6 +32,7 @@ export type CoverProduction = {
   id: number; accountId: number; revision: number; kind: "cover_image"; title: string;
   input: CoverInput; variants: CoverVariant[]; confirmed: boolean; confirmedVariantIds?: CoverVariantId[]; plan?: CoverPlan;
   result?: { openclawTask: { title: string; content: string }; imagePrompt: { title: string; content: string; path: string }; referenceStyle: string; commands: unknown[] };
+  batches?: import("./coverBatch").CoverBatch[];
   latestTaskId?: string; createdAt?: string; updatedAt?: string;
 };
 export function validateCoverVariants(raw: unknown, input: CoverInput) {

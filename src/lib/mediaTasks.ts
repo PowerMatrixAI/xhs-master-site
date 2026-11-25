@@ -45,3 +45,11 @@ export async function deleteMediaTask(id: string) {
   const result = await authRequest("/media/v1/delete", { method: "POST", body: { id } });
   if (!result.status) throw new Error(result.message || "删除任务失败");
 }
+
+export async function findMediaTaskByRequestId(requestId: string) {
+  const response = await authRequest<MediaTask>(`/media/v1/task?requestId=${encodeURIComponent(requestId)}`);
+  if (response.status) return response.data;
+  // Only explicit not-found permits resending the identical original request.
+  if (["404", "NOT_FOUND", "TASK_NOT_FOUND"].includes(String(response.code)) || /^任务不存在[。.]?$/.test(response.message || "")) return null;
+  throw new Error(response.message || "无法核实原任务，请稍后继续查询。");
+}

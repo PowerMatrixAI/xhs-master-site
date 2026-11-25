@@ -3491,7 +3491,7 @@ export function XhsMasterApp() {
           )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
-          {activeTab === "mediaTasks" && <MediaTasksPanel onOpenSource={task => { setSelectedId(task.accountId); if (task.source === "production") { setProductionFocusId(task.productionId); setActiveTab(task.mode === "cover_image" || task.kind === "image" ? "productionImages" : "productionVideos"); } else { if (task.noteTaskId) setSelectedNoteId(task.noteTaskId); setActiveTab("prompts"); } }} accounts={accounts} focusId={mediaFocusId} onGenerate={kind => setActiveTab(kind === "image" ? "productionImages" : "productionVideos")} onDeleted={id => setMediaFocusId(current => current === id ? undefined : current)} notify={showToast} />}
+          {activeTab === "mediaTasks" && <MediaTasksPanel onOpenSource={task => { setSelectedId(task.accountId); if (task.source === "production") { setProductionFocusId(task.productionId); setActiveTab(task.mode === "cover_image" || task.kind === "image" ? "productionImages" : "productionVideos"); } else { if (task.noteTaskId) setSelectedNoteId(task.noteTaskId); setActiveTab("prompts"); } }} accounts={accounts} focusId={mediaFocusId} onDeleted={id => setMediaFocusId(current => current === id ? undefined : current)} notify={showToast} />}
           {activeTab === "images" && (
             <ImagesPanel
               selected={selected}

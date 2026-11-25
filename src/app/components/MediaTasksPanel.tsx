@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CoverTaskResults } from "./CoverTaskResults";
-import { Download, ImageIcon, LoaderCircle, RefreshCw, Trash2, Video, X } from "lucide-react";
+import { Download, LoaderCircle, RefreshCw, Trash2, Video, X } from "lucide-react";
 import { activeMediaStatuses, deleteMediaTask, getMediaTask, listMediaTasks, mediaStageLabel, mediaStatusLabels, retryMediaTask, type MediaArtifact, type MediaTask, type MediaTaskPage } from "@/lib/mediaTasks";
 
 function ArtifactPreview({ artifact }: { artifact: MediaArtifact }) {
@@ -16,9 +16,8 @@ function ArtifactPreview({ artifact }: { artifact: MediaArtifact }) {
   </div>;
 }
 
-export function MediaTasksPanel({ accounts, focusId, onGenerate, onDeleted, onOpenSource, notify }: {
+export function MediaTasksPanel({ accounts, focusId, onDeleted, onOpenSource, notify }: {
   accounts: Array<{ id: number; name: string }>; focusId?: string;
-  onGenerate: (kind: "image" | "video") => void;
   onOpenSource?: (task: MediaTask) => void;
   onDeleted?: (id: string) => void;
   notify: (message: string, tone: "success" | "error") => void;
@@ -93,14 +92,15 @@ export function MediaTasksPanel({ accounts, focusId, onGenerate, onDeleted, onOp
     } catch (err) { notify(err instanceof Error ? err.message : "删除任务失败", "error"); }
     finally { mutationBusy.current = false; setDeleting(""); }
   }
+  const filterClassName = "h-10 min-w-28 rounded border border-ink/15 bg-white px-3 text-sm text-ink focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15";
   const changeFilter = (change: () => void) => { change(); setPage(1); };
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">生成任务</h1><p className="mt-1 text-sm text-ink/60">查看制作进度，预览已保存的图片和视频。</p></div><div className="flex gap-2"><button className="secondary-button" onClick={() => onGenerate("image")}><ImageIcon size={16} />生成图片</button><button className="primary-button" onClick={() => onGenerate("video")}><Video size={16} />生成视频</button></div></div>
+    <div><h1 className="text-2xl font-semibold">生成任务</h1><p className="mt-1 text-sm text-ink/60">查看制作进度，预览已保存的图片和视频。</p></div>
     <div className="panel flex flex-wrap items-center gap-3">
-      <select aria-label="筛选账号" value={accountId} onChange={e => changeFilter(() => setAccountId(Number(e.target.value)))} className="rounded border border-ink/15 bg-white p-2 text-sm"><option value={0}>全部账号</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
-      <select aria-label="筛选类型" value={kind} onChange={e => changeFilter(() => setKind(e.target.value))} className="rounded border border-ink/15 bg-white p-2 text-sm"><option value="">全部类型</option><option value="image">图片</option><option value="video">视频</option></select>
-<select aria-label="筛选来源" value={source} onChange={e => changeFilter(() => setSource(e.target.value))}><option value="">全部来源</option><option value="production">内容生产</option><option value="operation">Agent运营</option></select>
-      <select aria-label="筛选状态" value={status} onChange={e => changeFilter(() => setStatus(e.target.value))} className="rounded border border-ink/15 bg-white p-2 text-sm"><option value="">全部状态</option><option value="active">进行中</option><option value="completed">已完成</option><option value="failed">失败</option><option value="partially_completed">部分完成</option><option value="unknown">结果待核实</option></select>
+      <select aria-label="筛选账号" value={accountId} onChange={e => changeFilter(() => setAccountId(Number(e.target.value)))} className={filterClassName}><option value={0}>全部账号</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+      <select aria-label="筛选类型" value={kind} onChange={e => changeFilter(() => setKind(e.target.value))} className={filterClassName}><option value="">全部类型</option><option value="image">图片</option><option value="video">视频</option></select>
+      <select className={filterClassName} aria-label="筛选来源" value={source} onChange={e => changeFilter(() => setSource(e.target.value))}><option value="">全部来源</option><option value="production">内容生产</option><option value="operation">Agent运营</option></select>
+      <select aria-label="筛选状态" value={status} onChange={e => changeFilter(() => setStatus(e.target.value))} className={filterClassName}><option value="">全部状态</option><option value="active">进行中</option><option value="completed">已完成</option><option value="failed">失败</option><option value="partially_completed">部分完成</option><option value="unknown">结果待核实</option></select>
       <button onClick={() => setRefresh(value => value + 1)} disabled={loading} className="secondary-button ml-auto"><RefreshCw size={15} className={loading ? "animate-spin" : ""} />刷新</button>
     </div>
     {error && <div role="alert" className="rounded bg-red-50 p-4 text-sm text-red-700">{error}<button className="ml-3 underline" onClick={() => setRefresh(v => v + 1)}>重新加载</button></div>}

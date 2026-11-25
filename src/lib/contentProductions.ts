@@ -44,7 +44,7 @@ export function videoAccountContext(account: Record<string, unknown>) {
 
 type Cover = import("./coverProduction").CoverProduction;
 type ImageWork = { id: number; accountId: number; revision: number; kind: string; title: string; confirmed: boolean;
-  settings?: { coverDraft?: Pick<Cover, "input" | "variants" | "confirmedVariantIds"> };
+  settings?: { coverDraft?: Pick<Cover, "input" | "variants" | "confirmedVariantIds" | "batches"> };
   result?: Cover["result"]; tasks?: Array<{ id: string }>; latestTaskId?: string };
 function readCover(work: ImageWork): Cover {
   const draft = work.settings?.coverDraft;
@@ -60,12 +60,12 @@ export async function getCoverProduction(accountId: number, id: number) {
   if (result.accountId !== accountId) throw new Error("作品归属不匹配。");
   return readCover(result);
 }
-export async function saveCoverProduction(accountId: number, changes: Pick<Cover, "input" | "variants" | "confirmed" | "confirmedVariantIds"> & { plan?: import("./coverProduction").CoverPlan }, existing: Cover | undefined, requestId: string, execution?: { prompt: string; items: unknown[] }) {
+export async function saveCoverProduction(accountId: number, changes: Pick<Cover, "input" | "variants" | "confirmed" | "confirmedVariantIds" | "batches"> & { plan?: import("./coverProduction").CoverPlan }, existing: Cover | undefined, requestId: string, execution?: { prompt: string; items: unknown[]; title?: string }) {
   const settings = { imageSourceMode: "remote_images", noteContent: changes.input.text, singleGoal: "同一原图的三种风格封面", imageCount: String(execution?.items.length || 3),
     realImageRefinementRequirement: changes.input.requirements, aiAssistantRequirement: "", removeWatermarks: false,
     selectedAssets: [{ id: changes.input.asset.id, fileUrl: changes.input.asset.imageUrl, filePath: changes.input.asset.name }],
-    coverDraft: { input: changes.input, variants: changes.variants, confirmedVariantIds: changes.confirmedVariantIds } };
-  const result = execution ? { openclawTask: { title: changes.input.text, content: execution.prompt },
+    coverDraft: { input: changes.input, variants: changes.variants, confirmedVariantIds: changes.confirmedVariantIds, batches: changes.batches || existing?.batches || [] } };
+  const result = execution ? { openclawTask: { title: execution.title || changes.input.text, content: execution.prompt },
     imagePrompt: { title: changes.input.text, content: JSON.stringify(execution.items), path: "" }, referenceStyle: "三风格封面", commands: [] } : undefined;
   return readCover(await productionRequest<ImageWork>("/production/v1/save", {
     method: "POST", body: { title: changes.input.text, accountId, kind: "image", settings, confirmed: !!execution,
