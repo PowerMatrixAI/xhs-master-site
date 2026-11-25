@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { coverStyles } from "@/lib/coverProduction";
-import { retryMediaTask, type MediaTask } from "@/lib/mediaTasks";
+import { retryMediaTask, mediaStatusLabels, type MediaTask } from "@/lib/mediaTasks";
 import { createXhsRequestId } from "@/lib/xhs-signature";
 
 export function CoverTaskResults({ task, onUpdated }: { task: MediaTask; onUpdated: (task: MediaTask) => void }) {
@@ -19,6 +19,12 @@ export function CoverTaskResults({ task, onUpdated }: { task: MediaTask; onUpdat
     } catch (e) { setError(e instanceof Error ? e.message : "重试失败"); }
     finally { setBusy(""); }
   }
+  if (task.mode !== "cover_image" && !task.items?.length) return <div className="space-y-3">
+    <p>{mediaStatusLabels[task.status] || task.status}</p>
+    {task.error && <p className="text-coral">{task.error}</p>}
+    <div className="grid gap-4 md:grid-cols-3">{task.artifacts?.filter(a => a.type === "image").map(a => <a key={a.url} href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt={a.name} className="aspect-[3/4] w-full rounded object-contain" /><span>{a.name} · 查看原图</span></a>)}</div>
+    {task.status === "failed" && <p className="text-sm text-ink/60">已保留失败信息；如服务端返回了可用图片，会在上方展示。需要重做时，请选择对应版本重新制作。</p>}
+  </div>;
   return <div className="space-y-3">
     {error && <p role="alert" className="text-coral">{error}</p>}
     <div className="grid gap-4 md:grid-cols-3">

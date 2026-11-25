@@ -26,16 +26,16 @@ const variants=['bold','editorial','poster'].map(variantId=>({variantId,title:'�
     if(url.pathname.endsWith('/production/v1/list'))return json({items:works});
     if(url.pathname.endsWith('/production/v1/detail'))return json(works[0]);
     if(url.pathname.endsWith('/production/v1/save')){
-     const body=req.postDataJSON();assert.equal(body.kind,'cover_image');assert.equal(body.title,body.input.text);assert.ok(!body.templateId);
+     const body=req.postDataJSON();assert.equal(body.kind,'image');assert.equal(body.title,body.settings.coverDraft.input.text);assert.ok(!body.templateId);
      if(works.length){assert.equal(body.expectedRevision,works[0].revision);Object.assign(works[0],body,{revision:works[0].revision+1});}
      else works.push({...body,id:12,revision:1});
      return json(works[0]);
     }
     if(url.pathname.endsWith('/media/v1/generate')){
      const body=req.postDataJSON();submissions.push(body);
-     assert.equal(body.mode,'cover_image');assert.equal(body.kind,'image');assert.ok(!body.noteTaskId);assert.equal(body.assetIds.length,1);
+     assert.equal(body.mode,'remote_images');assert.equal(body.kind,'image');assert.ok(!body.noteTaskId);assert.equal(body.assetIds.length,1);
      if(rejectSubmit){rejectSubmit=false;return route.fulfill({json:{status:false,message:'模拟提交超时，请重试'}});}
-     job={id:'cover-job',accountId:1,productionId:12,source:'production',kind:'image',mode:'cover_image',status:'partially_completed',title:body.options.title,items:body.options.items.map((i,n)=>({variantId:i.variantId,name:i.name,status:n===1?'failed':'completed',error:n===1?'模拟失败':undefined,artifacts:n===1?[]:[{variantId:i.variantId,type:'image',name:i.name,url:'https://cover.invalid/'+i.variantId+'.png',cosPath:i.variantId,sizeBytes:100}]}))};
+     job={id:'cover-job',accountId:1,productionId:12,source:'production',kind:'image',mode:'remote_images',status:'completed',title:body.options.title,artifacts:['bold','editorial','poster'].map(name=>({type:'image',name,url:'https://cover.invalid/'+name+'.png',cosPath:name,sizeBytes:100}))};
      works[0].latestTaskId=job.id;return json(job);
     }
     if(url.pathname.endsWith('/media/v1/task'))return json(job);
@@ -68,17 +68,15 @@ const variants=['bold','editorial','poster'].map(variantId=>({variantId,title:'�
   await page.getByRole('heading',{name:'封面制作结果'}).waitFor();
   assert.equal(submissions.length,2);
   assert.deepEqual(submissions[0],submissions[1]);
-  assert.ok(submissions[0].options.items[0].editPrompt.includes('秦岭，住进山里'));
-  assert.equal(submissions[0].options.items.length,3);
+  assert.ok(submissions[0].prompt.includes('秦岭，住进山里'));
+  assert.equal(submissions[0].options.imageCount,'3');
   await page.reload();
   await page.getByRole('heading',{name:'封面制作结果'}).waitFor();
   assert.equal(await page.getByLabel('bold主标题',{exact:true}).inputValue(),'秦岭，住进山里');
-  await page.getByRole('button',{name:'重试此版本',exact:true}).click();
-  await page.getByRole('button',{name:'重试此版本',exact:true}).waitFor({state:'detached'});
-  assert.equal(retryCalls.length,1);
+  assert.equal(await page.getByRole('link').filter({hasText:'查看原图'}).count(),3);
   await page.setViewportSize({width:390,height:844});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
   assert.deepEqual(errors,[]);
-  console.log('Cover browser passed: single image, editable variants, stable submission retry, restore, partial success, per-item retry and mobile layout.');
+  console.log('Cover browser passed: single image, editable variants, stable submission retry, restore, generic image artifacts and mobile layout.');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

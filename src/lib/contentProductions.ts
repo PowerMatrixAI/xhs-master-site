@@ -42,18 +42,34 @@ export function videoAccountContext(account: Record<string, unknown>) {
 }
 
 
+type Cover = import("./coverProduction").CoverProduction;
+type ImageWork = { id: number; accountId: number; revision: number; kind: string; title: string; confirmed: boolean;
+  settings?: { coverDraft?: Pick<Cover, "input" | "variants" | "confirmedVariantIds"> };
+  result?: Cover["result"]; tasks?: Array<{ id: string }>; latestTaskId?: string };
+function readCover(work: ImageWork): Cover {
+  const draft = work.settings?.coverDraft;
+  if (work.kind !== "image" || !draft?.input) throw new Error("该图片作品不是三风格封面作品，无法在此编辑。");
+  return { ...work, kind: "cover_image", ...draft, latestTaskId: work.latestTaskId || work.tasks?.[0]?.id };
+}
 export function listCoverProductions(accountId: number) {
-  return productionRequest<{ items: import("./coverProduction").CoverProduction[] }>(`/production/v1/list?kind=cover_image&accountId=${accountId}`)
-    .then(result => ({ items: result.items.filter(item => item.kind === "cover_image") }));
+  return productionRequest<{ items: ImageWork[] }>(`/production/v1/list?kind=image&accountId=${accountId}`)
+    .then(result => ({ items: result.items.map(item => ({ ...item, kind: "cover_image" } as Cover)) }));
 }
 export async function getCoverProduction(accountId: number, id: number) {
-  const result = await productionRequest<import("./coverProduction").CoverProduction>(`/production/v1/detail?accountId=${accountId}&id=${id}`);
-  if (result.kind !== "cover_image" || result.accountId !== accountId) throw new Error("作品类型或归属不匹配。");
-  return result;
+  const result = await productionRequest<ImageWork>(`/production/v1/detail?accountId=${accountId}&id=${id}`);
+  if (result.accountId !== accountId) throw new Error("作品归属不匹配。");
+  return readCover(result);
 }
-export function saveCoverProduction(accountId: number, changes: Pick<import("./coverProduction").CoverProduction, "input" | "variants" | "confirmed" | "confirmedVariantIds"> & { plan?: import("./coverProduction").CoverPlan }, existing: import("./coverProduction").CoverProduction | undefined, requestId: string) {
-  return productionRequest<import("./coverProduction").CoverProduction>("/production/v1/save", {
-    method: "POST", body: { ...changes, title: changes.input.text, accountId, kind: "cover_image",
+export async function saveCoverProduction(accountId: number, changes: Pick<Cover, "input" | "variants" | "confirmed" | "confirmedVariantIds"> & { plan?: import("./coverProduction").CoverPlan }, existing: Cover | undefined, requestId: string, execution?: { prompt: string; items: unknown[] }) {
+  const settings = { imageSourceMode: "remote_images", noteContent: changes.input.text, singleGoal: "同一原图的三种风格封面", imageCount: String(execution?.items.length || 3),
+    realImageRefinementRequirement: changes.input.requirements, aiAssistantRequirement: "", removeWatermarks: false,
+    selectedAssets: [{ id: changes.input.asset.id, fileUrl: changes.input.asset.imageUrl, filePath: changes.input.asset.name }],
+    coverDraft: { input: changes.input, variants: changes.variants, confirmedVariantIds: changes.confirmedVariantIds } };
+  const result = execution ? { openclawTask: { title: changes.input.text, content: execution.prompt },
+    imagePrompt: { title: changes.input.text, content: JSON.stringify(execution.items), path: "" }, referenceStyle: "三风格封面", commands: [] } : undefined;
+  return readCover(await productionRequest<ImageWork>("/production/v1/save", {
+    method: "POST", body: { title: changes.input.text, accountId, kind: "image", settings, confirmed: !!execution,
+      ...(result ? { result } : {}),
       ...(existing ? { id: existing.id, expectedRevision: existing.revision } : { requestId }) }
-  });
+  }));
 }

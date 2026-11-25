@@ -38,3 +38,24 @@ const llm=load('src/lib/coverProductionLlm.ts',{
  assert.ok(!captured.input.includes('weeklyPlan'));
  console.log('Cover planning passed: exact confirmed text, three styles, same source, required facts, selective invalidation and single-version execution.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{
+ const calls=[];
+ const api=load('src/lib/contentProductions.ts',{'./api':{
+  ApiResponseFormatError: class extends Error {},
+  authRequest:async(path,opts)=>{calls.push({path,body:opts?.body}); return {status:true,data:{...opts?.body,id:9,revision:2,accountId:1,kind:'image'}};}
+ }});
+ const saved=await api.saveCoverProduction(1,{input,variants,confirmed:true,confirmedVariantIds:['bold','editorial','poster']},undefined,'create-id',result);
+ assert.equal(calls[0].body.kind,'image');
+ assert.equal(calls[0].body.settings.imageSourceMode,'remote_images');
+ assert.equal(calls[0].body.settings.imageCount,'3');
+ assert.equal(calls[0].body.settings.selectedAssets[0].id,7);
+ assert.equal(calls[0].body.result.openclawTask.content,result.prompt);
+ assert.equal(saved.input.text,input.text);
+ assert.equal(saved.variants.length,3);
+ assert.equal(saved.result.imagePrompt.content,JSON.stringify(result.items));
+ await api.saveCoverProduction(1,{input,variants,confirmed:false},saved,'unused');
+ assert.equal(calls[1].body.expectedRevision,2);
+ assert.equal(calls[1].body.requestId,undefined);
+ assert.equal(calls[1].body.confirmed,false);
+ console.log('Cover image API adapter passed: settings/result, revision and round-trip.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

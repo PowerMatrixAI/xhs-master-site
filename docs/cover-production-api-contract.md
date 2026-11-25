@@ -1,3 +1,9 @@
+> 2026-11-25 联调更新：当前控制台已改用已实现的通用图片协议，作品 `kind=image`，制作 `kind=image, mode=remote_images`。下文 `cover_image` 专用接口描述为早期提案，不是当前服务端必需实现。
+>
+> 当前映射：`settings.coverDraft` 保存三版编辑数据（input、variants、confirmedVariantIds）；同一 settings 同时保存 imageSourceMode、noteContent、singleGoal、imageCount、realImageRefinementRequirement、selectedAssets 等标准字段。result 保存 openclawTask、imagePrompt、referenceStyle、commands。生成请求携带 productionId、productionRevision、assetIds 和已保存指令。
+>
+> 成果按通用 artifacts 展示；不假设后端会返回 variantId、items 或 bundleUrl，不调用新任务未支持的逐版 retry 参数。用户仍可选择某一版本单独制作。老 cover_image 任务的逐版展示保留兼容。
+
 # 内容生产封面图接口增量
 
 基于 content-production-api-contract.md，复用账号、作品和媒体任务接口。前端本次实现于 v2.0.0/temp。服务端独立实施，以下为联调约定。

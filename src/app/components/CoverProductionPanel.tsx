@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import { authenticatedFetch, getUser } from "@/lib/api";
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
 import { createXhsRequestId } from "@/lib/xhs-signature";
@@ -82,6 +83,7 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
     return coverInputSchema.parse({ asset: { id: asset.id, imageUrl: asset.fileUrl, name: asset.filePath, analysis: asset.aiAnalysisStatus === "deleted" ? "" : asset.aiAnalysis || "", tags: asset.tags, width: asset.width, height: asset.height },
       text: draft.text, requiredText: draft.requiredText, requirements: draft.requirements });
   }
+  const generationActive = !!task && (activeMediaStatuses.includes(task.status) || task.status === "unknown");
   const changed = !draft.plannedInput || !asset || draft.plannedInput.asset.id !== asset.id || draft.plannedInput.text !== draft.text.trim() || draft.plannedInput.requiredText !== draft.requiredText || draft.plannedInput.requirements !== draft.requirements;
   async function perform(fn: () => Promise<void>) {
     if (busyRef.current) return;
@@ -89,13 +91,13 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
     try { await fn(); } catch (e) { if (live.current) setError(e instanceof Error ? e.message : "操作失败"); }
     finally { busyRef.current = false; if (live.current) setBusy(false); }
   }
-  async function save(next: Draft, newlyConfirmed: CoverVariantId[] = []) {
+  async function save(next: Draft, newlyConfirmed: CoverVariantId[] = [], execution?: ReturnType<typeof buildCoverExecution>) {
     if (!live.current) throw new Error("页面已切换，请返回原作品继续。");
     const data = input();
     creationId.current ||= createXhsRequestId();
     const confirmedVariantIds = coverConfirmations(work, data, next.variants, newlyConfirmed);
     const saved = await saveCoverProduction(account!.id, { input: data, variants: next.variants, confirmed: confirmedVariantIds.length === 3, confirmedVariantIds,
-      ...(confirmedVariantIds.length ? { plan: { version: 1, kind: "cover_image", input: data, variants: next.variants } as const } : {}) }, work, creationId.current);
+      ...(confirmedVariantIds.length ? { plan: { version: 1, kind: "cover_image", input: data, variants: next.variants } as const } : {}) }, work, creationId.current, execution);
     if (!live.current) throw new Error("页面已切换，作品已保存。");
     setWork(saved); setWorks(items => [saved, ...items.filter(w => w.id !== saved.id)]); remember(next, saved.id, saved.revision);
     return saved;
@@ -132,6 +134,7 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
     throw new Error("规划仍在处理，请稍后继续查询。");
   }
   async function generate(ids: CoverVariantId[]) {
+    if (generationActive) throw new Error("已有图片任务执行中或结果待核实，请先查询该任务。");
     if (changed || !draft.variants.length) throw new Error("原图或需求已变化，请先重新生成方案。");
     const data = input();
     const variants = validateCoverVariants(draft.variants, data);
@@ -145,11 +148,11 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
       } catch {}
     }
     if (pendingSubmission.current?.key !== fingerprint) {
-      const saved = await save({ ...draft, variants }, ids);
+      const saved = await save({ ...draft, variants }, ids, execution);
       pendingSubmission.current = { key: fingerprint, id: createXhsRequestId(), input: {
         source: "production", productionId: saved.id, productionRevision: saved.revision, accountId: account!.id,
-        kind: "image", mode: "cover_image", prompt: execution.prompt, assetIds: [data.asset.id],
-        options: { title: data.text, plan: saved.plan, items: execution.items, variantIds: ids }
+        kind: "image", mode: "remote_images", prompt: saved.result!.openclawTask.content, assetIds: [data.asset.id],
+        options: { title: data.text, noteContent: data.text, singleGoal: "同一原图制作三种风格封面", imageCount: String(ids.length), realImageRefinementRequirement: data.requirements, removeWatermarks: false }
       } };
     }
     localStorage.setItem(submissionKey, JSON.stringify(pendingSubmission.current));
@@ -175,7 +178,7 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="panel"><h3 className="section-title">选择一张素材图</h3><input aria-label="搜索素材标签或文件名" placeholder="搜索标签或文件名" className="my-3 w-full rounded border p-2" value={filter} onChange={e => setFilter(e.target.value)} />
         <div className="grid max-h-[480px] grid-cols-3 gap-2 overflow-y-auto">
-          {assets.filter(a => (a.tags + a.filePath).toLowerCase().includes(filter.toLowerCase())).map(a => <button key={a.id} type="button" disabled={busy || !!draft.uuid} aria-label={"选择素材 " + a.id} aria-pressed={draft.assetId === a.id} onClick={() => remember({ ...draft, assetId: a.id })} className={`overflow-hidden rounded-lg border-2 ${draft.assetId === a.id ? "border-teal" : "border-transparent"}`}><img src={a.fileUrl!} alt={a.tags || "素材图"} className="aspect-[3/4] w-full object-cover" loading="lazy" /></button>)}
+          {assets.filter(a => (a.tags + a.filePath).toLowerCase().includes(filter.toLowerCase())).map(a => <button key={a.id} type="button" disabled={busy || !!draft.uuid} aria-label={"选择素材 " + a.id} aria-pressed={draft.assetId === a.id} onClick={() => remember({ ...draft, assetId: a.id })} className={`relative overflow-hidden rounded-lg border-2 ${draft.assetId === a.id ? "border-teal" : "border-transparent"}`}><img src={a.fileUrl!} alt={a.tags || "素材图"} className="aspect-[3/4] w-full object-cover" loading="lazy" />{draft.assetId === a.id && <span aria-hidden="true" className="pointer-events-none absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-teal text-white shadow-md ring-2 ring-white"><Check size={18} strokeWidth={3} /></span>}</button>)}
         </div>{!assets.length && <p className="text-sm text-ink/60">当前账号没有可用图片，请先在素材库上传。</p>}
       </div>
       <div className="panel space-y-3"><h3 className="section-title">封面内容</h3>
@@ -194,10 +197,10 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
         <label className="field mt-3"><span>主标题</span><textarea aria-label={variant.variantId + "主标题"} value={variant.title} maxLength={120} disabled={busy} onChange={e => remember({ ...draft, variants: draft.variants.map((v,i) => i === index ? { ...v, title: e.target.value } : v) })} /></label>
         {variant.title.length > 18 && <p className="text-xs text-amber-700">标题较长，建议缩短以提升可读性。</p>}
         <label className="field mt-2"><span>副标题</span><textarea aria-label={variant.variantId + "副标题"} value={variant.subtitle} maxLength={300} disabled={busy} onChange={e => remember({ ...draft, variants: draft.variants.map((v,i) => i === index ? { ...v, subtitle: e.target.value } : v) })} /></label>
-        <p className="my-3 text-sm leading-6 text-ink/65">{variant.design}</p>
-        <button className="secondary-button" disabled={busy || changed || !!draft.uuid} onClick={() => void perform(() => generate([variant.variantId]))}>确认并制作此版本</button>
+        <label className="field mt-2"><span>设计说明</span><textarea aria-label={variant.variantId + "设计说明"} value={variant.design} maxLength={1200} disabled={busy || generationActive} onChange={e => remember({ ...draft, variants: draft.variants.map((v,i) => i === index ? { ...v, design: e.target.value } : v) })} /></label>
+        <button className="secondary-button" disabled={busy || generationActive || changed || !!draft.uuid} onClick={() => void perform(() => generate([variant.variantId]))}>确认并制作此版本</button>
       </div>)}</div>
-      <div className="mt-4 flex flex-wrap gap-3"><button className="primary-button" disabled={busy || changed || !!draft.uuid} onClick={() => void perform(() => generate(coverStyles.map(s => s.id)))}>确认文字并生成三张封面</button><button className="secondary-button" disabled={busy || changed} onClick={() => void perform(async () => { await save(draft); })}>保存方案</button></div>
+      <div className="mt-4 flex flex-wrap gap-3"><button className="primary-button" disabled={busy || generationActive || changed || !!draft.uuid} onClick={() => void perform(() => generate(coverStyles.map(s => s.id)))}>确认文字并生成三张封面</button><button className="secondary-button" disabled={busy || changed} onClick={() => void perform(async () => { await save(draft); })}>保存方案</button></div>
     </div>}
     {task && <div className="panel"><h3 className="section-title">封面制作结果</h3><p className="my-2 text-xs text-ink/60">以下是该批次提交时的结果，修改文字后需要重新制作。</p><CoverTaskResults task={task} onUpdated={job => { setTask(job); remember({ ...draft, taskId: job.id }); setReload(n => n + 1); }} /><button className="secondary-button mt-3" onClick={() => onTasks(task.id)}>查看生成任务</button><button className="secondary-button ml-3 mt-3" onClick={() => setReload(n => n + 1)}>刷新进度</button></div>}
   </div>;
