@@ -49,31 +49,31 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-shell flex min-h-screen items-center justify-center bg-paper px-4">
-      <div className="w-full max-w-md">
+    <div className="login-shell flex min-h-screen items-center justify-center bg-paper px-4 py-10">
+      <div className="relative z-10 w-full max-w-md">
         {/* Logo 区域 */}
         <div className="mb-8 text-center">
           <div className="inline-flex items-center gap-3 text-left">
             <Image
-              src="/xhs-master-logo.png"
-              alt="小红书运营策划大师 Logo"
+              src="/suling-mark.svg"
+              alt="宿灵AI Logo"
               width={200}
               height={200}
               priority
-              className="h-14 w-14 shrink-0 rounded-md object-cover"
+              className="h-16 w-16 shrink-0 rounded-2xl shadow-lg shadow-teal/15"
             />
-            <div className="text-lg font-semibold leading-6 text-ink">小红书运营策划大师</div>
+            <div className="text-2xl font-semibold leading-8 tracking-wide text-ink">宿灵AI</div>
           </div>
           <h1 className="mt-4 text-2xl font-semibold text-ink">
-            {mode === "login" ? "登录" : "注册账号"}
+            {mode === "login" ? "欢迎来到宿灵AI" : "创建宿灵AI账号"}
           </h1>
           <p className="mt-1 text-sm text-ink/55">
-            {mode === "login" ? "多账号类型小红书安全运营台" : "创建账号开始使用运营台"}
+            内容生产与运营平台 · 为民宿而创作
           </p>
         </div>
 
         {/* 表单卡片 */}
-        <div className="panel login-card">
+        <div className="panel login-card !rounded-3xl !p-7 shadow-xl shadow-teal/5">
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === "register" && (
               <label className="field">
@@ -105,6 +105,7 @@ export default function LoginPage() {
                     className="input-with-icon"
                     autoComplete="one-time-code"
                     maxLength={6}
+                    required
                   />
                 </div>
               </label>
@@ -141,20 +142,6 @@ export default function LoginPage() {
                 />
               </div>
             </label>
-
-            {mode === "register" && (
-              <label className="field">
-                <span>内测码</span>
-                <input
-                  type="text"
-                  value={betaCode}
-                  onChange={(e) => setBetaCode(e.target.value)}
-                  placeholder="请输入内测码"
-                  autoComplete="off"
-                  required
-                />
-              </label>
-            )}
 
             {error && (
               <div className="rounded border border-coral/30 bg-coral/5 px-3 py-2 text-sm text-coral">

@@ -13,7 +13,7 @@ export type ContentProduction = {
 };
 export type ProductionUpdate = Partial<Pick<ContentProduction, "title" | "templateId" | "templateVersion" | "templateSnapshot" | "extraRequirements" | "script" | "effectiveScript" | "confirmed" | "settings" | "knowledgeSnapshotId" | "result" | "plan">>;
 
-async function productionRequest<T>(path: string, init?: Parameters<typeof authRequest>[1]) {
+export async function productionRequest<T>(path: string, init?: Parameters<typeof authRequest>[1]) {
   const response = await authRequest<T>(path, init).catch(error => {
     if (error instanceof ApiResponseFormatError) {
       if (error.status === 404) throw new Error("独立作品服务尚未接入（HTTP 404）。请先完成服务端作品接口开发，再创建或恢复作品。");
@@ -25,7 +25,7 @@ async function productionRequest<T>(path: string, init?: Parameters<typeof authR
   return response.data;
 }
 export function listProductions(accountId: number) {
-  return productionRequest<{ items: ContentProduction[] }>("/production/v1/list?accountId=" + accountId);
+  return productionRequest<{ items: ContentProduction[] }>("/production/v1/list?kind=featured_vlog&accountId=" + accountId).then(result => ({ items: result.items.filter(item => item.kind === "featured_vlog") }));
 }
 export function getProduction(accountId: number, id: number) {
   return productionRequest<ContentProduction>(`/production/v1/detail?accountId=${accountId}&id=${id}`);
@@ -39,4 +39,21 @@ export function saveProduction(accountId: number, update: ProductionUpdate, exis
 export function videoAccountContext(account: Record<string, unknown>) {
   const fields = ["id", "accountParam", "name", "accountType", "city", "personaBase", "targetUsers", "contentDirections", "businessGoals", "materialCondition", "taboos", "strategy"];
   return Object.fromEntries(fields.map(key => [key, account[key]]));
+}
+
+
+export function listCoverProductions(accountId: number) {
+  return productionRequest<{ items: import("./coverProduction").CoverProduction[] }>(`/production/v1/list?kind=cover_image&accountId=${accountId}`)
+    .then(result => ({ items: result.items.filter(item => item.kind === "cover_image") }));
+}
+export async function getCoverProduction(accountId: number, id: number) {
+  const result = await productionRequest<import("./coverProduction").CoverProduction>(`/production/v1/detail?accountId=${accountId}&id=${id}`);
+  if (result.kind !== "cover_image" || result.accountId !== accountId) throw new Error("作品类型或归属不匹配。");
+  return result;
+}
+export function saveCoverProduction(accountId: number, changes: Pick<import("./coverProduction").CoverProduction, "input" | "variants" | "confirmed" | "confirmedVariantIds"> & { plan?: import("./coverProduction").CoverPlan }, existing: import("./coverProduction").CoverProduction | undefined, requestId: string) {
+  return productionRequest<import("./coverProduction").CoverProduction>("/production/v1/save", {
+    method: "POST", body: { ...changes, title: changes.input.text, accountId, kind: "cover_image",
+      ...(existing ? { id: existing.id, expectedRevision: existing.revision } : { requestId }) }
+  });
 }

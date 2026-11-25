@@ -131,8 +131,8 @@ async function main(){
     assert.deepEqual(deletions,[{id:'failed-image'},{id:'failed-image'},{id:'failed-upload'}]);
     await page.getByRole('combobox',{name:'筛选类型'}).selectOption('image');
     await page.getByText('共 1 个任务',{exact:true}).waitFor();
-    await page.getByRole('button',{name:'账号运营',exact:true}).first().click();
-    await page.getByRole('button',{name:'图片方案',exact:true}).first().click();
+    await page.getByRole('button',{name:'Agent运营',exact:true}).first().click();
+    await page.getByRole('button',{name:'图片方案',exact:true}).nth(1).click();
     await page.getByRole('heading',{name:'先确定一篇笔记，再决定图片怎么来',exact:true}).waitFor();
     await page.getByRole('heading',{name:'单篇任务结果',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'行业学习',exact:true}).count(),0);

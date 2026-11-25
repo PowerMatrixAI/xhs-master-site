@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "小红书运营策划大师",
-  description: "多账号类型小红书运营策划台",
+  title: "宿灵AI",
+  description: "面向民宿的内容生产与运营平台",
   icons: {
-    icon: "/xhs-master-logo.png"
+    icon: "/suling-mark.svg"
   }
 };
 

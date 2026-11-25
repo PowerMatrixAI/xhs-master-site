@@ -1,6 +1,7 @@
 "use client";
 
 import { ConsoleNavigation } from "./ConsoleNavigation";
+import { CoverProductionPanel } from "./CoverProductionPanel";
 import { ContentProductionPanel } from "./ContentProductionPanel";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Image from "next/image";
@@ -493,7 +494,7 @@ const platformManagementTabs = [
   ["platformReferenceVideos", "参考视频", Video]
 ] as const;
 
-const tabs = [["productionVideos", "视频方案", Video], ...mainTabs, ...advancedTabs, ...platformManagementTabs] as const;
+const tabs = [["productionImages", "图片方案", ImageIcon], ["productionVideos", "视频方案", Video], ...mainTabs, ...advancedTabs, ...platformManagementTabs] as const;
 
 const sourceTypes = [
   "真实素材",
@@ -1114,7 +1115,7 @@ function emptyAccountForm(templates: Template[]) {
   return {
     name: "",
     accountParam: "",
-    accountType: templates[0]?.typeKey || "restaurant",
+    accountType: "homestay_hotel_camp",
     stage: "冷启动",
     personaBase: "",
     city: "",
@@ -1873,7 +1874,7 @@ export function XhsMasterApp() {
   async function createAccount() {
     setLoading(true);
     try {
-      const payload = hydrateAccountForm(accountForm, templates, accounts.length);
+      const payload = hydrateAccountForm({ ...accountForm, accountType: "homestay_hotel_camp" }, templates, accounts.length);
       const created = await createBackendAccount(payload);
       const createdDetail = await fetchBackendAccountDetail(created.id);
       const createdAccount = mapBackendAccountToUiAccount(createdDetail);
@@ -3316,20 +3317,20 @@ export function XhsMasterApp() {
         <div className="mb-4 shrink-0">
           <div className="flex items-center gap-3">
             <Image
-              src="/xiaohongshu-mark.png"
-              alt="小红书 Logo"
+              src="/suling-mark.svg"
+              alt="宿灵AI Logo"
               width={512}
               height={512}
               priority
               className="h-11 w-11 shrink-0 rounded-xl object-cover shadow-sm"
             />
             <div className="min-w-0 flex-1">
-              <div className="whitespace-nowrap text-[15px] font-semibold leading-5 tracking-tight text-ink">小红书运营策划大师</div>
+              <div className="whitespace-nowrap text-[15px] font-semibold leading-5 tracking-tight text-ink">宿灵AI</div>
             </div>
           </div>
         </div>
         <div className="sidebar-scroll scrollbar-thin min-h-0 flex-1 overflow-y-auto pr-1">
-        <ConsoleNavigation active={activeTab} onSelect={id => setActiveTab(id as (typeof tabs)[number][0])} admin={isPlatformAdmin(currentUser)} platform={platformManagementTabs} />
+        <ConsoleNavigation active={activeTab} onSelect={id => { setProductionFocusId(undefined); setActiveTab(id as (typeof tabs)[number][0]); }} admin={isPlatformAdmin(currentUser)} platform={platformManagementTabs} />
         <div className="sidebar-landscape-copy pointer-events-none mt-6 flex min-h-[250px] flex-col justify-end pb-2 pt-7">
           <div className="rounded-xl border border-white/65 bg-white/55 p-4 shadow-sm backdrop-blur-sm">
             <p className="font-serif text-sm font-semibold leading-6 tracking-[0.08em] text-ink/75">让好内容<br />点亮更多目的地</p>
@@ -3344,8 +3345,8 @@ export function XhsMasterApp() {
           <img className="workspace-hero-image pointer-events-none absolute right-0 top-0 h-full w-auto max-w-none" src="/workspace-hero-banner.png" alt="" aria-hidden="true" />
           <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="workspace-heading">
-              <div className="text-xs font-medium tracking-[0.2em] text-teal/80">小红书运营策划大师</div>
-              <h1 className="mt-1 font-serif text-3xl font-semibold tracking-[0.08em] text-ink">运营工作台</h1>
+              <div className="text-xs font-medium tracking-[0.2em] text-teal/80">宿灵AI</div>
+              <h1 className="mt-1 font-serif text-3xl font-semibold tracking-[0.08em] text-ink">内容生产与运营平台</h1>
               <p className="mt-1 text-xs text-ink/50">{selected ? `正在运营：${selected.name}` : "创建第一个账号，开始内容旅程"}</p>
             </div>
             <div className="flex flex-wrap items-stretch gap-2">
@@ -3384,7 +3385,7 @@ export function XhsMasterApp() {
               )}
             </div>
           </div>
-          <details className="mt-3 lg:hidden"><summary>导航</summary><ConsoleNavigation active={activeTab} onSelect={id => setActiveTab(id as (typeof tabs)[number][0])} admin={isPlatformAdmin(currentUser)} platform={platformManagementTabs} /></details>
+          <details className="mt-3 lg:hidden"><summary>导航</summary><ConsoleNavigation active={activeTab} onSelect={id => { setProductionFocusId(undefined); setActiveTab(id as (typeof tabs)[number][0]); }} admin={isPlatformAdmin(currentUser)} platform={platformManagementTabs} /></details>
         </header>
 
         <section className="app-content px-4 py-6 lg:px-8">
@@ -3416,6 +3417,7 @@ export function XhsMasterApp() {
               </div>
             </div>
           )}
+          {activeTab === "productionImages" && <CoverProductionPanel key={selected?.id || "empty"} focusId={productionFocusId} account={selected} onAccount={() => setActiveTab("accounts")} onTasks={id => { setMediaFocusId(id); setActiveTab("mediaTasks"); }} />}
           {activeTab === "productionVideos" && <ContentProductionPanel focusId={productionFocusId} key={selected?.id || "empty"} account={selected} onAccount={() => setActiveTab("accounts")} onSubmitted={id => { setMediaFocusId(id); setActiveTab("mediaTasks"); }} />}
           {activeTab === "dashboard" && (
             <Dashboard
@@ -3488,7 +3490,7 @@ export function XhsMasterApp() {
           )}
           {activeTab === "knowledgeBase" && <KnowledgeBasePanel selected={selected} notify={showToast} />}
           {activeTab === "weekly" && <WeeklyPanel selected={selected} generateWeeklyPlan={generateWeeklyPlan} changeNoteTaskType={changeNoteTaskType} loading={loading} loadingAction={loadingAction} />}
-          {activeTab === "mediaTasks" && <MediaTasksPanel onOpenSource={task => { setSelectedId(task.accountId); if (task.source === "production") { setProductionFocusId(task.productionId); setActiveTab("productionVideos"); } else { if (task.noteTaskId) setSelectedNoteId(task.noteTaskId); setActiveTab("prompts"); } }} accounts={accounts} focusId={mediaFocusId} onGenerate={kind => setActiveTab(kind === "image" ? "images" : "productionVideos")} onDeleted={id => setMediaFocusId(current => current === id ? undefined : current)} notify={showToast} />}
+          {activeTab === "mediaTasks" && <MediaTasksPanel onOpenSource={task => { setSelectedId(task.accountId); if (task.source === "production") { setProductionFocusId(task.productionId); setActiveTab(task.mode === "cover_image" || task.kind === "image" ? "productionImages" : "productionVideos"); } else { if (task.noteTaskId) setSelectedNoteId(task.noteTaskId); setActiveTab("prompts"); } }} accounts={accounts} focusId={mediaFocusId} onGenerate={kind => setActiveTab(kind === "image" ? "productionImages" : "productionVideos")} onDeleted={id => setMediaFocusId(current => current === id ? undefined : current)} notify={showToast} />}
           {activeTab === "images" && (
             <ImagesPanel
               selected={selected}
@@ -3653,7 +3655,7 @@ function Dashboard({
     <div className="space-y-5">
       <div className="panel flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="section-title">账号运营工作台</h2>
+          <h2 className="section-title">Agent运营工作台</h2>
           <p className="mt-1 text-sm text-ink/60">
             {selected ? `当前账号：${selected.name} / ${selected.accountParam}` : "还没有账号，先创建一个账号策划。"}
           </p>
@@ -3884,10 +3886,9 @@ function AccountsPanel(props: {
 }) {
   const { templates, accountForm, setAccountForm, createAccount, loading } = props;
   const field = (key: keyof typeof accountForm, value: string) => setAccountForm({ ...accountForm, [key]: value });
-  const switchAccountType = (accountType: string) => setAccountForm(switchAccountTypeForm(accountForm, templates, accountType));
   const choices = accountChoiceOptions(accountForm.accountType);
   return (
-    <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+    <div className="grid gap-5">
       <div className="panel">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -3899,18 +3900,8 @@ function AccountsPanel(props: {
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <Input label="客户/账号名称" value={accountForm.name} onChange={(v) => field("name", v)} placeholder="例如 灼悦婚礼 / 长歌行 / X 的徒步日记" />
+          <Input label="客户/账号名称" value={accountForm.name} onChange={(v) => field("name", v)} placeholder="例如 山间小院 / 湖畔民宿" />
           <Input label="所在城市/区域" value={accountForm.city} onChange={(v) => field("city", v)} placeholder="例如 杭州 / 大理 / 上海静安" />
-          <label className="field md:col-span-2">
-            <span>客户类型</span>
-            <select value={accountForm.accountType} onChange={(e) => switchAccountType(e.target.value)}>
-              {templates.map((template) => (
-                <option key={template.typeKey} value={template.typeKey}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-          </label>
           <Textarea
             label="客户主要做什么"
             value={accountForm.personaBase}
@@ -3983,26 +3974,7 @@ function AccountsPanel(props: {
           <span className="text-xs leading-5 text-ink/50">最少只填客户名称也能创建；填写主营业务和目标用户会更准。</span>
         </div>
       </div>
-      <div className="panel">
-        <h2 className="section-title">选择客户类型</h2>
-        <p className="mt-1 text-sm text-ink/60">点选后，左侧占位示例和自动补全规则会跟着切换。</p>
-        <div className="space-y-2">
-          {templates.map((template) => (
-            <button
-              key={template.typeKey}
-              type="button"
-              onClick={() => switchAccountType(template.typeKey)}
-              className={clsx(
-                "w-full rounded border bg-white p-3 text-left transition hover:border-teal/40 hover:bg-teal/5",
-                accountForm.accountType === template.typeKey ? "border-teal/60 bg-teal/5 ring-2 ring-teal/15" : "border-ink/10"
-              )}
-            >
-              <div className="font-medium">{template.name}</div>
-              <div className="mt-1 text-xs text-ink/60">{safeJsonArray(template.defaultColumns).join(" / ")}</div>
-            </button>
-          ))}
-        </div>
-      </div>
+
     </div>
   );
 }

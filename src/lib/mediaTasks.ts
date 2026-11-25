@@ -1,15 +1,17 @@
 import { authRequest } from "@/lib/api";
 
-export type MediaArtifact = { type: "image" | "video"; name: string; url: string; cosPath: string; sizeBytes: number };
+export type MediaArtifact = { variantId?: string; type: "image" | "video"; name: string; url: string; cosPath: string; sizeBytes: number };
+export type MediaTaskItem = { variantId: string; name: string; status: string; error?: string; artifacts?: MediaArtifact[] };
 export type MediaTask = {
   id: string; accountId: number; noteTaskId?: number; productionId?: number; productionRevision?: number; source?: "production" | "operation"; title: string; kind: "image" | "video";
+  mode?: string; bundleUrl?: string; items?: MediaTaskItem[];
   status: string; stage: string; progress: number; retryOf?: string; artifacts: MediaArtifact[] | null;
   error?: string; createdAt: string; updatedAt: string;
 };
 export type MediaGenerationInput = { accountId: number; noteTaskId?: number; productionId?: number; productionRevision?: number; source?: "production" | "operation"; kind: "image" | "video"; mode: string; prompt: string; assetIds: number[]; options: Record<string, unknown> };
 export type MediaTaskPage = { items: MediaTask[]; total: number; page: number; pageSize: number };
 export const activeMediaStatuses = ["queued", "prompting", "submitting", "running", "uploading"];
-export const mediaStatusLabels: Record<string, string> = { queued: "排队中", prompting: "生成提示词", submitting: "准备制作", running: "媒体制作中", uploading: "保存结果", completed: "已完成", failed: "失败", unknown: "执行结果待核实" };
+export const mediaStatusLabels: Record<string, string> = { queued: "排队中", prompting: "生成提示词", submitting: "准备制作", running: "媒体制作中", uploading: "保存结果", completed: "已完成", failed: "失败", unknown: "执行结果待核实", partially_completed: "部分完成" };
 export function mediaStageLabel(task: MediaTask) {
   if (task.status === "failed") return task.stage === "uploading" ? "上传失败，可补传已有结果" : "制作失败";
   return ({ result: "整理结果", uploading: "上传到云端", generating: "媒体制作中" } as Record<string, string>)[task.stage] || mediaStatusLabels[task.status] || task.status;
@@ -34,8 +36,8 @@ export async function getMediaTask(id: string, signal?: AbortSignal) {
   if (!result.status) throw new Error(result.message || "读取任务详情失败");
   return result.data;
 }
-export async function retryMediaTask(id: string) {
-  const result = await authRequest<MediaTask>("/media/v1/retry", { method: "POST", body: { id } });
+export async function retryMediaTask(id: string, variantId?: string, requestId?: string) {
+  const result = await authRequest<MediaTask>("/media/v1/retry", { method: "POST", body: { id, ...(variantId ? { variantId, requestId } : {}) } });
   if (!result.status) throw new Error(result.message || "重试失败");
   return result.data;
 }
