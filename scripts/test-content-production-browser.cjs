@@ -100,7 +100,7 @@ const base=process.env.MEDIA_TEST_URL || 'http://localhost:3000';
   await page.getByRole('button',{name:'关闭任务详情',exact:true}).click();
   await page.getByRole('button',{name:'视频方案 Hot',exact:true}).first().click();
   await page.getByRole('heading',{name:'第二步：生成完整视频任务',exact:true}).waitFor();
-  await page.getByRole('combobox',{name:'选择作品'}).selectOption('');
+  await page.getByRole('button',{name:'新建作品',exact:true}).click();
   await page.getByRole('button',{name:'生成脚本',exact:true}).click();
   await page.getByRole('button',{name:'确认脚本',exact:true}).waitFor();
   assert.equal(works.length,2);

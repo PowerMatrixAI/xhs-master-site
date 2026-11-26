@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 import { authenticatedFetch, getUser, retrieveBackendKnowledgeSnapshot } from "@/lib/api";
 import { createXhsRequestId } from "@/lib/xhs-signature";
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
@@ -52,7 +53,7 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
     let active = true;
     setWork(undefined); setWorks([]); setReady(false); setError("");
     if (!account) return;
-    Promise.allSettled([fetchFeaturedVlogTemplates(), listProductions(account.id), fetchVlogTagCatalog()]).then(([templateResult, worksResult, tagsResult]) => {
+    Promise.allSettled([fetchFeaturedVlogTemplates(), listProductions(account.id), fetchVlogTagCatalog()]).then(async ([templateResult, worksResult, tagsResult]) => {
       if (!active) return;
       if (templateResult.status === "fulfilled") {
         setTemplates(templateResult.value);
@@ -68,13 +69,14 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
       if (worksResult.status !== "fulfilled") return;
       const records = worksResult.value;
       setWorks(records.items);
-      setReady(true);
       const latest = records.items.find(w => w.id === focusId) || records.items[0];
       if (latest) {
-        void getProduction(account.id, latest.id).then(saved => {
-          if (active) { current.current = saved; setWork(saved); setExtra(saved.extraRequirements); setTemplateId(saved.templateId); }
-        }).catch(e => { if (active) setError(e.message); });
+        try {
+          const saved = await getProduction(account.id, latest.id);
+          if (active) { current.current = saved; setWork(saved); setExtra(saved.extraRequirements || ""); setTemplateId(saved.templateId); }
+        } catch (e) { if (active) setError(e instanceof Error ? e.message : "读取作品失败"); return; }
       }
+      if (active) setReady(true);
     });
     return () => { active = false; };
   }, [account?.id, focusId, loadVersion]);
@@ -124,17 +126,18 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
     finally { busyRef.current = false; setBusy(false); setVideoProgress(""); }
   }
   async function generateScript() {
-    const template = templates.find(t => t.id === (work?.templateId || templateId));
+    const template = templates.find(t => t.id === templateId);
     if (!template) throw new Error("请选择模板。");
     if (!current.current) await update({ title: template.name, templateId: template.id, templateVersion: template.version, templateSnapshot: template, extraRequirements: extra, settings: initialSettings, confirmed: false });
     let knowledgeSnapshotId = "";
     const snapshot = await retrieveBackendKnowledgeSnapshot(account!.id, [`${template.name}：${template.outline}；${extra}；检索民宿真实设施及目的地体验资料。`]).catch(() => null);
     if (snapshot?.hasReferences && snapshot.status.toLowerCase() === "ready") knowledgeSnapshotId = snapshot.snapshotId;
-    const result = await action<{ script: VlogScript }>("script", { extraRequirements: extra, knowledgeSnapshotId, templateVersion: template.version });
-    await update({ title: result.script.title, script: result.script, confirmed: false, templateVersion: template.version, templateSnapshot: template, extraRequirements: extra, knowledgeSnapshotId });
+    const result = await action<{ script: VlogScript }>("script", { extraRequirements: extra, knowledgeSnapshotId, templateId: template.id, templateVersion: template.version });
+    await update({ title: result.script.title, script: result.script, confirmed: false, templateId: template.id, templateVersion: template.version, templateSnapshot: template, extraRequirements: extra, knowledgeSnapshotId });
   }
   async function makeTask(options?: ProductionOptions, online = false) {
     setVideoProgress("正在检查制作资源…");
+    if (inputsChanged) throw new Error("模板或补充要求已变化，请先重新生成并确认脚本。");
     if (!current.current?.confirmed || !current.current.script) throw new Error("请先确认脚本。");
     const source = current.current;
     const draft = await runVlogProduction({
@@ -165,9 +168,10 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
       options: { ...saved.settings, plan: saved.plan } }, submitKey.current.id);
     onSubmitted(job.id);
   }
-  const selectedTemplate = work?.templateSnapshot || templates.find(t => t.id === templateId);
+  const selectedTemplate = templates.find(t => t.id === templateId) || (work?.templateId === templateId ? work.templateSnapshot : undefined);
+  const inputsChanged = !!work?.script && (templateId !== work.templateId || extra !== (work.extraRequirements || ""));
   function newWork() {
-    setWork(undefined); current.current = undefined; setExtra("");
+    setWork(undefined); current.current = undefined; setExtra(""); setError("");
     createKey.current = createXhsRequestId(); submitKey.current = undefined;
   }
   if (!account) return <div className="panel"><p>请先创建或选择客户账号，提供民宿资料。</p><button className="primary-button mt-3" onClick={onAccount}>客户账号</button></div>;
@@ -175,20 +179,30 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
     <div className="panel"><h2 className="section-title">视频方案</h2><p className="mt-2 text-sm text-ink/60">结合{account.name}的资料、素材与模板，制作独立视频作品。</p>
       {error && <p role="alert" className="mt-3 text-coral">{error}</p>}
       {!ready && error && <button className="secondary-button mt-3" onClick={() => setLoadVersion(value => value + 1)}>重新加载</button>}
-      <div className="mt-4 flex flex-wrap gap-3">
-        <select aria-label="选择作品" className="rounded border p-2" value={work?.id || ""} disabled={busy || !ready} onChange={e => void perform(async () => {
-          const id = Number(e.target.value);
-          if (!id) { newWork(); return; }
-          const selected = await getProduction(account.id, id);
-          current.current = selected; setWork(selected); setExtra(selected.extraRequirements); setTemplateId(selected.templateId);
-        })}><option value="">新建作品</option>{works.map(w => <option key={w.id} value={w.id}>{w.title}</option>)}</select>
-        <button type="button" className="secondary-button" disabled={busy || !ready} onClick={newWork}>新建作品</button>
+      <div className="mt-4 rounded-xl border border-ink/10 bg-ink/[0.02] p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="field min-w-0 flex-1"><span>视频作品</span>
+            <select aria-label="选择作品" value={work?.id || ""} disabled={busy || !ready} onChange={e => void perform(async () => {
+              const id = Number(e.target.value);
+              if (!id) return;
+              const selected = await getProduction(account.id, id);
+              current.current = selected; setWork(selected); setExtra(selected.extraRequirements || ""); setTemplateId(selected.templateId);
+            })}>
+              <option value="" disabled>{works.length ? "新建作品（尚未保存）" : "暂无作品，请选择模板开始制作"}</option>
+              {works.map(w => <option key={w.id} value={w.id}>{w.title}</option>)}
+            </select>
+          </label>
+          <button type="button" className="secondary-button h-11 shrink-0" disabled={busy || !ready} onClick={newWork}><Plus size={16} />新建作品</button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded bg-teal/10 px-2 py-1 font-medium text-teal">{work ? "编辑已有作品" : "新建作品"}</span>
+          <span className="text-ink/60">{work ? "修改后将覆盖当前作品的对应内容；如需保留原作品，请先点击“新建作品”。" : "生成脚本后会保存为新作品，不影响已有作品。"}</span>
+        </div>
       </div>
       <div className="mt-5 space-y-4 border-t border-ink/10 pt-5">
         <h3 className="text-base font-semibold">第一步：生成并确认 Vlog 脚本</h3>
         <p className="text-sm text-ink/60">模板提供体验环节和镜头编排。脚本结合当前账号的民宿资料与知识库生成；确认后保存为独立视频作品。</p>
-        {work && <p className="text-xs text-ink/55">正在编辑已有作品，模板已绑定。选择其他模板请点击“新建作品”。</p>}
-        <FeaturedVlogTemplatePicker templates={templates} dimensions={dimensions} value={work?.templateId || templateId} onChange={setTemplateId} disabled={busy || !!work || !ready} />
+        <FeaturedVlogTemplatePicker templates={templates} dimensions={dimensions} value={templateId} onChange={setTemplateId} disabled={busy || !ready} />
         {!templates.length && ready && <p className="text-sm text-ink/60">平台还没有精选 Vlog 模板，请联系管理员配置。</p>}
         {selectedTemplate && <div className="rounded border border-ink/10 bg-ink/5 p-3 text-sm leading-6 text-ink/75">
           <span className="font-medium text-ink">体验主线：</span>{selectedTemplate.outline}
@@ -202,17 +216,17 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
       <label className="field mt-3"><span>补充要求</span><textarea value={extra} disabled={busy} onChange={e => setExtra(e.target.value)} /></label>
       <button className="primary-button mt-3" disabled={busy || !ready || !templateId} onClick={() => void perform(generateScript)}>{busy ? "正在处理…" : work?.script ? "重新生成脚本" : "生成脚本"}</button>
     </div>
-    {work?.script && <div className="panel"><h3 className="section-title">{work.script.title}</h3><FeaturedVlogScriptDetails script={work.script} />
-      {!work.confirmed && <button disabled={busy} className="primary-button mt-4" onClick={() => void perform(() => update({ confirmed: true }))}>确认脚本</button>}
+    {work?.script && <div className="panel"><h3 className="section-title">{work.script.title}</h3>{inputsChanged && <p role="status" className="my-3 rounded bg-amber-50 p-3 text-sm text-amber-800">模板或补充要求已修改，下方仍为上次保存的脚本。重新生成成功后会覆盖当前作品脚本，请重新确认后再制作视频。</p>}<FeaturedVlogScriptDetails script={work.script} />
+      {!work.confirmed && <button disabled={busy || inputsChanged} className="primary-button mt-4" onClick={() => void perform(() => update({ confirmed: true }))}>确认脚本</button>}
     </div>}
     {work?.confirmed && work.script && <div className="panel"><h3 className="section-title">第二步：生成完整视频任务</h3><p className="mt-2 text-sm text-ink/60">系统依据图片分析选择场景参考和配乐。智能体查看实际图片后细化动作、光线与运镜，使用 Omni 全能参考制作视频，再完成转场和整片配乐。</p>
       <FeaturedVlogCharacterSettings value={work.settings.character} disabled={busy} onChange={character => void perform(() => update({settings:{...work.settings,character}}))} />
       <FeaturedVlogResolutionSettings omni value={work.settings.resolution} disabled={busy} onChange={resolution => void perform(() => update({settings:{...work.settings,resolution}}))} />
       <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy} checked={work.settings.useReferenceVideo} onChange={e => void perform(() => update({settings:{...work.settings,useReferenceVideo:e.target.checked}}))} />使用模板参考视频（默认关闭）</label>
-      <VlogProductionPanel hideTaskActions scope={scope} endpoint={endpoint} script={work.script} choice={work.settings.character} resolution={work.settings.resolution} useReferenceVideo={work.settings.useReferenceVideo} disabled={busy} onContinue={options => void perform(() => makeTask(options, true))} />
+      <VlogProductionPanel hideTaskActions scope={scope} endpoint={endpoint} script={work.script} choice={work.settings.character} resolution={work.settings.resolution} useReferenceVideo={work.settings.useReferenceVideo} disabled={busy || inputsChanged} onContinue={options => void perform(() => makeTask(options, true))} />
       {error && <p role="alert" className="mt-3 rounded border border-coral/25 bg-coral/5 p-3 text-sm text-coral">{error}</p>}
       {busy && videoProgress && <p role="status" aria-live="polite" className="mt-3 text-sm text-teal">{videoProgress} 任务准备完成后会自动提交，请勿重复点击。</p>}
-      <button className="primary-button mt-4" disabled={busy} aria-busy={busy} onClick={() => void perform(() => makeTask(undefined, true))}>{busy ? videoProgress || "正在处理…" : "生成视频并保存"}</button>
+      <button className="primary-button mt-4" disabled={busy || inputsChanged} aria-busy={busy} onClick={() => void perform(() => makeTask(undefined, true))}>{busy ? videoProgress || "正在处理…" : "生成视频并保存"}</button>
     </div>}
     {work?.effectiveScript && <details className="panel"><summary>上次保存的实际制作脚本</summary><VlogPhotographyOverview script={work.effectiveScript} />{work.effectiveScript.shots.map(shot => <p key={shot.order} className="mt-2">镜头{shot.order} · {shot.description} · {shot.mainAction}</p>)}</details>}
     {work?.result && <div className="panel"><h3 className="section-title">已保存的制作指令</h3><p className="text-xs text-ink/60">修改脚本或设置后，请重新生成指令。</p><button className="secondary-button my-2" onClick={() => void perform(() => navigator.clipboard.writeText(work.result!.openclawTask.content))}>复制指令</button><textarea readOnly className="code-textarea min-h-64" value={work.result.openclawTask.content} /></div>}
