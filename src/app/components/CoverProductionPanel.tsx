@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Plus, LoaderCircle } from "lucide-react";
 import { authenticatedFetch, getUser } from "@/lib/api";
 import { getBackendApiBaseUrl } from "@/lib/backendApi";
 import { createXhsRequestId } from "@/lib/xhs-signature";
@@ -15,7 +15,6 @@ import { CoverTaskResults } from "./CoverTaskResults";
 type Asset = { id: number; fileType: string; fileUrl?: string | null; filePath: string; tags: string; aiAnalysis?: string; aiAnalysisStatus?: string; width?: number; height?: number };
 type Draft = { assetId: number; text: string; requiredText: string; requirements: string; variants: CoverVariant[]; plannedInput?: CoverInput; uuid?: string; taskId?: string };
 const blank = (): Draft => ({ assetId: 0, text: "", requiredText: "", requirements: "", variants: [] });
-const singleCoverEnabled = process.env.NEXT_PUBLIC_COVER_SINGLE_TASK_ENABLED === "true";
 const endpoint = "/api/productions/cover";
 export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
   account?: { id: number; name: string; accountType: string; taboos: string; assets: Asset[] };
@@ -29,6 +28,8 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
   const [draft, setDraft] = useState<Draft>(blank);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
+  const [submissionProgress, setSubmissionProgress] = useState("");
+  const [submissionNotice, setSubmissionNotice] = useState("");
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
@@ -36,7 +37,6 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
   const [task, setTask] = useState<MediaTask>();
   const live = useRef(true);
   const creationId = useRef("");
-  const pendingSubmission = useRef<{ key: string; id: string; input: MediaGenerationInput }>();
   const key = JSON.stringify(["cover", getUser()?.uid, getBackendApiBaseUrl(), account?.id]);
   function remember(value: Draft, workId = work?.id, revision = work?.revision) {
     setDraft(value);
@@ -100,7 +100,7 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setError("");
     try { await fn(); } catch (e) { if (live.current) setError(e instanceof Error ? e.message : "操作失败"); }
-    finally { busyRef.current = false; if (live.current) setBusy(false); }
+    finally { busyRef.current = false; if (live.current) { setBusy(false); setSubmissionProgress(""); } }
   }
   async function save(next: Draft, newlyConfirmed: CoverVariantId[] = [], execution?: ReturnType<typeof buildCoverExecution>) {
     if (!live.current) throw new Error("页面已切换，请返回原作品继续。");
@@ -145,6 +145,7 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
     throw new Error("规划仍在处理，请稍后继续查询。");
   }
   async function generateBatch(ids: CoverVariantId[], resume = false) {
+    setSubmissionNotice(""); setSubmissionProgress("正在核对原任务…");
     // Refresh revision first: a previous save response may have been lost.
     if (currentWork.current) {
       const latest = await getCoverProduction(account!.id,currentWork.current.id);
@@ -191,6 +192,7 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
     if (!unfinished) await persist();
     await submitCoverBatch(batch,{
       prepare: async item => {
+        setSubmissionProgress(`正在保存${coverStyles.find(s=>s.id===item.variantId)!.name}制作方案…`);
         item.status='prepared';
         const execution=buildSingleCoverExecution(batch.input,batch.variants,item.variantId);
         const saved=await persist(execution);
@@ -198,53 +200,64 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
           options:{title:execution.title,noteContent:batch.input.text,singleGoal:execution.title,imageCount:'1',realImageRefinementRequirement:batch.input.requirements,removeWatermarks:false}};
       },
       checkpoint:async()=>{checkpointLocal();if(batch.items.every(i=>i.status!=='prepared')) await persist();},
-      submit:submitMediaGeneration, find:findMediaTaskByRequestId
+      submit:async (payload, requestId) => {
+        const index=batch.items.findIndex(i=>i.requestId===requestId);
+        setSubmissionProgress(`任务提交中（${index+1}/${batch.items.length}）…`);
+        return submitMediaGeneration(payload,requestId);
+      }, find:findMediaTaskByRequestId
     });
     localStorage.removeItem(cacheKey); setPendingBatch(undefined);
+    setSubmissionNotice(`${batch.items.length} 个封面任务已提交，正在排队或制作中，可在下方查看各版进度。`);
     remember({...draft,taskId:undefined},currentWork.current?.id,currentWork.current?.revision);
   }
   async function generate(ids: CoverVariantId[]) {
+    setSubmissionNotice(""); setSubmissionProgress("正在准备提交…");
     if (generationActive) throw new Error("已有图片任务执行中或结果待核实，请先查询该任务。");
-    if (singleCoverEnabled) { await generateBatch(ids); return; }
     if (changed || !draft.variants.length) throw new Error("原图或需求已变化，请先重新生成方案。");
-    const data = input();
-    const variants = validateCoverVariants(draft.variants, data);
-    const execution = buildCoverExecution({ version: 1, kind: "cover_image", input: data, variants }, ids);
-    const fingerprint = JSON.stringify([data, variants, ids]);
-    const submissionKey = key + ":submission:" + (work?.id || "new");
-    if (!pendingSubmission.current) {
-      try {
-        const stored = JSON.parse(localStorage.getItem(submissionKey) || "null");
-        if (stored?.key === fingerprint) pendingSubmission.current = stored;
-      } catch {}
+    // Old pending submissions may have reached the server: reconcile, never replay the old multi-version prompt.
+    const legacyKey = key + ":submission:" + (work?.id || "new");
+    const legacy = localStorage.getItem(legacyKey);
+    if (legacy) {
+      const pending = JSON.parse(legacy) as { id?: string };
+      if (!pending.id) throw new Error("旧任务提交记录不完整，请先核实任务列表中的结果。");
+      const previous = await findMediaTaskByRequestId(pending.id);
+      if (previous) {
+        remember({ ...draft, taskId: previous.id }); setTask(previous);
+        localStorage.removeItem(legacyKey);
+        throw new Error("已找回旧任务，请先查看其结果，再决定是否制作新版。");
+      }
+      localStorage.removeItem(legacyKey);
     }
-    if (pendingSubmission.current?.key !== fingerprint) {
-      const saved = await save({ ...draft, variants }, ids, execution);
-      pendingSubmission.current = { key: fingerprint, id: createXhsRequestId(), input: {
-        source: "production", productionId: saved.id, productionRevision: saved.revision, accountId: account!.id,
-        kind: "image", mode: "remote_images", prompt: saved.result!.openclawTask.content, assetIds: [data.asset.id],
-        options: { title: data.text, noteContent: data.text, singleGoal: "同一原图制作三种风格封面", imageCount: String(ids.length), realImageRefinementRequirement: data.requirements, removeWatermarks: false }
-      } };
-    }
-    localStorage.setItem(submissionKey, JSON.stringify(pendingSubmission.current));
-    const pending = pendingSubmission.current;
-    const job = await submitMediaGeneration(pending.input, pending.id);
-    if (!live.current) return;
-    remember({ ...draft, taskId: job.id });
-    setTask(job); pendingSubmission.current = undefined;
-    localStorage.removeItem(submissionKey);
+    await generateBatch(ids);
   }
   if (!account) return <div className="panel"><p>请先选择客户账号。</p><button className="primary-button mt-3" onClick={onAccount}>客户账号</button></div>;
   return <div className="space-y-5">
     <div className="panel"><h2 className="section-title">制作封面图</h2><p className="mt-2 text-sm text-ink/60">选择一张图片，确认三版文字后，生成三种风格的封面。</p>
       {error && <p role="alert" className="mt-3 whitespace-pre-wrap text-coral">{error}</p>}
       {!ready && error && <button className="secondary-button mt-3" onClick={() => setReload(n => n + 1)}>重新加载</button>}
-      <label className="field mt-4"><span>封面作品</span><select value={work?.id || ""} disabled={busy || !ready} onChange={e => void perform(async () => {
-        const id = Number(e.target.value);
-        pendingSubmission.current = undefined;
-        if (!id) { setPendingBatch(undefined); currentWork.current=undefined; setWork(undefined); creationId.current = ""; const empty = blank(); setDraft(empty); localStorage.setItem(key, JSON.stringify({ draft: empty })); return; }
-        const selected = await getCoverProduction(account.id, id); restore(selected); localStorage.removeItem(key);
-      })}><option value="">新建封面作品</option>{works.map(w => <option key={w.id} value={w.id}>{w.title}</option>)}</select></label>
+      <div className="mt-4 rounded-xl border border-ink/10 bg-ink/[0.02] p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="field min-w-0 flex-1"><span>封面作品</span>
+            <select value={work?.id || ""} disabled={busy || !ready} onChange={e => void perform(async () => {
+              const id = Number(e.target.value);
+              if (!id) return;
+              const selected = await getCoverProduction(account.id, id); restore(selected); localStorage.removeItem(key);
+            })}>
+              <option value="" disabled>{works.length ? "新建作品（尚未保存）" : "暂无作品，请选择图片开始制作"}</option>
+              {works.map(w => <option key={w.id} value={w.id}>{w.title}</option>)}
+            </select>
+          </label>
+          <button type="button" className="secondary-button h-11 shrink-0" disabled={busy || !ready || !!draft.uuid} onClick={() => {
+            setPendingBatch(undefined); currentWork.current = undefined; setWork(undefined); creationId.current = "";
+            setError(""); setFilter(""); setTask(undefined);
+            const empty = blank(); setDraft(empty); localStorage.setItem(key, JSON.stringify({ draft: empty }));
+          }}><Plus size={16} />新建作品</button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded bg-teal/10 px-2 py-1 font-medium text-teal">{work ? "编辑已有作品" : "新建作品"}</span>
+          <span className="text-ink/60">{work ? "修改后将覆盖当前作品的对应内容；如需保留原作品，请先点击“新建作品”。" : "生成方案后会保存为新作品，不影响已有作品。"}</span>
+        </div>
+      </div>
     </div>
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="panel"><h3 className="section-title">选择一张素材图</h3><input aria-label="搜索素材标签或文件名" placeholder="搜索标签或文件名" className="my-3 w-full rounded border p-2" value={filter} onChange={e => setFilter(e.target.value)} />
@@ -271,10 +284,12 @@ export function CoverProductionPanel({ account, focusId, onAccount, onTasks }: {
         <label className="field mt-2"><span>设计说明</span><textarea aria-label={variant.variantId + "设计说明"} value={variant.design} maxLength={1200} disabled={busy || generationActive} onChange={e => remember({ ...draft, variants: draft.variants.map((v,i) => i === index ? { ...v, design: e.target.value } : v) })} /></label>
         <button className="secondary-button" disabled={busy || generationActive || changed || !!draft.uuid} onClick={() => void perform(() => generate([variant.variantId]))}>确认并制作此版本</button>
       </div>)}</div>
-      <div className="mt-4 flex flex-wrap gap-3"><button className="primary-button" disabled={busy || generationActive || changed || !!draft.uuid} onClick={() => void perform(() => generate(coverStyles.map(s => s.id)))}>确认文字并生成三张封面</button><button className="secondary-button" disabled={busy || changed} onClick={() => void perform(async () => { await save(draft); })}>保存方案</button></div>
+      {(submissionProgress || submissionNotice) && <p role="status" aria-live="polite" className="mt-3 text-sm text-teal">{submissionProgress ? `${submissionProgress} 请勿重复点击。` : submissionNotice}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-coral">{error}</p>}
+      <div className="mt-4 flex flex-wrap gap-3"><button className="primary-button" disabled={busy || generationActive || changed || !!draft.uuid} onClick={() => void perform(() => generate(coverStyles.map(s => s.id)))} aria-busy={!!submissionProgress}>{submissionProgress ? <><LoaderCircle size={16} className="animate-spin" />{submissionProgress}</> : "确认文字并生成三张封面"}</button><button className="secondary-button" disabled={busy || changed} onClick={() => void perform(async () => { await save(draft); })}>保存方案</button></div>
     </div>}
-    {(pendingBatch || work?.batches?.some(b=>b.items.some(i=>i.status!=="submitted"))) && <div className="panel"><p>批次提交尚未完成，继续时先核实原请求，仅提交剩余版本。</p><button className="primary-button" disabled={busy || !singleCoverEnabled} onClick={()=>void perform(()=>generateBatch([],true))}>继续提交原批次</button></div>}
-    {!!work?.batches?.length && <CoverBatchResults batches={work.batches} input={asset && draft.text.trim() ? {asset:{id:asset.id,imageUrl:asset.fileUrl!,name:asset.filePath,analysis:asset.aiAnalysisStatus === "deleted" ? "" : asset.aiAnalysis || "",tags:asset.tags,width:asset.width,height:asset.height},text:draft.text.trim(),requiredText:draft.requiredText,requirements:draft.requirements} : undefined} variants={draft.variants} disabled={busy || !singleCoverEnabled} onRetry={id=>void perform(()=>generateBatch([id]))} onTasks={onTasks} />}
+    {(pendingBatch || work?.batches?.some(b=>b.items.some(i=>i.status!=="submitted"))) && <div className="panel"><p>批次提交尚未完成，继续时先核实原请求，仅提交剩余版本。</p><button className="primary-button" disabled={busy} onClick={()=>void perform(()=>generateBatch([],true))}>继续提交原批次</button></div>}
+    {!!work?.batches?.length && <CoverBatchResults batches={work.batches} input={asset && draft.text.trim() ? {asset:{id:asset.id,imageUrl:asset.fileUrl!,name:asset.filePath,analysis:asset.aiAnalysisStatus === "deleted" ? "" : asset.aiAnalysis || "",tags:asset.tags,width:asset.width,height:asset.height},text:draft.text.trim(),requiredText:draft.requiredText,requirements:draft.requirements} : undefined} variants={draft.variants} disabled={busy} onRetry={id=>void perform(()=>generateBatch([id]))} onTasks={onTasks} />}
     {task && !work?.batches?.some(b=>b.items.some(i=>i.taskId===task.id)) && <div className="panel"><h3 className="section-title">封面制作结果</h3><p className="my-2 text-xs text-ink/60">以下是该批次提交时的结果，修改文字后需要重新制作。</p><CoverTaskResults task={task} onUpdated={job => { setTask(job); remember({ ...draft, taskId: job.id }); setReload(n => n + 1); }} /><button className="secondary-button mt-3" onClick={() => onTasks(task.id)}>查看生成任务</button><button className="secondary-button ml-3 mt-3" onClick={() => setReload(n => n + 1)}>刷新进度</button></div>}
   </div>;
 }

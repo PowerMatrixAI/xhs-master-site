@@ -28,7 +28,7 @@ export function ConsoleNavigation({ active, onSelect, admin, platform }: {
   const link = (id: string, label: string, Icon?: LucideIcon) => <button key={id} type="button" onClick={() => onSelect(id)} aria-current={active === id ? "page" : undefined} className={`group flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${active === id ? "bg-teal/10 font-semibold text-teal" : "text-ink/70 hover:bg-white/80 hover:text-ink"}`}>
     {Icon ? <Icon size={18} strokeWidth={1.7} className="shrink-0" aria-hidden /> : <span className={`ml-1 h-1.5 w-1.5 shrink-0 rounded-full ${active === id ? "bg-teal" : "bg-ink/20"}`} aria-hidden />}
     <span className="flex-1">{label}</span>
-    {(id === "videos" || id === "productionVideos") && <span className="sidebar-hot-badge">Hot</span>}
+    {id === "productionVideos" && <span className="sidebar-hot-badge">Hot</span>}
   </button>;
   const group = (index: number) => {
     const item = groups[index];

@@ -3329,7 +3329,7 @@ export function XhsMasterApp() {
               className="h-11 w-11 shrink-0 rounded-xl object-cover shadow-sm"
             />
             <div className="min-w-0 flex-1">
-              <div className="whitespace-nowrap text-[15px] font-semibold leading-5 tracking-tight text-ink">宿灵AI</div>
+              <div className="sidebar-wordmark" aria-label="宿灵AI"><span>宿灵</span><span className="sidebar-wordmark-ai">AI</span></div>
             </div>
           </div>
         </div>
@@ -3348,8 +3348,7 @@ export function XhsMasterApp() {
         <header className="app-header sticky top-0 z-20 border-b px-4 py-4 backdrop-blur-xl lg:px-8">
           <div className="workspace-header-layout relative z-10">
             <div className="workspace-heading">
-              <div className="text-xs font-medium tracking-[0.2em] text-teal/80">宿灵AI</div>
-              <h1 className="mt-1 font-serif text-3xl font-semibold tracking-[0.08em] text-ink">内容生产与运营平台</h1>
+              <h1 className="font-serif text-3xl font-semibold tracking-[0.08em] text-ink">内容生产与运营平台</h1>
               <p className="mt-1 text-xs text-ink/50">{selected ? `正在运营：${selected.name}` : "创建第一个账号，开始内容旅程"}</p>
             </div>
             <div className="workspace-motto" role="img" aria-label="山水有灵，内容有光" />
@@ -4228,7 +4227,7 @@ function AssetsPanel(props: {
           <div>
             <h2 className="section-title">素材库</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/60">
-              管理整个账号长期可复用的真实素材。只给某一篇笔记临时上传几张图时，去“图片方案 → 单篇精修 → 手动指定图片”更直接。
+              管理整个账号长期可复用的真实素材。
             </p>
           </div>
           <button type="button" onClick={generateManifest} className="secondary-button">
@@ -5653,7 +5652,8 @@ function PromptsPanel(props: {
     <div className="grid gap-5 xl:grid-cols-[0.45fr_0.55fr]">
       <div className="panel">
         <h2 className="section-title">选择本周内容</h2>
-        <div className="space-y-2">
+        <p className="mt-1 text-sm text-ink/60">为确定好图片或视频方案的笔记配出适合的文案。</p>
+        <div className="mt-4 space-y-2">
           {plan.noteTasks.map((task) => (
             <button key={task.id} type="button" onClick={() => setSelectedNoteId(task.id)} className={clsx("w-full rounded border p-3 text-left text-sm", task.id === note.id ? "border-ink bg-white" : "border-ink/10 bg-white/60")}>
               <div className="font-medium">{task.topicTitle}</div>
