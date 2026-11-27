@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Building2, Clapperboard, Bot, Library, BookOpen, Settings2, ShieldCheck, ChevronDown, type LucideIcon } from "lucide-react";
+import { Building2, Clapperboard, Bot, Library, BookOpen, Settings2, CreditCard, ShieldCheck, ChevronDown, type LucideIcon } from "lucide-react";
 
 export function ConsoleNavigation({ active, onSelect, admin, platform }: {
   active: string; onSelect: (id: string) => void; admin: boolean; platform: ReadonlyArray<readonly [string, string, unknown]>;
@@ -43,5 +43,5 @@ export function ConsoleNavigation({ active, onSelect, admin, platform }: {
       {expanded[item.name] && <div className="mb-2 ml-5 mt-1 space-y-0.5 border-l border-teal/15 pl-2">{item.items.map(([id,label]) => link(id,label))}</div>}
     </div>;
   };
-  return <nav aria-label="主导航" className="space-y-1">{link("accounts","客户账号",Building2)}{group(0)}{group(1)}{link("assets","素材库",Library)}{link("knowledgeBase","知识库",BookOpen)}<div className="mx-3 my-3 border-t border-ink/10" />{group(2)}{admin && group(3)}</nav>;
+  return <nav aria-label="主导航" className="space-y-1">{link("accounts","客户账号",Building2)}{group(0)}{group(1)}{link("assets","素材库",Library)}{link("knowledgeBase","知识库",BookOpen)}{link("membership","会员中心",CreditCard)}<div className="mx-3 my-3 border-t border-ink/10" />{group(2)}{admin && group(3)}</nav>;
 }

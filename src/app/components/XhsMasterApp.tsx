@@ -2,6 +2,8 @@
 import { FeaturedVlogScriptDetails } from "./FeaturedVlogScriptDetails";
 
 import { ConsoleNavigation } from "./ConsoleNavigation";
+import { MembershipPanel } from "./MembershipPanel";
+import { VideoBalance } from "./VideoBalance";
 import { CoverProductionPanel } from "./CoverProductionPanel";
 import { ContentProductionPanel } from "./ContentProductionPanel";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -475,6 +477,7 @@ const mainTabs = [
   ["videos", "视频方案", Video],
   ["images", "图片方案", ImageIcon],
   ["mediaTasks", "生成任务", Activity],
+  ["membership", "会员中心", CalendarDays],
   ["prompts", "笔记草稿", Wand2],
   ["assets", "素材库", Library],
   ["knowledgeBase", "知识库", Database],
@@ -3418,8 +3421,9 @@ export function XhsMasterApp() {
               </div>
             </div>
           )}
+          {activeTab === "membership" && <MembershipPanel />}
           {activeTab === "productionImages" && <CoverProductionPanel key={selected?.id || "empty"} focusId={productionFocusId} account={selected} onAccount={() => setActiveTab("accounts")} onTasks={id => { setMediaFocusId(id); setActiveTab("mediaTasks"); }} />}
-          {activeTab === "productionVideos" && <ContentProductionPanel focusId={productionFocusId} key={selected?.id || "empty"} account={selected} onAccount={() => setActiveTab("accounts")} onSubmitted={id => { setMediaFocusId(id); setActiveTab("mediaTasks"); }} />}
+          {activeTab === "productionVideos" && <ContentProductionPanel onMembership={() => setActiveTab("membership")} focusId={productionFocusId} key={selected?.id || "empty"} account={selected} onAccount={() => setActiveTab("accounts")} onSubmitted={id => { setMediaFocusId(id); setActiveTab("mediaTasks"); }} />}
           {activeTab === "dashboard" && (
             <Dashboard
               selected={selected}
@@ -3518,6 +3522,7 @@ export function XhsMasterApp() {
           )}
           {activeTab === "videos" && (
             <VideosPanel
+              onMembership={() => setActiveTab("membership")}
               key={`${selected?.id}:${latestPlan?.id}`}
               selected={selected}
               plan={latestPlan}
@@ -5106,6 +5111,7 @@ function VideoTimingDetails({ shot }: { shot: TimedVideoShot }) {
 }
 
 function VideosPanel(props: {
+  onMembership: () => void;
   selected?: Account;
   plan?: WeeklyPlan;
   selectedNoteId: number | null;
@@ -5433,7 +5439,7 @@ function VideosPanel(props: {
     <div className="space-y-5">
       <div className="panel">
         <div className="mb-4">
-          <h2 className="section-title">视频方案</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="section-title">视频方案</h2><VideoBalance onClick={props.onMembership} /></div>
           <p className="mt-1 text-sm text-ink/60">可直接使用已有视频、制作精选民宿 Vlog，或生成创意故事视频。</p>
         </div>
         {mode === "direct_video" && note && <label className="field">

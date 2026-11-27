@@ -1,6 +1,6 @@
 import { authRequest } from "@/lib/api";
 
-export type MediaArtifact = { variantId?: string; type: "image" | "video"; name: string; url: string; cosPath: string; sizeBytes: number };
+export type MediaArtifact = { variantId?: string; type: "image" | "video"; name: string; url: string; cosPath: string; sizeBytes: number; durationSeconds?: number };
 export type MediaTaskItem = { variantId: string; name: string; status: string; error?: string; artifacts?: MediaArtifact[] };
 export type MediaTask = {
   id: string; accountId: number; noteTaskId?: number; productionId?: number; productionRevision?: number; source?: "production" | "operation"; title: string; kind: "image" | "video";

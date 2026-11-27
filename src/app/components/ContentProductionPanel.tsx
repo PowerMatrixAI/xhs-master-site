@@ -10,6 +10,7 @@ import { runVlogProduction, productionScope, productionScript, VlogTaskLostError
 import { readVlogProduction, writeVlogProduction } from "@/lib/vlogProductionStore";
 import { submitMediaGeneration } from "@/lib/mediaTasks";
 import { VlogProductionPanel } from "./VlogProductionPanel";
+import { VideoBalance } from "./VideoBalance";
 import { VlogPhotographyOverview } from "./VlogPhotographyOverview";
 import type { VideoSourceAsset } from "@/lib/videoPrompts";
 
@@ -24,9 +25,9 @@ import type { VlogTagDimension } from "@/lib/featuredVlogTags";
 const endpoint = "/api/productions/vlog";
 const initialSettings = { character: "linchuan" as VlogCharacterSelection, resolution: "720p" as const, useReferenceVideo: false };
 
-export function ContentProductionPanel({ account, focusId, onSubmitted, onAccount }: {
+export function ContentProductionPanel({ account, focusId, onSubmitted, onAccount, onMembership }: {
   account?: Record<string, unknown> & { id: number; name: string; assets: Array<Omit<VideoSourceAsset, "fileUrl"> & { fileUrl?: string | null }> };
-  focusId?: number; onSubmitted: (id: string) => void; onAccount: () => void;
+  focusId?: number; onSubmitted: (id: string) => void; onAccount: () => void; onMembership: () => void;
 }) {
   const [templates, setTemplates] = useState<FeaturedVlogTemplate[]>([]);
   const [dimensions, setDimensions] = useState<VlogTagDimension[]>([]);
@@ -172,7 +173,7 @@ export function ContentProductionPanel({ account, focusId, onSubmitted, onAccoun
   }
   if (!account) return <div className="panel"><p>请先创建或选择客户账号，提供民宿资料。</p><button className="primary-button mt-3" onClick={onAccount}>客户账号</button></div>;
   return <div className="space-y-5">
-    <div className="panel"><h2 className="section-title">视频方案</h2><p className="mt-2 text-sm text-ink/60">结合{account.name}的资料、素材与模板，制作独立视频作品。</p>
+    <div className="panel"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="section-title">视频方案</h2><VideoBalance onClick={onMembership} /></div><p className="mt-2 text-sm text-ink/60">结合{account.name}的资料、素材与模板，制作独立视频作品。</p>
       {error && <p role="alert" className="mt-3 text-coral">{error}</p>}
       {!ready && error && <button className="secondary-button mt-3" onClick={() => setLoadVersion(value => value + 1)}>重新加载</button>}
       <div className="mt-4 flex flex-wrap gap-3">
